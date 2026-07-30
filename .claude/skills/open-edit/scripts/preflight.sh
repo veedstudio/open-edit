@@ -14,7 +14,7 @@ export PATH="${HOMEBREW_PATH_PREFIX:+$HOMEBREW_PATH_PREFIX:}$PATH"
 
 DEFAULT_REPOSITORY="https://github.com/veedstudio/open-edit.git"
 DEFAULT_REF="main"
-EXPECTED_PNPM="10.16.1"
+MIN_PNPM="10.16.1" # floor, not a pin: any newer pnpm is accepted
 ENGINE_RELEASES="veedstudio/weave-renderer-public-releases" # upstream repo name, not renamed
 MODE="apply"
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -39,6 +39,11 @@ die() { echo "preflight: ERROR — $*" >&2; exit 1; }
 say() { echo "preflight: $*" >&2; }
 need_approval() { NEEDS_APPROVAL=1; say "APPROVAL REQUIRED — $*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
+version_at_least() { # version_at_least <candidate> <floor>
+  [ -n "$1" ] || return 1
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+}
+pnpm_ok() { version_at_least "$(pnpm --version 2>/dev/null || true)" "$MIN_PNPM"; }
 resolve_dir() { (cd "$1" 2>/dev/null && pwd -P) || return 1; }
 
 while [ "$#" -gt 0 ]; do
@@ -147,17 +152,16 @@ install_brew_formula() {
 }
 
 handle_global_dependencies() {
-  local missing_git=0 missing_node=0 missing_pnpm=0 missing_ffmpeg=0 missing_jpeg=0 actual_pnpm
+  local missing_git=0 missing_node=0 missing_pnpm=0 missing_ffmpeg=0 missing_jpeg=0
   have git || missing_git=1
   have node || missing_node=1
-  actual_pnpm="$(pnpm --version 2>/dev/null || true)"
-  [ "$actual_pnpm" = "$EXPECTED_PNPM" ] || missing_pnpm=1
+  pnpm_ok || missing_pnpm=1
   { have "${VEED_ENGINE_FFMPEG:-ffmpeg}" && have "${VEED_ENGINE_FFPROBE:-ffprobe}"; } || missing_ffmpeg=1
   jpeg_ready || missing_jpeg=1
 
   if [ "$missing_git" -eq 1 ]; then need_approval "install Git globally: brew install git"; fi
   if [ "$missing_node" -eq 1 ]; then need_approval "install Node globally: brew install node"; fi
-  if [ "$missing_pnpm" -eq 1 ]; then need_approval "install pnpm ${EXPECTED_PNPM} globally: npm install --global pnpm@${EXPECTED_PNPM}"; fi
+  if [ "$missing_pnpm" -eq 1 ]; then need_approval "install pnpm ${MIN_PNPM} or newer globally: npm install --global pnpm@${MIN_PNPM}"; fi
   if [ "$missing_ffmpeg" -eq 1 ]; then need_approval "install FFmpeg globally: brew install ffmpeg"; fi
   if [ "$missing_jpeg" -eq 1 ]; then need_approval "install jpeg-turbo globally: brew install jpeg-turbo"; fi
 
@@ -169,11 +173,11 @@ handle_global_dependencies() {
   [ "$missing_jpeg" -eq 0 ] || install_brew_formula jpeg-turbo
   if [ "$missing_pnpm" -eq 1 ]; then
     have npm || { say "npm is unavailable after installing Node"; FAILED=1; return; }
-    npm install --global "pnpm@${EXPECTED_PNPM}" || FAILED=1
+    npm install --global "pnpm@${MIN_PNPM}" || FAILED=1
   fi
   have git || FAILED=1
   have node || FAILED=1
-  [ "$(pnpm --version 2>/dev/null || true)" = "$EXPECTED_PNPM" ] || FAILED=1
+  pnpm_ok || FAILED=1
   { have "${VEED_ENGINE_FFMPEG:-ffmpeg}" && have "${VEED_ENGINE_FFPROBE:-ffprobe}"; } || FAILED=1
   jpeg_ready || FAILED=1
 }
@@ -221,15 +225,18 @@ clone_runtime() {
 clone_runtime
 
 repo_deps_ready() {
-  [ -x "$ROOT/node_modules/.bin/tsx" ] && [ -f "$ROOT/node_modules/.modules.yaml" ] &&
-    grep -Fq "packageManager: pnpm@${EXPECTED_PNPM}" "$ROOT/node_modules/.modules.yaml" &&
+  local recorded
+  [ -x "$ROOT/node_modules/.bin/tsx" ] && [ -f "$ROOT/node_modules/.modules.yaml" ] || return 1
+  recorded="$(sed -n 's/^packageManager:[[:space:]]*pnpm@\([^[:space:]"'"'"']*\).*/\1/p' \
+    "$ROOT/node_modules/.modules.yaml" | head -n1)"
+  version_at_least "$recorded" "$MIN_PNPM" &&
     (cd "$ROOT" && pnpm list --depth 0 >/dev/null 2>&1)
 }
 
 handle_repo_deps() {
   [ "$ROOT_KIND" != "missing" ] || return
   repo_deps_ready && { say "repository dependencies — ready"; return; }
-  if ! have node || [ "$(pnpm --version 2>/dev/null || true)" != "$EXPECTED_PNPM" ]; then
+  if ! have node || ! pnpm_ok; then
     say "repository dependencies are waiting for approved Node/pnpm installation"; return
   fi
   if [ "$MODE" = "dry" ]; then say "WOULD APPLY LOCALLY — pnpm install --frozen-lockfile in $ROOT"; return; fi
