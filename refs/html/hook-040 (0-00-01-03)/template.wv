@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hook-040 decode</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 960px; height: 720px; }
+  .stage {
+    position: relative;
+    width: 960px;
+    height: 720px;
+    overflow: hidden;
+    background: #0e0d10;
+    font-family: "Poppins", system-ui, sans-serif;
+  }
+  .bg {
+    position: absolute;
+    inset: 0;
+    width: 960px;
+    height: 720px;
+    object-fit: cover;
+    z-index: 0;
+  }
+  .word {
+    position: absolute;
+    z-index: 2;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 47px;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    /* tight white glow halo seen on the captions */
+    text-shadow:
+      0 0 1px rgba(255,255,255,0.95),
+      0 0 5px rgba(255,255,255,0.5),
+      0 0 14px rgba(235,242,255,0.3);
+  }
+  .word { opacity: 0; animation: slideBlur .5s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes slideBlur {
+    0%   { opacity: 0; filter: blur(12px); transform: translateY(0.7em); }
+    60%  { filter: blur(2px); }
+    100% { opacity: 1; filter: blur(0); transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+  <div class="stage" data-node-id="canvas">
+    <div class="word" data-node-id="w-this"   data-node-role="text" style="left:100px; top:218px; animation-delay:0ms;">This</div>
+    <div class="word" data-node-id="w-is"     data-node-role="text" style="left:78px;  top:305px; animation-delay:150ms;">is</div>
+    <div class="word" data-node-id="w-for"    data-node-role="text" style="left:192px; top:318px; animation-delay:300ms;">for</div>
+    <div class="word" data-node-id="w-the"    data-node-role="text" style="left:80px;  top:390px; animation-delay:450ms;">the</div>
+    <div class="word" data-node-id="w-people" data-node-role="text" style="left:168px; top:478px; animation-delay:600ms;">people</div>
+    <div class="word" data-node-id="w-that"   data-node-role="text" style="left:362px; top:692px; animation-delay:750ms;">that</div>
+    <div class="word" data-node-id="w-have"   data-node-role="text" style="left:542px; top:530px; animation-delay:900ms;">have</div>
+  </div>
+</body>
+</html>

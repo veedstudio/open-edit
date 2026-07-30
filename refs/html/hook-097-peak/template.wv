@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=720, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400..900;1,400..900&family=Oswald:wght@500;600;700&family=Roboto+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; }
+  body {
+    position: relative;
+    background: #e4e5e2;
+    overflow: hidden;
+    font-family: "Archivo", system-ui, sans-serif;
+  }
+
+  .strip-rot {
+    position: absolute;
+    transform-origin: 50% 50%;
+  }
+  .strip {
+    position: absolute;
+    inset: 0;
+    background: #1b1a16;
+    background-image:
+      radial-gradient(circle at 50% 50%, rgba(255,255,255,0.055) 0.7px, transparent 1.1px);
+    background-size: 7px 7px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.28);
+  }
+
+  .label {
+    position: absolute;
+    font-family: "Roboto Mono", monospace;
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: 3px;
+    color: #b9b8b4;
+    white-space: nowrap;
+  }
+
+  .frames {
+    position: absolute;
+    left: 0; right: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 18px;
+    padding: 0 8px;
+  }
+  .frame {
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    overflow: visible;
+    border-radius: 1px;
+  }
+
+  .word {
+    font-family: "Archivo", sans-serif;
+    font-weight: 900;
+    font-style: normal;
+    line-height: 0.86;
+    color: #1b1a16;
+    letter-spacing: -1.5px;
+    text-transform: uppercase;
+  }
+  .word.red { color: #e02b27; }
+
+  /* word pop rides an inner block so outer layout/transforms stay untouched;
+     .ln divs hard-code line breaks (the engine drops <br>) */
+  .w {
+    display: block;
+    position: relative;
+    z-index: 2;
+    opacity: 0;
+    animation: wordPop 0.16s cubic-bezier(.2,.7,.3,1) both;
+  }
+  .ln { display: block; }
+  @keyframes wordPop {
+    0%   { opacity: 0; transform: scale(1.14); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+
+  .marks {
+    position: absolute;
+    left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    gap: 38px;
+    padding-left: 16px;
+    font-family: "Roboto Mono", monospace;
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: 2px;
+    color: #cfcecb;
+    white-space: nowrap;
+  }
+  .marks span::before { content: "\2192 "; opacity: .85; }
+
+  /* ---- Strip 1 (top): enters from the left, travels left -> right ---- */
+  #strip1-rot {
+    left: -40px; top: 226px;
+    width: 800px; height: 244px;
+    transform: rotate(-3deg);
+    z-index: 2;
+    animation: strip1In 0.75s cubic-bezier(.2,.7,.3,1) 0.1s both;
+  }
+  @keyframes strip1In {
+    0%   { transform: translateX(-790px) rotate(-3deg); }
+    100% { transform: translateX(0px) rotate(-3deg); }
+  }
+  #strip1 .frames { top: 38px; height: 172px; }
+  #s1-f1 { flex: 0 0 168px; justify-content: flex-start; padding-left: 8px; }
+  #s1-f2 { flex: 1 1 auto; justify-content: center; }
+  #s1-f3 { flex: 0 0 210px; justify-content: flex-end; padding-right: 6px; }
+  #s1-t1, #s1-t3 { font-size: 58px; }
+  #s1-t2 { font-size: 52px; letter-spacing: -2px; }
+  #strip1 .label { top: 12px; left: 50%; transform: translateX(-50%); }
+  #strip1 .marks { bottom: 8px; }
+
+  /* ---- Strip 2 (bottom): enters from the right, travels right -> left ---- */
+  #strip2-rot {
+    left: -40px; top: 612px;
+    width: 800px; height: 248px;
+    transform: rotate(5.5deg);
+    z-index: 3;
+    animation: strip2In 0.75s cubic-bezier(.2,.7,.3,1) 0.95s both;
+  }
+  @keyframes strip2In {
+    0%   { transform: translateX(790px) rotate(5.5deg); }
+    100% { transform: translateX(0px) rotate(5.5deg); }
+  }
+  #strip2 .frames { top: 40px; height: 172px; }
+  #s2-f1 { flex: 0 0 168px; justify-content: flex-start; padding-left: 8px; }
+  #s2-f2 { flex: 0 0 250px; justify-content: center; }
+  #s2-f3 { flex: 1 1 auto; justify-content: flex-start; padding-left: 14px; }
+  #s2-t1 { font-size: 56px; }
+  #s2-t2 { font-size: 60px; letter-spacing: -1px; }
+  #s2-t3 { font-size: 50px; }
+  #strip2 .label { top: 12px; left: 50%; transform: translateX(-50%); }
+  #strip2 .marks { bottom: 8px; }
+</style>
+</head>
+<body>
+
+  <!-- Top strip -->
+  <div class="strip-rot" id="strip1-rot">
+  <div class="strip" id="strip1" data-node-id="strip1">
+    <div class="label" data-node-id="s1-label" data-node-role="text">1214&nbsp;&nbsp;LUX&nbsp;&nbsp;PLUS</div>
+    <div class="frames">
+      <div class="frame" id="s1-f1" data-node-id="s1-f1">
+        <div class="word" id="s1-t1" data-node-id="s1-t1" data-node-role="text"><div class="w" style="animation-delay:0.55s"><div class="ln">THE</div><div class="ln">MORE</div></div></div>
+      </div>
+      <div class="frame" id="s1-f2" data-node-id="s1-f2">
+        <div class="word red" id="s1-t2" data-node-id="s1-t2" data-node-role="text"><div class="w" style="animation-delay:0.72s"><div class="ln">PERSONAL</div></div></div>
+      </div>
+      <div class="frame" id="s1-f3" data-node-id="s1-f3">
+        <div class="word" id="s1-t3" data-node-id="s1-t3" data-node-role="text" style="text-align:right"><div class="w" style="animation-delay:0.89s"><div class="ln">YOU</div><div class="ln">ARE</div></div></div>
+      </div>
+    </div>
+    <div class="marks" data-node-id="s1-marks" data-node-role="text">
+      <span>1</span><span>1A</span><span>2</span><span>2A</span><span>3</span>
+    </div>
+  </div>
+  </div>
+
+  <!-- Bottom strip -->
+  <div class="strip-rot" id="strip2-rot">
+  <div class="strip" id="strip2" data-node-id="strip2">
+    <div class="label" data-node-id="s2-label" data-node-role="text">212&nbsp;&nbsp;MED&nbsp;&nbsp;BALANCE&nbsp;&nbsp;FILM</div>
+    <div class="frames">
+      <div class="frame" id="s2-f1" data-node-id="s2-f1">
+        <div class="word" id="s2-t1" data-node-id="s2-t1" data-node-role="text"><div class="w" style="animation-delay:1.78s"><div class="ln">THE</div><div class="ln">MORE</div></div></div>
+      </div>
+      <div class="frame" id="s2-f2" data-node-id="s2-f2">
+        <div class="word red" id="s2-t2" data-node-id="s2-t2" data-node-role="text"><div class="w" style="animation-delay:1.60s"><div class="ln">UNI</div><div class="ln">VERSAL</div></div></div>
+      </div>
+      <div class="frame" id="s2-f3" data-node-id="s2-f3">
+        <div class="word" id="s2-t3" data-node-id="s2-t3" data-node-role="text"><div class="w" style="animation-delay:1.42s"><div class="ln">IT WILL</div><div class="ln">BE</div></div></div>
+      </div>
+    </div>
+    <div class="marks" data-node-id="s2-marks" data-node-role="text">
+      <span>3A</span><span>4</span><span>4A</span><span>5</span><span>5A</span>
+    </div>
+  </div>
+  </div>
+
+</body>
+</html>

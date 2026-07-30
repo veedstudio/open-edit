@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@700;900&family=Baloo+2:wght@700&family=Anton&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 960px;
+    height: 720px;
+    overflow: hidden;
+    background: #101010;
+    font-family: 'Hanken Grotesk', system-ui, sans-serif;
+  }
+
+  #stage {
+    position: relative;
+    width: 960px;
+    height: 720px;
+  }
+
+  .col {
+    position: absolute;
+    left: 0;
+    width: 960px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: #f50200;
+    line-height: 1;
+    z-index: 2;
+  }
+
+  /* synthesized cues 1+2: same 'Anton'/red treatment as the headline */
+  .bigline {
+    font-family: 'Anton', 'Archivo Black', sans-serif;
+    font-weight: 400;
+    color: #f50200;
+    white-space: nowrap;
+    display: inline-block;
+    transform-origin: center;
+  }
+
+  .w {
+    display: inline-block;
+    position: relative;
+    z-index: 1;
+    opacity: 0;
+  }
+
+  /* cue windows baked into each word's 6s track: pop on word-by-word, hard cut off */
+  @keyframes c1w1 { 0% {opacity:0} 1.66% {opacity:0} 3.33% {opacity:1} 28% {opacity:1} 28.4% {opacity:0} 100% {opacity:0} }
+  @keyframes c1w2 { 0% {opacity:0} 7% {opacity:0} 8.66% {opacity:1} 28% {opacity:1} 28.4% {opacity:0} 100% {opacity:0} }
+  @keyframes c1w3 { 0% {opacity:0} 12.33% {opacity:0} 14% {opacity:1} 28% {opacity:1} 28.4% {opacity:0} 100% {opacity:0} }
+  @keyframes c2w1 { 0% {opacity:0} 28.4% {opacity:0} 30.1% {opacity:1} 54.8% {opacity:1} 55.2% {opacity:0} 100% {opacity:0} }
+  @keyframes c2w2 { 0% {opacity:0} 33.66% {opacity:0} 35.33% {opacity:1} 54.8% {opacity:1} 55.2% {opacity:0} 100% {opacity:0} }
+  @keyframes c2w3 { 0% {opacity:0} 39% {opacity:0} 40.66% {opacity:1} 54.8% {opacity:1} 55.2% {opacity:0} 100% {opacity:0} }
+
+  .c1w1 { animation: c1w1 6s linear both; }
+  .c1w2 { animation: c1w2 6s linear both; }
+  .c1w3 { animation: c1w3 6s linear both; }
+  .c2w1 { animation: c2w1 6s linear both; }
+  .c2w2 { animation: c2w2 6s linear both; }
+  .c2w3 { animation: c2w3 6s linear both; }
+
+  /* cue 3: word reveals ride inner spans; outer transforms stay static */
+  @keyframes wordIn { 0% {opacity:0; transform:translateY(0.1em)} 100% {opacity:1; transform:translateY(0)} }
+  @keyframes fadeIn { 0% {opacity:0} 100% {opacity:1} }
+
+  .w-from { animation: wordIn 0.35s cubic-bezier(.2,.7,.3,1) 3.3s both; }
+  .w-hm   { animation: wordIn 0.4s  cubic-bezier(.2,.7,.3,1) 3.85s both; }
+
+  [data-node-id="from"] {
+    font-family: 'Baloo 2', system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 58px;
+    color: #f50200;
+    letter-spacing: -0.5px;
+  }
+
+  /* font-size/scaleX/tops recalibrated for the engine's font metrics so the rendered
+     composition matches the decode's Chrome render */
+  [data-node-id="headline"] {
+    font-family: 'Anton', 'Archivo Black', sans-serif;
+    font-weight: 400;
+    font-size: 321px;
+    letter-spacing: 0;
+    transform: scaleX(0.641);
+    transform-origin: center;
+    color: #f50200;
+    white-space: nowrap;
+    display: inline-block;
+  }
+
+  .subblock { gap: 1px; z-index: 3; opacity: 0; animation: fadeIn 0.6s ease-out 4.6s both; }
+
+  .subblock div {
+    font-family: 'Hanken Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: -0.3px;
+    color: #e8121a;
+    transform: scaleX(0.9);
+    transform-origin: center;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+
+    <!-- cue 1: THIS ALBUM'S / AMAZING -->
+    <div class="col" style="top:-96px;">
+      <div class="bigline" style="font-size:366px; transform:scaleX(0.42);"><span class="w c1w1">THIS</span><span class="w c1w2" style="margin-left:182px;">ALBUM'S</span></div>
+    </div>
+    <div class="col" style="top:270px;">
+      <div class="bigline" style="font-size:356px; transform:scaleX(0.441); letter-spacing:109px; position:relative; left:24px;"><span class="w c1w3">AMAZING</span></div>
+    </div>
+
+    <!-- cue 2: DEBUT ALBUM / FRIDAY -->
+    <div class="col" style="top:-86px;">
+      <div class="bigline" style="font-size:362px; transform:scaleX(0.447);"><span class="w c2w1">DEBUT</span><span class="w c2w2" style="margin-left:67px;">ALBUM</span></div>
+    </div>
+    <div class="col" style="top:277px;">
+      <div class="bigline" style="font-size:351px; transform:scaleX(0.472); letter-spacing:169px; position:relative; left:38px;"><span class="w c2w3">FRIDAY</span></div>
+    </div>
+
+    <!-- cue 3: the decode -->
+    <div class="col" style="top:38px;">
+      <div data-node-id="from" data-node-role="text"><span class="w w-from">from</span></div>
+    </div>
+
+    <div class="col" style="top:59px;">
+      <div data-node-id="headline" data-node-role="text"><span class="w w-hm">WHATMORE</span></div>
+    </div>
+
+    <div class="col subblock" style="top:506px;">
+      <div data-node-id="sub1" data-node-role="text">WRITTEN, FILMED, DIRECTED AND PRODUCED BY WHATMORE</div>
+      <div data-node-id="sub2" data-node-role="text">FOR THEIR DEBUT SELF TITLED ALBUM</div>
+      <div data-node-id="sub3" data-node-role="text">MADE IN NYC 2025</div>
+    </div>
+
+  </div>
+</body>
+</html>

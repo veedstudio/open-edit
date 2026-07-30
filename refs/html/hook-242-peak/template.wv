@@ -1,0 +1,54 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; }
+  #stage {
+    position: relative;
+    width: 960px;
+    height: 720px;
+    background: #101010;
+    overflow: hidden;
+    font-family: 'Caveat', cursive;
+  }
+  #bg {
+    position: absolute;
+    inset: 0;
+    width: 960px;
+    height: 720px;
+    object-fit: cover;
+  }
+  .word {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    color: #fdf7f4;
+    font-weight: 600;
+    font-size: 30px;
+    line-height: 1.5;
+    letter-spacing: 0.2px;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.45);
+  }
+
+  /* absolute words fade cleanly; keep the static translate(-50%,-50%) in the keyframes */
+  .word { opacity: 0; animation: wIn .42s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes wIn {
+    0% { opacity: 0; transform: translate(-50%, -50%) translateY(0.28em); }
+    100% { opacity: 1; transform: translate(-50%, -50%) translateY(0); }
+  }
+</style>
+
+<div id="stage">
+
+  <div class="word" data-node-id="do"     data-node-role="text" style="left:110px; top:305px; animation-delay:0ms;">Do</div>
+  <div class="word" data-node-id="you"    data-node-role="text" style="left:316px; top:305px; animation-delay:150ms;">you</div>
+  <div class="word" data-node-id="ever"   data-node-role="text" style="left:614px; top:305px; animation-delay:300ms;">ever</div>
+  <div class="word" data-node-id="look"   data-node-role="text" style="left:858px; top:305px; animation-delay:450ms;">look</div>
+
+  <div class="word" data-node-id="in"     data-node-role="text" style="left:188px; top:382px; animation-delay:600ms;">in</div>
+  <div class="word" data-node-id="the"    data-node-role="text" style="left:345px; top:383px; animation-delay:750ms;">the</div>
+  <div class="word" data-node-id="fridge" data-node-role="text" style="left:736px; top:386px; animation-delay:900ms;">fridge</div>
+
+  <div class="word" data-node-id="and"    data-node-role="text" style="left:375px; top:485px; animation-delay:1050ms;">and</div>
+  <div class="word" data-node-id="just"   data-node-role="text" style="left:589px; top:486px; animation-delay:1200ms;">just...</div>
+</div>

@@ -1,0 +1,36 @@
+node_modules/
+dist/
+.env
+*.tsbuildinfo
+.DS_Store
+
+# Per-run outputs, downloaded engine and font cache (regenerable)
+runs/
+data/font-cache/
+.veed-engine/
+out/
+render-output/
+tmp/
+
+# Local-only preview helper
+preview/transcribe-video.ts
+
+# VEED login token caches (owner-only, never committed)
+veed/.veed-token.json
+veed/.veed-client.json
+
+# Harness installs skills per-checkout; track ONLY the product skill so a stray skill can't be
+# committed (and then mirrored). The already-tracked SKILL.md stays tracked regardless.
+.claude/skills/*
+!.claude/skills/open-edit/
+!.claude/skills/open-edit/**
+
+# Harness local state
+.claude/worktrees
+.claude/settings.local.json
+.weave-subs/
+.weave-runs/
+
+# Internal build docs / working files (not published)
+DESIGN.md
+plans/

@@ -1,0 +1,74 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Kalam:wght@300&family=Permanent+Marker&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; overflow: hidden; }
+  .stage {
+    position: relative;
+    width: 720px;
+    height: 1280px;
+    background: #546245;
+    font-size: 0;
+  }
+  .footage {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .caption {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 208px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    line-height: 1.4;
+  }
+  .line1 {
+    font-family: 'Kalam', 'Permanent Marker', cursive;
+    font-weight: 300;
+    font-size: 56px;
+    line-height: 1.4;
+    letter-spacing: 9px;
+    color: #ffffff;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.35);
+  }
+  .line2 {
+    font-family: 'Anton', 'Impact', sans-serif;
+    font-weight: 400;
+    font-size: 158px;
+    line-height: 1.55;
+    letter-spacing: 6px;
+    color: #f0d10a;
+    margin-top: -22px;
+  }
+
+  /* per-word in+out: slide bottom->top with blur+fade in, hold, then fade out sliding
+     further UP. inline-block spans fade cleanly inside the centered flex lines. */
+  /* WORD-BY-WORD: each word fades in 0->1 sliding bottom->top into place, holds
+     briefly, then from that position slides further UP while fading out (blur on
+     both ends). Larger stagger so words read one-at-a-time, not as one burst. */
+  .w { display: inline-block; opacity: 0; animation: thru 1.8s ease-in-out both; }
+  .sp { display: inline-block; width: 0.3em; }
+  /* px travel + even ease so the slide is visible. (Motion blur not included:
+     the engine does not interpolate filter:blur during an animation — confirmed by
+     test, it holds the initial value — so animated blur can't render.) */
+  @keyframes thru {
+    0%   { opacity: 0; transform: translateY(80px); }
+    28%  { opacity: 1; transform: translateY(0); }
+    58%  { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-106px); }
+  }
+</style>
+<div class="stage" data-node-id="stage">
+  <div class="caption" data-node-id="caption">
+    <div class="line1" data-node-id="line1" data-node-role="text"><span class="w" style="animation-delay:0ms;">HOW</span><span class="sp"></span><span class="w" style="animation-delay:280ms;">I</span><span class="sp"></span><span class="w" style="animation-delay:560ms;">WAS</span><span class="sp"></span><span class="w" style="animation-delay:840ms;">ABLE</span></div>
+    <div class="line2" data-node-id="line2" data-node-role="text"><span class="w" style="animation-delay:1120ms;">TO</span><span class="sp"></span><span class="w" style="animation-delay:1400ms;">MAKE</span></div>
+  </div>
+</div>

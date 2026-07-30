@@ -1,0 +1,162 @@
+/* OpenEdit preview — native VEED light (per Anton: white bg, black text, black buttons,
+ * brand green reserved for the current-position markers). Stone/lime ramp values follow the Brand
+ * Guidelines 2026 Figma (the refreshed ramps; shared-ui's colors.css still carries a few
+ * pre-refresh values). Composed as an
+ * app frame: full-bleed, panels meet at hairlines, transport docked. Fonts mirror the
+ * product: Inter from Google Fonts exactly like apps/frontend/index.html, SwissNow from
+ * VEED's own CDN; display swap keeps the offline system fallback. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap"); /* only the weights this page uses */
+:root {
+  --sunken: #f5f5f4;   /* background-sunken · stone-100 */
+  --base: #fafaf9;     /* background-base · stone-50 */
+  --raised: #ffffff;   /* background-raised · white */
+  --border: #d6d3d1;   /* border-default · stone-300 */
+  --border-subtle: #e7e5e4; /* border-subtle · stone-200 */
+  --ink: #0c0a09;      /* text-default · stone-950 */
+  --sub: #79716b;      /* text-subtle · stone-500 */
+  --xsub: #a6a09b;     /* stone-400 (their x-subtle is too faint for UI text) */
+  --lime-text: #5ea500;   /* text-brand · lime-600 */
+  --lime-soft: rgba(154, 230, 0, 0.18); /* lime-400 wash */
+  --violet: #8b5cf6;      /* the editor's subtitle-lane hue (timeline blocks) */
+  --violet-mid: #a78bfa;
+  --violet-fill: #ede9fe;
+  --shadow: 0 1px 2px rgba(12, 10, 9, 0.05), 0 2px 8px rgba(12, 10, 9, 0.05);
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; /* --font-body */
+  --heading: "SwissNow", "Inter", -apple-system, sans-serif;                  /* --font-heading */
+}
+/* Brand faces from VEED's public CDN, same files the editor loads (shared-ui fonts.css).
+ * font-display: swap → offline just falls back to the system stack. */
+@font-face {
+  font-family: "SwissNow";
+  src: url("https://static-assets.veed.io/fonts/SwissNow/SwissNow-Regular.woff2") format("woff2");
+  font-style: normal; font-weight: 400; font-display: swap;
+}
+@font-face {
+  font-family: "SwissNow";
+  src: url("https://static-assets.veed.io/fonts/SwissNow/SwissNow-Medium.woff2") format("woff2");
+  font-style: normal; font-weight: 500; font-display: swap;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; } /* author display rules must never defeat the hidden attribute */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--base); color: var(--ink); font-family: var(--sans); display: flex; flex-direction: column; overflow: hidden; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* ---- top bar: wordmark | centered status | connection ---- */
+#strip { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; padding: 0 16px; min-height: 56px; flex: none; background: var(--raised); border-bottom: 1px solid var(--border-subtle); }
+#wordmark { font-family: var(--heading); font-weight: 500; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); justify-self: start; }
+#status-center { display: flex; align-items: center; gap: 10px; justify-self: center; min-width: 0; }
+#conn { justify-self: end; }
+.pill { font-size: 11px; font-variant-numeric: tabular-nums; padding: 4px 13px; border-radius: 999px; display: inline-flex; align-items: center; gap: 8px; }
+.pill.pending { background: var(--ink); color: var(--base); }
+.pill.done { background: var(--raised); color: var(--ink); border: 1px solid var(--ink); }
+@keyframes tally { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+#stage-steps { display: inline-flex; gap: 3px; }
+#stage-steps i { width: 12px; height: 4px; border-radius: 2px; background: rgba(250, 250, 249, 0.3); } /* on the ink pill: contrast by construction */
+#stage-steps i.done { background: var(--base); }
+#stage-steps i.active { background: var(--base); animation: tally 1.6s ease-in-out infinite; }
+.pill.done #stage-steps { display: none; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
+
+/* ---- app frame: stage + rail, transport docked ---- */
+#layout {
+  flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(300px, 24vw, 400px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-areas: "rail stage" "rail transport" "rail lanes"; /* veed editor frame: rail full height, canvas inset, transport row, lanes beneath */
+}
+.empty { color: var(--sub); text-align: center; padding: 48px 20px; font-size: 14px; }
+
+/* the footage: light sunken stage, video floats with shadow like the VEED canvas */
+#stage-area { grid-area: stage; position: relative; min-width: 0; min-height: 0; display: flex; background: var(--sunken); }
+#player-wrap { flex: 1; display: flex; min-width: 0; min-height: 0; padding: 20px; overflow: auto; }
+#player-wrap.zoomed { cursor: grab; } /* only past 100%, where there is actually something to pan */
+#player-wrap.zoomed:active { cursor: grabbing; }
+#player-wrap.zoomed #player { cursor: inherit; }
+/* The contain caps are the pre-metadata fallback; applyZoom() sets an explicit width and lifts
+ * them once the source's dimensions are known. margin:auto centres the canvas while it is smaller
+ * than the stage (flex-start used to pin a 50% canvas into the corner) and collapses
+ * once it overflows, keeping the top-left reachable — align-items:center would clip it. */
+#player { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; margin: auto; flex: none; cursor: pointer; border-radius: 10px; box-shadow: 0 2px 6px rgba(12, 10, 9, 0.12), 0 12px 32px rgba(12, 10, 9, 0.14); background: #0c0a09; }
+/* The header pill alone lost the argument against a video with no subtitles on it. */
+#cooking-note { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); margin: 0; max-width: calc(100% - 40px); background: rgba(12, 10, 9, 0.82); color: var(--base); font-size: 11.5px; line-height: 1.3; padding: 7px 13px; border-radius: 999px; pointer-events: none; text-align: center; }
+#video-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--sunken); }
+
+/* the words: white rail behind a hairline */
+#transcript { grid-area: rail; min-height: 0; overflow-y: auto; background: var(--raised); border-right: 1px solid var(--border-subtle); padding: 14px 12px; }
+#rail-title { font-family: var(--heading); font-weight: 500; font-size: 17px; letter-spacing: -0.02em; margin: 2px 10px 12px; } /* brand heading: SwissNow Medium, tight tracking; shares the rows' 22px text edge */
+#lines { list-style: none; margin: 0; padding: 0; }
+#lines li { position: relative; display: flex; gap: 12px; align-items: baseline; padding: 12px 10px; cursor: pointer; border-radius: 8px; }
+#lines li:hover { background: var(--sunken); } /* stone-100; anything fainter is invisible on white */
+#lines li.active { background: var(--lime-soft); } /* the steady-state lime: current position */
+#lines li.active::before { content: ""; position: absolute; left: -2px; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--lime-text); }
+#lines .text { flex: 1; min-width: 0; font-size: 15px; font-weight: 400; line-height: 1.45; color: var(--ink); } /* measured from the live editor */
+
+/* ---- transport: docked bottom bar, black controls on white ---- */
+#transport { grid-area: transport; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 14px 6px; background: var(--raised); border-top: 1px solid var(--border-subtle); }
+#transport-center { display: flex; align-items: center; gap: 12px; justify-self: center; }
+#transport-right { display: flex; align-items: center; gap: 12px; justify-self: end; min-width: 0; max-width: 100%; } /* justify-self sizes to content; cap at the track so the chip's flex-shrink engages */
+#transport button { flex: none; width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--raised); box-shadow: var(--shadow); cursor: pointer; position: relative; color: var(--ink); display: flex; align-items: center; justify-content: center; }
+#transport button:hover { background: var(--sunken); border-color: var(--border); color: var(--ink); }
+#transport button:active { background: var(--border-subtle); }
+#transport #prev, #transport #next { width: 30px; height: 30px; border: none; box-shadow: none; background: transparent; color: var(--sub); }
+#transport #prev:hover, #transport #next:hover { color: var(--ink); background: var(--sunken); }
+#transport #play { background: var(--ink); border-color: var(--ink); border-radius: 50%; width: 36px; height: 36px; } /* the black circle, like the editor */
+#transport #loop[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--base); }
+#transport #loop[aria-pressed="true"]:hover { background: #292524; border-color: #292524; color: var(--base); } /* filled = active: same vocabulary as the play puck */
+#transport #loop[aria-pressed="false"] { color: var(--sub); }
+#transport #speed, #transport #zoom { height: 34px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--raised); font-size: 11.5px; color: var(--sub); cursor: pointer;
+  appearance: none; padding: 0 24px 0 10px; /* authored chevron replaces the platform one; matches the page's 1.6-stroke icons */
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="12" height="12"><path d="M6 8l4 4 4-4" stroke="%2378716c" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  background-repeat: no-repeat; background-position: right 8px center; }
+#transport #speed:hover, #transport #zoom:hover { border-color: var(--border); color: var(--ink); }
+#play::after { content: ""; width: 0; height: 0; border-left: 11px solid var(--base); border-top: 8px solid transparent; border-bottom: 8px solid transparent; margin-left: 2px; } /* flex-centered; +2px optical shift for the triangle's centroid */
+#play.playing::after { width: 14px; height: 16px; border: none; margin-left: 0; background: linear-gradient(90deg, var(--base) 0 4px, transparent 4px 10px, var(--base) 10px 14px); }
+#transport #play:hover { background: #292524; border-color: #292524; } /* stone-800: ink lightens, glyph stays */
+#transport #play:active { background: var(--ink); }
+#mute.muted .wave1 { visibility: hidden; }
+#mute.muted .off { visibility: visible; }
+/* Hover tags in the timeline tip's vocabulary; the delay stops them trailing as you
+ * cross the row. ::before, NOT ::after — #play draws its glyph in ::after and this selector
+ * outranks the plain #play id, so a tag here silently blanks the play button. */
+#transport [data-tip]::before { content: attr(data-tip); position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--base); font-size: 10.5px; line-height: 1; padding: 5px 8px; border-radius: 5px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.1s 0.25s; z-index: 3; }
+#transport [data-tip]:hover::before, #transport [data-tip]:focus-visible::before { opacity: 1; }
+#timecode { display: flex; flex-direction: column; gap: 1px; font-variant-numeric: tabular-nums; white-space: nowrap; justify-self: start; line-height: 1.1; }
+#timecode-top { display: flex; align-items: baseline; }
+#timecode b { color: var(--ink); font-weight: 500; font-size: 16px; }
+#timecode-dur { color: var(--xsub); font-size: 12px; margin-left: 4px; }
+#timecode-sub { color: var(--xsub); font-size: 10.5px; }
+#lanes { grid-area: lanes; background: var(--raised); padding: 2px 14px 14px; position: relative; user-select: none; -webkit-user-select: none; } /* scrubbing must never text-select the ruler/labels */
+#lanes.dragging-needle { cursor: ew-resize; }
+#ruler { position: relative; height: 18px; font-family: var(--sans); font-size: 9px; color: var(--sub); }
+#ruler span { position: absolute; top: 3px; transform: translateX(-50%); }
+/* layer stack per Anton: violet cue lane above, footage clip lane beneath, one pointer surface */
+#tracks { position: relative; cursor: pointer; touch-action: none; }
+.lane { position: relative; height: 26px; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+#track { background: var(--sunken); background-image: radial-gradient(var(--border) 0.8px, transparent 0.8px); background-size: 9px 9px; }
+#track-footage { margin-top: 4px; background: var(--border-subtle); border-color: var(--xsub); } /* stone-200 fill, stone-400 border: visibly a clip, subordinate to the cues */
+#footage-label { display: block; font-size: 10.5px; color: var(--sub); line-height: 24px; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#track .blk { position: absolute; top: 4px; bottom: 4px; border-radius: 6px; border: 1px solid var(--violet-mid); background: var(--violet-fill); pointer-events: none; }
+#track .blk.active { background: var(--violet-mid); border-color: var(--violet); }
+#track-tip { position: absolute; top: -8px; transform: translateX(-50%); font-variant-numeric: tabular-nums; font-size: 10.5px; background: var(--ink); color: var(--base); padding: 3px 8px; border-radius: 5px; pointer-events: none; white-space: nowrap; z-index: 2; }
+#playhead { position: absolute; top: -13px; bottom: -1px; width: 2px; background: var(--ink); left: 0; z-index: 1; cursor: ew-resize; } /* head hangs from the ruler band, needle drops through the lanes — editor metaphor */
+/* The 14px grab pad stays — it makes the needle catchable by its top tip — but is no
+ * longer painted: the tint read as a rendering artefact. The head growing says it. */
+#playhead::after { content: ""; position: absolute; top: 0; bottom: 0; left: -6px; right: -6px; }
+#playhead:hover::before, #playhead.dragging::before { border-top-width: 7px; border-left-width: 6px; border-right-width: 6px; left: -5px; }
+#ruler { cursor: pointer; }
+#playhead::before { content: ""; position: absolute; top: 0; left: -4px; border-top: 6px solid var(--ink); border-left: 5px solid transparent; border-right: 5px solid transparent; }
+
+@media (max-width: 820px) {
+  body { overflow: auto; }
+  #transport { display: flex; flex-wrap: wrap; justify-content: center; row-gap: 8px; }
+  #transport-center { order: -1; flex-basis: 100%; justify-content: center; }
+  #layout { grid-template-columns: 1fr; grid-template-rows: minmax(220px, 42vh) auto auto minmax(0, 1fr); grid-template-areas: "stage" "transport" "lanes" "rail"; }
+  #transcript { border-right: none; border-top: 1px solid var(--border-subtle); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #stage-steps i.active { animation: none; }
+  #transport [data-tip]::before { transition: none; }
+}

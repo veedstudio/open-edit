@@ -1,0 +1,74 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; }
+  #stage {
+    position: relative;
+    width: 720px; height: 1280px;
+    overflow: hidden;
+    font-family: 'Bricolage Grotesque', Arial, Helvetica, sans-serif;
+    background: #f4f1ea;
+    animation: bgshift 5.2s linear both;
+  }
+  /* colour story: blue-on-white, flips to white-on-blue at "of a cliff",
+     then white-on-red at "and turned it" */
+  @keyframes bgshift {
+    0%   { background: #f4f1ea; }
+    40%  { background: #f4f1ea; }
+    45%  { background: #2b419b; }
+    65%  { background: #2b419b; }
+    70%  { background: #c0281c; }
+    100% { background: #c0281c; }
+  }
+
+  #frame {
+    position: absolute; left: 40px; top: 322px; width: 631px; height: 468px;
+    background: linear-gradient(180deg, #e8a24d 0%, #b98b62 26%, #7d8a86 55%, #4c5a5e 100%);
+    opacity: 0; z-index: 1;
+  }
+  #frame .gray {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, #9a9a9a 0%, #6d6d6d 55%, #3d3d3d 100%);
+    opacity: 0;
+    animation: grayIn .5s ease 4.1s both;
+  }
+  @keyframes frameIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes grayIn  { from { opacity: 0; } to { opacity: 1; } }
+
+  .cap {
+    position: absolute; left: 50%; top: 818px; transform: translateX(-50%);
+    width: 640px; max-width: 90%; text-align: center;
+    filter: blur(1.5px); z-index: 2;
+  }
+  .cap .t {
+    display: inline-block; font-weight: 800; font-size: 94px; line-height: 1.15; letter-spacing: -0.045em;
+    opacity: 0;
+  }
+  .blue { color: #2b419b; }
+  .cream { color: #fbf9f7; }
+  @keyframes cueIO {
+    0%   { opacity: 0; transform: translateY(14px); }
+    18%  { opacity: 1; transform: translateY(0); }
+    82%  { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-10px); }
+  }
+  @keyframes cueHold {
+    0%   { opacity: 0; transform: translateY(14px); }
+    18%  { opacity: 1; transform: translateY(0); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+</style>
+<div id="stage" data-node-id="bg" data-node-role="container">
+  <div id="frame" data-node-id="frame" style="animation: frameIn .5s ease 1.5s both;"><div class="gray"></div></div>
+
+  <div class="cap"><div class="t blue"  data-node-id="cue1" data-node-role="text" style="animation: cueIO .8s ease 0.2s both;">I grabbed</div></div>
+  <div class="cap"><div class="t blue"  data-node-id="cue2" data-node-role="text" style="animation: cueIO .8s ease 0.85s both;">an old</div></div>
+  <div class="cap"><div class="t blue"  data-node-id="cue3" data-node-role="text" style="animation: cueIO .8s ease 1.5s both;">b roll clip</div></div>
+  <div class="cap"><div class="t cream" data-node-id="cue4" data-node-role="text" style="animation: cueIO .8s ease 2.15s both;">of a cliff</div></div>
+  <div class="cap"><div class="t cream" data-node-id="cue5" data-node-role="text" style="animation: cueIO .8s ease 2.8s both;">in the ocean</div></div>
+  <div class="cap"><div class="t cream" data-node-id="cue6" data-node-role="text" style="animation: cueIO .8s ease 3.45s both;">and turned it</div></div>
+  <div class="cap"><div class="t cream" data-node-id="cue7" data-node-role="text" style="animation: cueHold .8s ease 4.1s both;">black and white</div></div>
+</div>

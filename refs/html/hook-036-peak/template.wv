@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 1276px; height: 720px; }
+#stage {
+  position: relative;
+  width: 1276px;
+  height: 720px;
+  overflow: hidden;
+  background: #101010;
+  font-family: 'Figtree', -apple-system, Helvetica, Arial, sans-serif;
+}
+.overlay {
+  position: absolute;
+  color: #ffffff;
+  text-align: center;
+  transform: translateY(-50%);
+  filter: blur(1.4px);
+  z-index: 2;
+}
+#headline {
+  left: 50%;
+  top: 360px;
+  width: 240px;
+  margin-left: -120px;
+  font-size: 33px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  text-transform: uppercase;
+  line-height: 1.2;
+  white-space: nowrap;
+  display: flex;
+  justify-content: center;
+  opacity: 0;
+  animation: headIn 0.5s cubic-bezier(.2,.7,.3,1) 0.12s both;
+}
+@keyframes headIn {
+  0%   { opacity: 0; transform: translateY(-50%) translateY(34px); }
+  100% { opacity: 1; transform: translateY(-50%) translateY(0px); }
+}
+#question {
+  left: 50%;
+  margin-left: -105px;
+  top: 604px;
+  width: 210px;
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #eef4f7;
+}
+.line { display: flex; justify-content: center; height: 45px; }
+/* word reveal on inner spans so the outer transform stays untouched */
+.w {
+  position: relative;
+  z-index: 1;
+  opacity: 0;
+  animation: wordIn 0.3s cubic-bezier(.2,.7,.3,1) both;
+}
+@keyframes wordIn {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="headline" class="overlay" data-node-id="headline" data-node-role="text"><span>ON</span><span style="margin-left:4px">THE</span><span style="margin-left:3px">CLOCK</span></div>
+  <div id="question" class="overlay" data-node-id="question" data-node-role="text">
+    <div class="line"><span class="w" style="animation-delay:0.78s">what</span><span class="w" style="animation-delay:0.93s;margin-left:9px">would</span></div>
+    <div class="line"><span class="w" style="animation-delay:1.08s">you</span><span class="w" style="animation-delay:1.23s;margin-left:9px">give?</span></div>
+  </div>
+</div>
+</body>
+</html>

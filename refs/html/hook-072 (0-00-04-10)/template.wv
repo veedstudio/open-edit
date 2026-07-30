@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 960px; height: 720px; }
+  body {
+    position: relative;
+    overflow: hidden;
+    background: #1a1a20;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+  }
+  #footage {
+    position: absolute;
+    inset: 0;
+    width: 960px;
+    height: 720px;
+    background-color: #575752;
+    z-index: 1;
+  }
+  /* animation rides the padded wrapper so the protruding tail stays inside the
+     composited surface (the engine clips an opacity-animating element to its border box);
+     visuals live on the inner .skin. Tails are real children with all-percentage
+     clip-path polygons — the engine drops the clip for unitless/px coords and ignores
+     clip-path on pseudo-elements entirely (rendering-bugs/2026-07-06-clip-path-dropped). */
+  .bubble {
+    position: absolute;
+    top: 572px;
+    opacity: 0;
+  }
+  .out { padding-right: 7px; transform-origin: 100% 100%; }
+  .in  { padding-left: 7px;  transform-origin: 0% 100%; }
+  .skin {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 14px;
+    max-width: 400px;
+    padding: 13px 14px 13px 14px;
+    border-radius: 14px;
+  }
+  .out .skin { background: #124c34; border-bottom-right-radius: 0; }
+  .in  .skin { background: #233138; border-bottom-left-radius: 0; }
+  .tail { position: absolute; bottom: 0; width: 9px; height: 16px; }
+  .out .tail { left: 100%;  margin-left: -2px;  background: #124c34; clip-path: polygon(0% 0%, 0% 100%, 100% 100%); }
+  .in  .tail { right: 100%; margin-right: -2px; background: #233138; clip-path: polygon(100% 0%, 100% 100%, 0% 100%); }
+  .msg {
+    font-size: 27px;
+    font-weight: 400;
+    line-height: 1;
+    color: #ffffff;
+    white-space: nowrap;
+  }
+  .meta {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding-bottom: 1px;
+  }
+  .time {
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1;
+    color: #9fceb8;
+  }
+  .in .time { color: #8d9ba3; }
+  .ticks {
+    display: block;
+    position: relative;
+    width: 24px;
+    height: 16px;
+  }
+  .ticks i {
+    position: absolute;
+    background: #9fceb8;
+    clip-path: polygon(14% 44%, 0% 61%, 40% 100%, 100% 16%, 85% 2%, 40% 71%);
+  }
+  .ticks .t1 { left: 0px;   top: 3px; width: 13px;   height: 10.5px; }
+  .ticks .t2 { left: 8.5px; top: 2px; width: 13.5px; height: 11.5px; }
+
+  #bubble  { left: 295px;  z-index: 2; animation: msg1 4s cubic-bezier(.2,.7,.3,1) both; }
+  #bubble2 { left: 288px;  z-index: 3; animation: msg2 4s cubic-bezier(.2,.7,.3,1) both; }
+  #bubble3 { right: 323px; z-index: 4; animation: msg3 4s cubic-bezier(.2,.7,.3,1) both; }
+
+  @keyframes msg1 {
+    0%    { opacity: 0; transform: translateY(0px) scale(0.6); }
+    5%    { opacity: 0; transform: translateY(0px) scale(0.6); }
+    12%   { opacity: 1; transform: translateY(0px) scale(1.05); }
+    16%   { opacity: 1; transform: translateY(0px) scale(1); }
+    35%   { opacity: 1; transform: translateY(0px) scale(1); }
+    44.5% { opacity: 1; transform: translateY(-63px) scale(1); }
+    62.5% { opacity: 1; transform: translateY(-63px) scale(1); }
+    72%   { opacity: 1; transform: translateY(-126px) scale(1); }
+    100%  { opacity: 1; transform: translateY(-126px) scale(1); }
+  }
+  @keyframes msg2 {
+    0%    { opacity: 0; transform: translateY(0px) scale(0.6); }
+    35%   { opacity: 0; transform: translateY(0px) scale(0.6); }
+    42%   { opacity: 1; transform: translateY(0px) scale(1.05); }
+    46%   { opacity: 1; transform: translateY(0px) scale(1); }
+    62.5% { opacity: 1; transform: translateY(0px) scale(1); }
+    72%   { opacity: 1; transform: translateY(-63px) scale(1); }
+    100%  { opacity: 1; transform: translateY(-63px) scale(1); }
+  }
+  @keyframes msg3 {
+    0%    { opacity: 0; transform: translateY(0px) scale(0.6); }
+    62.5% { opacity: 0; transform: translateY(0px) scale(0.6); }
+    69.5% { opacity: 1; transform: translateY(0px) scale(1.05); }
+    74%   { opacity: 1; transform: translateY(0px) scale(1); }
+    100%  { opacity: 1; transform: translateY(0px) scale(1); }
+  }
+</style>
+</head>
+<body>
+  <div id="footage"></div>
+
+  <div id="bubble" class="bubble out" data-node-id="bubble">
+    <div class="skin">
+      <span id="msg" class="msg" data-node-id="msg" data-node-role="text">Ay bro! How's life?</span>
+      <span id="meta" class="meta">
+        <span id="time" class="time" data-node-id="time" data-node-role="text">14:29</span>
+        <span id="ticks" class="ticks" data-node-id="ticks"><i class="t1"></i><i class="t2"></i></span>
+      </span>
+      <i class="tail"></i>
+    </div>
+  </div>
+
+  <div id="bubble2" class="bubble in" data-node-id="bubble2">
+    <div class="skin">
+      <span class="msg" data-node-id="msg2" data-node-role="text">Yooo! All good, wbu?</span>
+      <span class="meta">
+        <span class="time" data-node-id="time2" data-node-role="text">14:29</span>
+      </span>
+      <i class="tail"></i>
+    </div>
+  </div>
+
+  <div id="bubble3" class="bubble out" data-node-id="bubble3">
+    <div class="skin">
+      <span class="msg" data-node-id="msg3" data-node-role="text">Pull up to the café</span>
+      <span class="meta">
+        <span class="time" data-node-id="time3" data-node-role="text">14:30</span>
+        <span class="ticks" data-node-id="ticks3"><i class="t1"></i><i class="t2"></i></span>
+      </span>
+      <i class="tail"></i>
+    </div>
+  </div>
+</body>
+</html>

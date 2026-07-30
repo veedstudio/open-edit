@@ -1,0 +1,812 @@
+{
+  "version": 3,
+  "note": "RUNTIME INDEX — recipes only. Every entry MUST ship refs/html/<id>/{template.wv, recipe.md, recipe.ts}, and the taxonomy is a census of the facet values those entries use.",
+  "taxonomy": {
+    "type": [
+      "brutalist-caps",
+      "clean-sans",
+      "editorial-serif",
+      "italic-serif",
+      "mixed-weight",
+      "script-handwritten",
+      "tech-mono",
+      "two-font-combo"
+    ],
+    "device": [
+      "accent-letter",
+      "arc-headline",
+      "card-prop",
+      "counter-accent",
+      "credits-block",
+      "doodle-overlay",
+      "echo-trail",
+      "framed-window",
+      "glow-text",
+      "laurel-badge",
+      "speech-bubble",
+      "torn-paper"
+    ],
+    "layout": [
+      "flat-bg",
+      "lower-third",
+      "one-big-bold",
+      "overlay-on-subject",
+      "scattered",
+      "stacked-center"
+    ],
+    "motion": [
+      "char-blur-in",
+      "char-fade",
+      "char-glow-random",
+      "char-rise",
+      "cue-fade",
+      "glow-ramp",
+      "illuminate-flicker",
+      "scale-in",
+      "scattered-kinetic",
+      "scattered-suspect",
+      "stop-motion",
+      "word-pop-active",
+      "word-rise",
+      "word-thru"
+    ],
+    "energy": [
+      "calm",
+      "clean",
+      "elegant",
+      "hype",
+      "loud",
+      "playful",
+      "premium",
+      "punchy",
+      "raw"
+    ],
+    "fit": [
+      "16:9",
+      "9:16"
+    ]
+  },
+  "refs": [
+    {
+      "id": "hook-015 (0-00-14-06)",
+      "wv": "refs/html/hook-015 (0-00-14-06)/template.wv",
+      "facets": {
+        "type": [
+          "script-handwritten"
+        ],
+        "device": [
+          "torn-paper",
+          "doodle-overlay"
+        ],
+        "layout": [
+          "overlay-on-subject",
+          "scattered"
+        ],
+        "motion": [
+          "word-rise",
+          "scattered-kinetic"
+        ],
+        "energy": [
+          "playful",
+          "raw"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-031 (0-00-00-00)",
+      "wv": "refs/html/hook-031 (0-00-00-00)/template.wv",
+      "facets": {
+        "type": [
+          "brutalist-caps"
+        ],
+        "device": [],
+        "layout": [
+          "flat-bg",
+          "scattered",
+          "one-big-bold"
+        ],
+        "motion": [
+          "cue-fade",
+          "scattered-suspect"
+        ],
+        "energy": [
+          "loud",
+          "hype"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-036-peak",
+      "wv": "refs/html/hook-036-peak/template.wv",
+      "facets": {
+        "type": [
+          "clean-sans",
+          "mixed-weight"
+        ],
+        "device": [],
+        "layout": [
+          "overlay-on-subject",
+          "lower-third"
+        ],
+        "motion": [
+          "word-rise",
+          "cue-fade"
+        ],
+        "energy": [
+          "clean",
+          "premium"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-040 (0-00-01-03)",
+      "wv": "refs/html/hook-040 (0-00-01-03)/template.wv",
+      "facets": {
+        "type": [
+          "clean-sans"
+        ],
+        "device": [],
+        "layout": [
+          "overlay-on-subject",
+          "scattered",
+          "stacked-center"
+        ],
+        "motion": [
+          "word-rise",
+          "scattered-suspect"
+        ],
+        "energy": [
+          "clean",
+          "hype"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-045 (0-00-06-22)",
+      "wv": "refs/html/hook-045 (0-00-06-22)/template.wv",
+      "facets": {
+        "type": [
+          "brutalist-caps"
+        ],
+        "device": [],
+        "layout": [
+          "overlay-on-subject",
+          "one-big-bold"
+        ],
+        "motion": [
+          "char-fade",
+          "word-rise"
+        ],
+        "energy": [
+          "clean"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-054-peak",
+      "wv": "refs/html/hook-054-peak/template.wv",
+      "facets": {
+        "type": [
+          "italic-serif"
+        ],
+        "device": [
+          "arc-headline",
+          "accent-letter"
+        ],
+        "layout": [
+          "overlay-on-subject"
+        ],
+        "motion": [
+          "word-rise"
+        ],
+        "energy": [
+          "elegant",
+          "playful"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-059-peak",
+      "wv": "refs/html/hook-059-peak/template.wv",
+      "facets": {
+        "type": [
+          "brutalist-caps",
+          "two-font-combo"
+        ],
+        "device": [
+          "credits-block",
+          "counter-accent"
+        ],
+        "layout": [
+          "overlay-on-subject",
+          "one-big-bold"
+        ],
+        "motion": [
+          "cue-fade",
+          "word-rise"
+        ],
+        "energy": [
+          "hype",
+          "loud"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-071 (0-00-02-21)",
+      "wv": "refs/html/hook-071 (0-00-02-21)/template.wv",
+      "facets": {
+        "type": [
+          "script-handwritten",
+          "clean-sans",
+          "two-font-combo"
+        ],
+        "device": [],
+        "layout": [
+          "stacked-center",
+          "overlay-on-subject"
+        ],
+        "motion": [
+          "word-rise",
+          "scale-in"
+        ],
+        "energy": [
+          "elegant",
+          "premium"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-072 (0-00-04-10)",
+      "wv": "refs/html/hook-072 (0-00-04-10)/template.wv",
+      "facets": {
+        "type": [
+          "clean-sans"
+        ],
+        "device": [
+          "speech-bubble"
+        ],
+        "layout": [
+          "overlay-on-subject"
+        ],
+        "motion": [
+          "scale-in"
+        ],
+        "energy": [
+          "playful",
+          "clean"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-078 (0-00-04-15)",
+      "wv": "refs/html/hook-078 (0-00-04-15)/template.wv",
+      "facets": {
+        "type": [
+          "brutalist-caps",
+          "two-font-combo"
+        ],
+        "device": [
+          "glow-text",
+          "laurel-badge",
+          "credits-block"
+        ],
+        "layout": [
+          "overlay-on-subject",
+          "one-big-bold"
+        ],
+        "motion": [
+          "char-glow-random",
+          "cue-fade"
+        ],
+        "energy": [
+          "hype",
+          "playful"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-078 (0-00-42-23)",
+      "wv": "refs/html/hook-078 (0-00-42-23)/template.wv",
+      "facets": {
+        "type": [
+          "italic-serif",
+          "two-font-combo"
+        ],
+        "device": [],
+        "layout": [
+          "overlay-on-subject",
+          "stacked-center",
+          "one-big-bold"
+        ],
+        "motion": [
+          "word-rise"
+        ],
+        "energy": [
+          "playful",
+          "punchy"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-082 (0-00-43-14)",
+      "wv": "refs/html/hook-082 (0-00-43-14)/template.wv",
+      "facets": {
+        "type": [
+          "brutalist-caps"
+        ],
+        "device": [
+          "accent-letter"
+        ],
+        "layout": [
+          "overlay-on-subject",
+          "one-big-bold"
+        ],
+        "motion": [
+          "cue-fade"
+        ],
+        "energy": [
+          "playful",
+          "punchy"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-084 (0-00-06-16)",
+      "wv": "refs/html/hook-084 (0-00-06-16)/template.wv",
+      "facets": {
+        "type": [
+          "editorial-serif",
+          "two-font-combo"
+        ],
+        "device": [
+          "glow-text",
+          "credits-block"
+        ],
+        "layout": [
+          "overlay-on-subject",
+          "one-big-bold"
+        ],
+        "motion": [
+          "char-blur-in"
+        ],
+        "energy": [
+          "elegant",
+          "premium"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-086-peak",
+      "wv": "refs/html/hook-086-peak/template.wv",
+      "facets": {
+        "type": [
+          "clean-sans"
+        ],
+        "device": [],
+        "layout": [
+          "overlay-on-subject",
+          "one-big-bold"
+        ],
+        "motion": [
+          "word-thru",
+          "char-blur-in"
+        ],
+        "energy": [
+          "punchy",
+          "clean"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-091 Pre-comp 1-peak",
+      "wv": "refs/html/hook-091 Pre-comp 1-peak/template.wv",
+      "facets": {
+        "type": [
+          "brutalist-caps"
+        ],
+        "device": [
+          "counter-accent"
+        ],
+        "layout": [
+          "scattered",
+          "one-big-bold",
+          "overlay-on-subject"
+        ],
+        "motion": [
+          "cue-fade",
+          "scale-in"
+        ],
+        "energy": [
+          "playful",
+          "punchy"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-097-peak",
+      "wv": "refs/html/hook-097-peak/template.wv",
+      "facets": {
+        "type": [
+          "brutalist-caps"
+        ],
+        "device": [
+          "counter-accent"
+        ],
+        "layout": [
+          "flat-bg"
+        ],
+        "motion": [
+          "word-pop-active"
+        ],
+        "energy": [
+          "clean",
+          "premium"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-107-peak",
+      "wv": "refs/html/hook-107-peak/template.wv",
+      "facets": {
+        "type": [
+          "two-font-combo"
+        ],
+        "device": [
+          "card-prop",
+          "counter-accent"
+        ],
+        "layout": [
+          "flat-bg",
+          "scattered"
+        ],
+        "motion": [
+          "word-rise",
+          "scale-in",
+          "scattered-kinetic"
+        ],
+        "energy": [
+          "playful",
+          "elegant"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-114-peak",
+      "wv": "refs/html/hook-114-peak/template.wv",
+      "facets": {
+        "type": [
+          "script-handwritten"
+        ],
+        "device": [
+          "accent-letter"
+        ],
+        "layout": [
+          "flat-bg",
+          "stacked-center"
+        ],
+        "motion": [
+          "char-rise",
+          "scale-in"
+        ],
+        "energy": [
+          "raw",
+          "punchy"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-123-peak",
+      "wv": "refs/html/hook-123-peak/template.wv",
+      "facets": {
+        "type": [
+          "brutalist-caps",
+          "script-handwritten",
+          "two-font-combo"
+        ],
+        "device": [
+          "glow-text",
+          "accent-letter"
+        ],
+        "layout": [
+          "flat-bg",
+          "one-big-bold"
+        ],
+        "motion": [
+          "glow-ramp",
+          "word-rise"
+        ],
+        "energy": [
+          "punchy",
+          "raw"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-126 Comp 1-peak",
+      "wv": "refs/html/hook-126 Comp 1-peak/template.wv",
+      "facets": {
+        "type": [
+          "editorial-serif"
+        ],
+        "device": [],
+        "layout": [
+          "flat-bg",
+          "scattered"
+        ],
+        "motion": [
+          "word-rise",
+          "scattered-suspect"
+        ],
+        "energy": [
+          "elegant",
+          "calm"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-158-peak",
+      "wv": "refs/html/hook-158-peak/template.wv",
+      "facets": {
+        "type": [
+          "clean-sans"
+        ],
+        "device": [
+          "glow-text"
+        ],
+        "layout": [
+          "overlay-on-subject",
+          "one-big-bold",
+          "stacked-center"
+        ],
+        "motion": [
+          "word-rise"
+        ],
+        "energy": [
+          "clean",
+          "hype"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-210-peak",
+      "wv": "refs/html/hook-210-peak/template.wv",
+      "facets": {
+        "type": [
+          "two-font-combo",
+          "mixed-weight"
+        ],
+        "device": [],
+        "layout": [
+          "overlay-on-subject"
+        ],
+        "motion": [
+          "word-thru"
+        ],
+        "energy": [
+          "loud",
+          "playful"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-215 Comp 1-peak",
+      "wv": "refs/html/hook-215 Comp 1-peak/template.wv",
+      "facets": {
+        "type": [
+          "clean-sans"
+        ],
+        "device": [
+          "framed-window"
+        ],
+        "layout": [
+          "flat-bg"
+        ],
+        "motion": [
+          "cue-fade"
+        ],
+        "energy": [
+          "elegant",
+          "premium"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-224-peak",
+      "wv": "refs/html/hook-224-peak/template.wv",
+      "facets": {
+        "type": [
+          "clean-sans"
+        ],
+        "device": [
+          "glow-text"
+        ],
+        "layout": [
+          "flat-bg"
+        ],
+        "motion": [
+          "illuminate-flicker"
+        ],
+        "energy": [
+          "premium",
+          "loud"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-230-peak",
+      "wv": "refs/html/hook-230-peak/template.wv",
+      "facets": {
+        "type": [
+          "clean-sans"
+        ],
+        "device": [
+          "arc-headline",
+          "glow-text"
+        ],
+        "layout": [
+          "overlay-on-subject"
+        ],
+        "motion": [
+          "char-rise",
+          "word-rise"
+        ],
+        "energy": [
+          "clean",
+          "premium"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-236-peak",
+      "wv": "refs/html/hook-236-peak/template.wv",
+      "facets": {
+        "type": [
+          "clean-sans"
+        ],
+        "device": [
+          "counter-accent"
+        ],
+        "layout": [
+          "flat-bg",
+          "scattered"
+        ],
+        "motion": [
+          "scale-in",
+          "stop-motion",
+          "scattered-suspect"
+        ],
+        "energy": [
+          "playful"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "hook-242-peak",
+      "wv": "refs/html/hook-242-peak/template.wv",
+      "facets": {
+        "type": [
+          "script-handwritten"
+        ],
+        "device": [],
+        "layout": [
+          "overlay-on-subject",
+          "scattered"
+        ],
+        "motion": [
+          "word-rise",
+          "scattered-suspect"
+        ],
+        "energy": [
+          "playful"
+        ],
+        "fit": [
+          "16:9"
+        ]
+      }
+    },
+    {
+      "id": "hook-244-peak",
+      "wv": "refs/html/hook-244-peak/template.wv",
+      "facets": {
+        "type": [
+          "tech-mono",
+          "brutalist-caps"
+        ],
+        "device": [
+          "echo-trail",
+          "accent-letter"
+        ],
+        "layout": [
+          "overlay-on-subject"
+        ],
+        "motion": [
+          "char-glow-random"
+        ],
+        "energy": [
+          "hype"
+        ],
+        "fit": [
+          "9:16"
+        ]
+      }
+    }
+  ]
+}

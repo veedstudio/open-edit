@@ -1,0 +1,77 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fjalla+One&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; }
+  #stage {
+    position: relative;
+    width: 720px;
+    height: 1280px;
+    background: #101010;
+    overflow: hidden;
+    font-family: 'Fjalla One', Impact, "Arial Narrow Bold", sans-serif;
+  }
+  .row {
+    position: absolute;
+    left: 0;
+    width: 720px;
+    height: 220px;
+    display: flex;
+    align-items: flex-start;
+    padding: 0 12px;
+    line-height: 1.62;
+    overflow: visible;
+  }
+  .split { justify-content: space-between; }
+  .txt {
+    display: inline-block;
+    color: #fede0c;
+    font-weight: 400;
+    font-size: 134px;
+    line-height: 1.62;
+    letter-spacing: -1px;
+    white-space: nowrap;
+    overflow: visible;
+    will-change: transform, opacity;
+  }
+  #row1 { top: 259px; }
+  #row2 { top: 414px; }
+  #row3 { top: 569px; }
+  #row4 { top: 724px; }
+  #row5 { top: 879px; }
+  /* word-by-word alpha reveal: inner spans so outer layout spans stay static */
+  .w {
+    position: relative;
+    z-index: 1;
+    opacity: 0;
+    animation: wIn 0.35s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes wIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+</style>
+<div id="stage">
+
+  <div class="row split" id="row1">
+    <span class="txt" data-node-id="t-do" data-node-role="text"><span class="w" style="animation-delay:0ms">DO</span></span>
+    <span class="txt" data-node-id="t-ifeel" data-node-role="text"><span class="w" style="animation-delay:140ms">I</span>&nbsp;<span class="w" style="animation-delay:280ms">FEEL</span></span>
+  </div>
+
+  <div class="row split" id="row2">
+    <span class="txt" data-node-id="t-that" data-node-role="text"><span class="w" style="animation-delay:420ms">THAT</span></span>
+    <span class="txt" data-node-id="t-the" data-node-role="text"><span class="w" style="animation-delay:560ms">THE</span></span>
+  </div>
+
+  <div class="row split" id="row3">
+    <span class="txt" data-node-id="t-world" data-node-role="text"><span class="w" style="animation-delay:700ms">WORLD</span></span>
+    <span class="txt" data-node-id="t-is" data-node-role="text"><span class="w" style="animation-delay:840ms">IS</span></span>
+  </div>
+
+  <div class="row" id="row4">
+    <span class="txt" data-node-id="t-coming" data-node-role="text"><span class="w" style="animation-delay:980ms">COMING</span>&nbsp;<span class="w" style="animation-delay:1120ms">TO</span>&nbsp;<span class="w" style="animation-delay:1260ms">AN</span></span>
+  </div>
+
+  <div class="row" id="row5">
+    <span class="txt" data-node-id="t-end" data-node-role="text"><span class="w" style="animation-delay:1400ms">END?</span></span>
+  </div>
+</div>

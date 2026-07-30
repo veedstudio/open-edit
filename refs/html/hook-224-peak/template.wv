@@ -1,0 +1,47 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; background: #101010; overflow: hidden; }
+  #stage {
+    position: relative;
+    width: 720px;
+    height: 1280px;
+    font-family: 'Schibsted Grotesk', 'Helvetica Neue', Arial, sans-serif;
+  }
+  #caption {
+    position: absolute;
+    left: 0; top: 668px; width: 100%; padding: 0 77px;
+    display: flex; flex-direction: column; align-items: flex-start;
+  }
+  /* glow inherits to every char; each char strikes on like a bulb filament:
+     opacity gutters while a white drop-shadow surges then decays to the resting
+     text-shadow. no base filter (only the animated one) so the char isn't dropped. */
+  .txt {
+    color: #fbf9f7; line-height: 1.2; letter-spacing: -0.01em; max-width: 100%;
+    text-shadow: 0 0 3px rgba(255,255,255,0.9), 0 0 7px rgba(255,255,255,0.55), 0 0 16px rgba(255,255,255,0.3);
+  }
+  #line1 { font-weight: 600; font-size: 31px; margin-left: 7px; margin-top: 12px; }
+  #line2 { font-weight: 800; font-size: 99px; letter-spacing: -0.03em; margin-top: -12px; }
+  #line3 { align-self: center; margin-top: 20px; font-weight: 700; font-size: 49px; text-align: center; }
+
+  .ch { display: inline; opacity: 0; animation: ignite .55s linear both; }
+  @keyframes ignite {
+    0%   { opacity: 0;    filter: drop-shadow(0 0 0 rgba(255,255,255,0)); }
+    10%  { opacity: 0.9;  filter: drop-shadow(0 0 12px rgba(255,255,255,0.9)); }
+    20%  { opacity: 0.08; filter: drop-shadow(0 0 0 rgba(255,255,255,0)); }
+    34%  { opacity: 0.7;  filter: drop-shadow(0 0 7px rgba(255,255,255,0.55)); }
+    46%  { opacity: 0.2;  filter: drop-shadow(0 0 0 rgba(255,255,255,0)); }
+    62%  { opacity: 1;    filter: drop-shadow(0 0 16px rgba(255,255,255,0.95)); }
+    100% { opacity: 1;    filter: drop-shadow(0 0 0 rgba(255,255,255,0)); }
+  }
+</style>
+<div id="stage">
+  <div id="caption" data-node-id="caption">
+    <div class="txt" id="line1" data-node-id="line1" data-node-role="text"><span class="ch" style="animation-delay:.100s">T</span><span class="ch" style="animation-delay:.135s">h</span><span class="ch" style="animation-delay:.170s">e</span><span class="ch" style="animation-delay:.205s">s</span><span class="ch" style="animation-delay:.240s">e&nbsp;</span><span class="ch" style="animation-delay:.275s">a</span><span class="ch" style="animation-delay:.310s">r</span><span class="ch" style="animation-delay:.345s">e&nbsp;</span><span class="ch" style="animation-delay:.380s">t</span><span class="ch" style="animation-delay:.415s">h</span><span class="ch" style="animation-delay:.450s">e&nbsp;</span><span class="ch" style="animation-delay:.485s">S</span><span class="ch" style="animation-delay:.520s">i</span><span class="ch" style="animation-delay:.555s">x</span></div>
+    <div class="txt" id="line2" data-node-id="line2" data-node-role="text"><span class="ch" style="animation-delay:.80s">S</span><span class="ch" style="animation-delay:.86s">F</span><span class="ch" style="animation-delay:.92s">X&nbsp;</span><span class="ch" style="animation-delay:.98s">S</span><span class="ch" style="animation-delay:1.04s">o</span><span class="ch" style="animation-delay:1.10s">u</span><span class="ch" style="animation-delay:1.16s">n</span><span class="ch" style="animation-delay:1.22s">d</span><span class="ch" style="animation-delay:1.28s">s</span></div>
+    <div class="txt" id="line3" data-node-id="line3" data-node-role="text"><span class="ch" style="animation-delay:1.55s">T</span><span class="ch" style="animation-delay:1.61s">i</span><span class="ch" style="animation-delay:1.67s">k</span><span class="ch" style="animation-delay:1.73s">T</span><span class="ch" style="animation-delay:1.79s">o</span><span class="ch" style="animation-delay:1.85s">k</span><span class="ch" style="animation-delay:1.91s">.</span></div>
+  </div>
+</div>

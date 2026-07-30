@@ -1,0 +1,16 @@
+{
+  "name": "open-edit",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@10.16.1",
+  "scripts": {
+    "test": "node --import tsx --test 'tests/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "4.21.0",
+    "typescript": "^7.0.2"
+  }
+}

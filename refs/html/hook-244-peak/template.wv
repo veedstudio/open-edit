@@ -1,0 +1,96 @@
+<meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; overflow: hidden; }
+  #stage {
+    position: relative;
+    width: 720px;
+    height: 1280px;
+    background: #8f969a;
+    font-family: 'Press Start 2P', monospace;
+  }
+  #bg {
+    position: absolute;
+    inset: 0;
+    width: 720px;
+    height: 1280px;
+    object-fit: cover;
+  }
+
+  /* headline flows in a flex column so length/font/viewport changes degrade gracefully */
+  #headline {
+    position: absolute;
+    left: 133px;
+    top: 445px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  #row1 {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 48px;
+  }
+  #col1 {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding-top: 0px;
+  }
+
+  /* extruded pixel-headline: cream fill, orange-red 3D shadow stepping down-right */
+  .ext {
+    color: #fae3bb;
+    line-height: 1.2;
+    letter-spacing: -0.06em;
+    white-space: nowrap;
+    text-shadow:
+      1px 1px 0 #b74933,
+      2px 2px 0 #b74933,
+      3px 3px 0 #ad4530,
+      4px 4px 0 #a8412e,
+      5px 5px 0 #9a3b2a;
+  }
+  .ext.sm {
+    text-shadow:
+      1px 1px 0 #b74933,
+      2px 2px 0 #a8412e;
+  }
+
+  /* neon sign light-up: per-char fade + rise from bottom, glow halo fades to none.
+     filter:drop-shadow gives the neon glow without disturbing the inherited extrude shadow,
+     so the resting frame is pixel-identical to the static. */
+  .ch {
+    display: inline-block;
+    opacity: 0;
+    animation: neon .42s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes neon {
+    0%   { opacity: 0; transform: translateY(0.6em);
+           filter: drop-shadow(0 0 0 rgba(255,224,138,0)); }
+    55%  { opacity: 1;
+           filter: drop-shadow(0 0 10px rgba(255,210,90,0.95)) drop-shadow(0 0 22px rgba(255,150,40,0.7)); }
+    100% { opacity: 1; transform: translateY(0);
+           filter: drop-shadow(0 0 0 rgba(255,224,138,0)); }
+  }
+</style>
+
+<div id="stage">
+
+  <div id="headline" data-node-id="headline">
+    <div id="row1">
+      <div class="ext" data-node-id="num3" data-node-role="text" style="font-size:84px; line-height:0.95;"><span class="ch" style="animation-delay:340ms">3</span></div>
+      <div id="col1">
+        <div class="ext"    data-node-id="songs"  data-node-role="text" style="font-size:27px;"><span class="ch" style="animation-delay:0ms">S</span><span class="ch" style="animation-delay:600ms">O</span><span class="ch" style="animation-delay:180ms">N</span><span class="ch" style="animation-delay:760ms">G</span><span class="ch" style="animation-delay:420ms">S</span></div>
+        <div class="ext sm" data-node-id="tomake" data-node-role="text" style="font-size:16px;"><span class="ch" style="animation-delay:520ms">T</span><span class="ch" style="animation-delay:80ms">O</span><span class="sp" style="display:inline-block;width:0.6em"></span><span class="ch" style="animation-delay:920ms">M</span><span class="ch" style="animation-delay:300ms">A</span><span class="ch" style="animation-delay:700ms">K</span><span class="ch" style="animation-delay:140ms">E</span><span class="sp" style="display:inline-block;width:0.6em"></span><span class="ch" style="animation-delay:880ms">Y</span><span class="ch" style="animation-delay:240ms">O</span><span class="ch" style="animation-delay:640ms">U</span><span class="ch" style="animation-delay:40ms">R</span></div>
+        <div class="ext"    data-node-id="videos" data-node-role="text" style="font-size:28px;"><span class="ch" style="animation-delay:460ms">V</span><span class="ch" style="animation-delay:120ms">I</span><span class="ch" style="animation-delay:820ms">D</span><span class="ch" style="animation-delay:380ms">E</span><span class="ch" style="animation-delay:980ms">O</span><span class="ch" style="animation-delay:200ms">S</span></div>
+      </div>
+    </div>
+    <div class="ext" data-node-id="cinematic" data-node-role="text" style="font-size:44px; margin-left:15px;"><span class="ch" style="animation-delay:560ms">C</span><span class="ch" style="animation-delay:100ms">I</span><span class="ch" style="animation-delay:860ms">N</span><span class="ch" style="animation-delay:280ms">E</span><span class="ch" style="animation-delay:660ms">M</span><span class="ch" style="animation-delay:20ms">A</span><span class="ch" style="animation-delay:940ms">T</span><span class="ch" style="animation-delay:360ms">I</span><span class="ch" style="animation-delay:740ms">C</span></div>
+  </div>
+</div>

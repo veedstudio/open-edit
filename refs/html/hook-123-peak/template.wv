@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Caveat:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 960px; height: 720px; overflow: hidden; }
+  .stage {
+    position: relative;
+    width: 960px;
+    height: 720px;
+    background: #0c090c;
+    font-kerning: none;
+  }
+  .copy {
+    position: absolute;
+    left: 52px; top: 56px; right: 52px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 68px;
+  }
+  /* headline strikes on like a neon sign warming up: dim maroon + no glow ramps
+     to full red + full glow. color and text-shadow interpolate (no filter). */
+  .title {
+    width: max-content;
+    font-family: 'Archivo Black', 'Anton', sans-serif;
+    font-weight: 400; font-size: 72px; line-height: 1.12; letter-spacing: -1px;
+    color: #f31f17; text-transform: uppercase; white-space: nowrap;
+    text-shadow: 0 0 6px rgba(243,31,23,0.95), 0 0 22px rgba(220,20,16,0.85), 0 0 46px rgba(190,12,10,0.55);
+  }
+  @keyframes illuminate {
+    0%   { color: #360806; text-shadow: 0 0 6px rgba(243,31,23,0), 0 0 22px rgba(220,20,16,0), 0 0 46px rgba(190,12,10,0); }
+    35%  { color: #7d130c; }
+    45%  { color: #4a0b08; }
+    60%  { color: #c11a10; text-shadow: 0 0 6px rgba(243,31,23,0.7), 0 0 22px rgba(220,20,16,0.6), 0 0 46px rgba(190,12,10,0.35); }
+    70%  { color: #86140d; }
+    100% { color: #f31f17; text-shadow: 0 0 6px rgba(243,31,23,0.95), 0 0 22px rgba(220,20,16,0.85), 0 0 46px rgba(190,12,10,0.55); }
+  }
+
+  .script-block {
+    display: flex; flex-direction: column; align-items: stretch; align-self: stretch; gap: 22px;
+    font-family: 'Caveat', cursive; font-weight: 600; font-size: 40px; line-height: 1.3;
+    color: #e9e6e6; letter-spacing: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  }
+  .script { width: max-content; white-space: nowrap; word-spacing: 16px; }
+  #line1 { margin-left: 96px; }
+  .line2 {
+    display: flex; flex-direction: row; justify-content: space-between; align-items: baseline;
+    align-self: stretch; padding: 0 54px 0 40px; column-gap: 24px;
+  }
+  #line2a { word-spacing: 8px; }
+  #line2b .u { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+
+  .w { display: inline-block; opacity: 0; }
+  @keyframes wordIn {
+    0%   { opacity: 0; transform: translateY(6px) rotate(-2deg); }
+    100% { opacity: 1; transform: translateY(0) rotate(0); }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="copy">
+      <div class="title" data-node-id="title" data-node-role="text" style="opacity:1; animation: illuminate 1.3s ease-in 0.1s both;">Are You Not Tired</div>
+      <div class="script-block">
+        <div class="script" id="line1" data-node-id="line1" data-node-role="text"><span class="w" style="animation: wordIn .32s ease 1.0s both;">of</span> <span class="w" style="animation: wordIn .32s ease 1.18s both;">Walking</span> <span class="w" style="animation: wordIn .32s ease 1.36s both;">100</span> <span class="w" style="animation: wordIn .32s ease 1.54s both;">Miles</span> <span class="w" style="animation: wordIn .32s ease 1.72s both;">Repenting</span></div>
+        <div class="line2">
+          <div class="script" id="line2a" data-node-id="line2a" data-node-role="text"><span class="w" style="animation: wordIn .32s ease 1.9s both;">on</span> <span class="w" style="animation: wordIn .32s ease 2.08s both;">the</span> <span class="w" style="animation: wordIn .32s ease 2.26s both;">soft</span></div>
+          <div class="script" id="line2b" data-node-id="line2b" data-node-role="text"><span class="w" style="animation: wordIn .32s ease 2.44s both;">of</span> <span class="w" style="animation: wordIn .32s ease 2.62s both;">your</span> <span class="w u" style="animation: wordIn .32s ease 2.8s both;">knees</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

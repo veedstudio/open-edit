@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=720, height=1280" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,600;1,700&display=swap" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; }
+  body { position: relative; overflow: hidden; background: #b9c0b5; font-family: "Cormorant Garamond", Georgia, serif; }
+
+  #bg { position: absolute; inset: 0; width: 720px; height: 1280px; object-fit: cover; z-index: 0; }
+
+  #arc-layer { position: absolute; left: 0; top: 0; width: 720px; height: 1280px; z-index: 2; pointer-events: none; }
+  #arc-text { position: absolute; left: 18px; top: 250px; width: 684px; height: 510px; pointer-events: none; }
+  .arc-char {
+    position: absolute;
+    left: 370px; top: 640px;
+    transform-origin: 0 0;
+    font-style: italic; font-weight: 700; font-size: 53px; line-height: 1;
+    color: #ecc33b; white-space: pre;
+    text-shadow:
+      0 0 1px #fff,
+      1px 1px 0 #fdf3c8, -1px 1px 0 #fdf3c8, 1px -1px 0 #fdf3c8, -1px -1px 0 #fdf3c8,
+      0 0 6px rgba(255,250,210,0.65),
+      2px 3px 4px rgba(60,40,10,0.45);
+  }
+  .arc-char.big { font-size: 92px; }
+  /* word-by-word reveal carried on an inner span so each glyph's arc transform is untouched */
+  .w { display:inline-block; opacity:0; animation:wordIn .42s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes wordIn { 0%{opacity:0;transform:translateY(0.28em)} 100%{opacity:1;transform:translateY(0)} }
+</style>
+</head>
+<body>
+  <div id="arc-layer">
+    <div id="arc-text" data-node-id="arc-text" data-node-role="text"></div>
+    <span class="arc-char" data-node-id="ch-0" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-112.000deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:0ms">D</span></span>
+    <span class="arc-char" data-node-id="ch-1" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-103.385deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:0ms">a</span></span>
+    <span class="arc-char" data-node-id="ch-2" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-94.769deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:0ms">y</span></span>
+    <span class="arc-char" data-node-id="ch-3" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-86.154deg) translateY(-332px);transform-origin:50% 50%"> </span>
+    <span class="arc-char big" data-node-id="ch-4" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-77.538deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:160ms">6</span></span>
+    <span class="arc-char" data-node-id="ch-5" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-68.923deg) translateY(-332px);transform-origin:50% 50%"> </span>
+    <span class="arc-char" data-node-id="ch-6" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-60.308deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:320ms">o</span></span>
+    <span class="arc-char" data-node-id="ch-7" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-51.692deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:320ms">f</span></span>
+    <span class="arc-char" data-node-id="ch-8" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-43.077deg) translateY(-332px);transform-origin:50% 50%"> </span>
+    <span class="arc-char" data-node-id="ch-9" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-34.462deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:480ms">L</span></span>
+    <span class="arc-char" data-node-id="ch-10" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-25.846deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:480ms">e</span></span>
+    <span class="arc-char" data-node-id="ch-11" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-17.231deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:480ms">a</span></span>
+    <span class="arc-char" data-node-id="ch-12" data-node-role="text" style="transform:translate(-50%,-50%) rotate(-8.615deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:480ms">r</span></span>
+    <span class="arc-char" data-node-id="ch-13" data-node-role="text" style="transform:translate(-50%,-50%) rotate(0.000deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:480ms">n</span></span>
+    <span class="arc-char" data-node-id="ch-14" data-node-role="text" style="transform:translate(-50%,-50%) rotate(8.615deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:480ms">i</span></span>
+    <span class="arc-char" data-node-id="ch-15" data-node-role="text" style="transform:translate(-50%,-50%) rotate(17.231deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:480ms">n</span></span>
+    <span class="arc-char" data-node-id="ch-16" data-node-role="text" style="transform:translate(-50%,-50%) rotate(25.846deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:480ms">g</span></span>
+    <span class="arc-char" data-node-id="ch-17" data-node-role="text" style="transform:translate(-50%,-50%) rotate(34.462deg) translateY(-332px);transform-origin:50% 50%"> </span>
+    <span class="arc-char" data-node-id="ch-18" data-node-role="text" style="transform:translate(-50%,-50%) rotate(43.077deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:640ms">A</span></span>
+    <span class="arc-char" data-node-id="ch-19" data-node-role="text" style="transform:translate(-50%,-50%) rotate(51.692deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:640ms">n</span></span>
+    <span class="arc-char" data-node-id="ch-20" data-node-role="text" style="transform:translate(-50%,-50%) rotate(60.308deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:640ms">i</span></span>
+    <span class="arc-char" data-node-id="ch-21" data-node-role="text" style="transform:translate(-50%,-50%) rotate(68.923deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:640ms">m</span></span>
+    <span class="arc-char" data-node-id="ch-22" data-node-role="text" style="transform:translate(-50%,-50%) rotate(77.538deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:640ms">a</span></span>
+    <span class="arc-char" data-node-id="ch-23" data-node-role="text" style="transform:translate(-50%,-50%) rotate(86.154deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:640ms">t</span></span>
+    <span class="arc-char" data-node-id="ch-24" data-node-role="text" style="transform:translate(-50%,-50%) rotate(94.769deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:640ms">i</span></span>
+    <span class="arc-char" data-node-id="ch-25" data-node-role="text" style="transform:translate(-50%,-50%) rotate(103.385deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:640ms">o</span></span>
+    <span class="arc-char" data-node-id="ch-26" data-node-role="text" style="transform:translate(-50%,-50%) rotate(112.000deg) translateY(-332px);transform-origin:50% 50%"><span class="w" style="animation-delay:640ms">n</span></span>
+  </div>
+</body>
+</html>
