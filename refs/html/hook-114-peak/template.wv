@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=720, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gochi+Hand&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; }
+  body { position: relative; overflow: hidden; background: #101010; }
+
+  #photo {
+    position: absolute; inset: 0;
+    width: 720px; height: 1280px;
+    object-fit: cover;
+    display: block;
+  }
+
+  #caption {
+    position: absolute;
+    left: 20px; top: 140px;
+    width: 680px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 30px;
+    font-family: "Gochi Hand", cursive;
+    color: #f5cf00;
+    text-align: center;
+    line-height: 1.0;
+    text-shadow: 0 2px 5px rgba(0,0,0,0.45);
+  }
+
+  #caption > div { max-width: 680px; overflow-wrap: anywhere; padding-bottom: 0.16em; }
+
+  #line1 { font-size: 44px; line-height: 2.5; }
+  #line1 .big { font-size: 96px; line-height: 1.0; vertical-align: -0.30em; }
+
+  #line2, #line3 { font-size: 80px; line-height: 1.16; }
+
+  /* character-by-character reveal: per-glyph inline-block, opacity + rise */
+  .g {
+    display: inline-block;
+    opacity: 0;
+    animation: gIn .4s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes gIn { 0%{opacity:0;transform:translateY(0.5em)} 100%{opacity:1;transform:translateY(0)} }
+  /* f*@k pops in as ONE word, briefly larger than its final size */
+  .big { display: inline-block; opacity: 0; animation: bigPop .5s cubic-bezier(.2,.8,.25,1) both; transform-origin: 50% 75%; }
+  @keyframes bigPop { 0%{opacity:0;transform:scale(.4)} 55%{opacity:1;transform:scale(1.28)} 100%{opacity:1;transform:scale(1)} }
+</style>
+</head>
+<body>
+
+  <div id="caption" data-node-id="caption">
+    <div id="line1" data-node-id="line1" data-node-role="text"><span class="g" style="animation-delay:0ms">w</span><span class="g" style="animation-delay:45ms">h</span><span class="g" style="animation-delay:90ms">y</span><span class="g" style="display:inline-block;width:0.3em;animation-delay:135ms">&nbsp;</span><span class="g" style="animation-delay:180ms">t</span><span class="g" style="animation-delay:225ms">h</span><span class="g" style="animation-delay:270ms">e</span><span class="g" style="display:inline-block;width:0.3em;animation-delay:315ms">&nbsp;</span><span class="big" style="animation-delay:360ms">f*@k</span><span class="g" style="display:inline-block;width:0.3em;animation-delay:540ms">&nbsp;</span><span class="g" style="animation-delay:585ms">i</span><span class="g" style="animation-delay:630ms">s</span><span class="g" style="display:inline-block;width:0.3em;animation-delay:675ms">&nbsp;</span><span class="g" style="animation-delay:720ms">y</span><span class="g" style="animation-delay:765ms">o</span><span class="g" style="animation-delay:810ms">u</span><span class="g" style="animation-delay:855ms">r</span></div>
+    <div id="line2" data-node-id="line2" data-node-role="text"><span class="g" style="animation-delay:900ms">b</span><span class="g" style="animation-delay:945ms">r</span><span class="g" style="animation-delay:990ms">a</span><span class="g" style="animation-delay:1035ms">n</span><span class="g" style="animation-delay:1080ms">d</span><span class="g" style="display:inline-block;width:0.3em;animation-delay:1125ms">&nbsp;</span><span class="g" style="animation-delay:1170ms">n</span><span class="g" style="animation-delay:1215ms">o</span><span class="g" style="animation-delay:1260ms">t</span></div>
+    <div id="line3" data-node-id="line3" data-node-role="text"><span class="g" style="animation-delay:1305ms">c</span><span class="g" style="animation-delay:1350ms">o</span><span class="g" style="animation-delay:1395ms">n</span><span class="g" style="animation-delay:1440ms">v</span><span class="g" style="animation-delay:1485ms">e</span><span class="g" style="animation-delay:1530ms">r</span><span class="g" style="animation-delay:1575ms">t</span><span class="g" style="animation-delay:1620ms">i</span><span class="g" style="animation-delay:1665ms">n</span><span class="g" style="animation-delay:1710ms">g</span><span class="g" style="animation-delay:1755ms">?</span><span class="g" style="animation-delay:1800ms">?</span></div>
+  </div>
+</body>
+</html>

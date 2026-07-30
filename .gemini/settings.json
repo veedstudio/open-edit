@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/skills/open-edit/hooks/session-start.sh gemini",
+            "name": "Open Edit preflight",
+            "timeout": 120000
+          }
+        ]
+      }
+    ]
+  }
+}

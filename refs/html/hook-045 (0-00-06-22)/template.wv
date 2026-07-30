@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=League+Gothic&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 720px; }
+  .stage {
+    position: relative;
+    width: 720px;
+    height: 720px;
+    overflow: hidden;
+    font-family: Inter, sans-serif;
+    background: #8a8a8a;
+  }
+  .layer { position: absolute; }
+
+  /* authored display title — condensed ultra-bold, sits behind the subject */
+  #march {
+    left: 0;
+    top: 16px;
+    width: 720px;
+    height: 470px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'League Gothic', sans-serif;
+    font-weight: 400;
+    font-size: 540px;
+    line-height: 0.72;
+    letter-spacing: 0.004em;
+    color: #f6f3f7;
+    transform: scaleX(0.5);
+    transform-origin: center top;
+    white-space: nowrap;
+    user-select: none;
+    z-index: 1;
+  }
+  /* per-char reveal on inner spans; #march's static scaleX transform is never touched */
+  #march .c {
+    display: inline-block;
+    opacity: 0;
+    animation: cIn 0.14s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes cIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+
+  /* authored caption, aligned over the burned-in subtitle */
+  #caption {
+    left: 160px;
+    top: 662px;
+    width: 400px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Inter, sans-serif;
+    font-weight: 500;
+    font-size: 33px;
+    color: #fbfbfb;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.55);
+    letter-spacing: 0.004em;
+    white-space: nowrap;
+    z-index: 2;
+  }
+  /* word-by-word reveal; explicit spacers because flex drops inter-item whitespace */
+  #caption .w {
+    display: inline-block;
+    opacity: 0;
+    animation: wIn 0.38s cubic-bezier(.2,.7,.3,1) both;
+  }
+  #caption .sp { display: inline-block; width: 0.26em; }
+  @keyframes wIn { 0% { opacity: 0; transform: translateY(0.28em); } 100% { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div id="march" class="layer" data-node-id="march" data-node-role="text"><span class="c" style="animation-delay:150ms">M</span><span class="c" style="animation-delay:220ms">A</span><span class="c" style="animation-delay:290ms">R</span><span class="c" style="animation-delay:360ms">C</span><span class="c" style="animation-delay:430ms">H</span></div>
+    <div id="caption" class="layer" data-node-id="caption" data-node-role="text"><span class="w" style="animation-delay:850ms">but</span><span class="sp"></span><span class="w" style="animation-delay:1000ms">I</span><span class="sp"></span><span class="w" style="animation-delay:1150ms">made</span><span class="sp"></span><span class="w" style="animation-delay:1300ms">a</span><span class="sp"></span><span class="w" style="animation-delay:1450ms">commitment.</span></div>
+  </div>
+</body>
+</html>

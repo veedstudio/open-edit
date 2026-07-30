@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 960px; height: 720px; }
+  #stage {
+    position: relative;
+    width: 960px;
+    height: 720px;
+    overflow: hidden;
+    background: #0e060b;
+    font-family: "Lora", Georgia, "Times New Roman", serif;
+    color: #946843;
+  }
+  #bg {
+    position: absolute;
+    inset: 0;
+    width: 960px;
+    height: 720px;
+    object-fit: cover;
+    z-index: 0;
+  }
+  .word {
+    position: absolute;
+    display: inline-block;
+    z-index: 1;
+    font-weight: 400;
+    line-height: 1.35;
+    white-space: nowrap;
+    color: #946843;
+  }
+  #bite  { left: 578px; top: 34px;  font-size: 108px; }
+  #the   { left: 538px; top: 148px; font-size: 76px; }
+  #hand  { left: 682px; top: 182px; font-size: 86px; }
+  #that  { left: 562px; top: 256px; font-size: 76px; }
+  #feeds { left: 750px; top: 302px; font-size: 80px; transform: rotate(24deg); transform-origin: left center; }
+  /* word-by-word: absolute inline-block words fade clean. feeds keeps its rotate (baked). */
+  .word { opacity: 0; animation: wIn .42s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes wIn { 0% { opacity: 0; transform: translateY(0.28em); } 100% { opacity: 1; transform: translateY(0); } }
+  @keyframes wInFeeds {
+    0%   { opacity: 0; transform: rotate(24deg) translateY(0.28em); }
+    100% { opacity: 1; transform: rotate(24deg) translateY(0); }
+  }
+  #feeds { animation-name: wInFeeds; }
+</style>
+</head>
+<body>
+  <div id="stage" data-node-id="stage">
+    <span class="word" id="bite"  data-node-id="bite"  data-node-role="text" style="animation-delay:0ms">bite</span>
+    <span class="word" id="the"   data-node-id="the"   data-node-role="text" style="animation-delay:150ms">the</span>
+    <span class="word" id="hand"  data-node-id="hand"  data-node-role="text" style="animation-delay:300ms">hand</span>
+    <span class="word" id="that"  data-node-id="that"  data-node-role="text" style="animation-delay:450ms">that</span>
+    <span class="word" id="feeds" data-node-id="feeds" data-node-role="text" style="animation-delay:600ms">feeds</span>
+  </div>
+</body>
+</html>

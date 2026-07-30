@@ -1,0 +1,27 @@
+# NOTE: this file is PUBLISHED to the open-edit mirror. Keep every line suitable for an outside
+# reader — no internal repository, service, runner or tooling names. It lives under .github/public/
+# so GitHub does not run it here (workflows only execute from .github/workflows/); the mirror moves it
+# into .github/workflows/ on the way out. Rationale lives with the mirror config, which is not published.
+#
+# This gate is deliberately trivial: open-edit ships no test suite, so the check exists for structure —
+# it gives the branch ruleset something to require, which forces every change (including each mirror)
+# to arrive as a reviewable pull request.
+name: Merge Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  merge-gate:            # the status-check context IS this job id — the required check is "merge-gate"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate
+        run: echo "Merge gate satisfied."

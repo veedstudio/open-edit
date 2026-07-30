@@ -1,0 +1,129 @@
+<meta name="viewport" content="width=720, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800&family=Archivo+Narrow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; }
+  #stage {
+    position: relative;
+    width: 720px;
+    height: 1280px;
+    overflow: hidden;
+    background: #101010;
+    font-family: 'Archivo', system-ui, sans-serif;
+  }
+  #footage {
+    position: absolute;
+    inset: 0;
+    width: 720px;
+    height: 1280px;
+    object-fit: cover;
+  }
+
+  /* Curved glowing line — arc of per-char rotated spans */
+  #curved {
+    position: absolute;
+    left: 175px;
+    top: 205px;
+    width: 250px;
+    height: 320px;
+  }
+  #curved .arc {
+    position: absolute;
+    left: 125px;
+    top: 210px;
+    width: 0;
+    height: 0;
+  }
+  #curved .ch {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-family: 'Archivo Narrow', 'Archivo', sans-serif;
+    font-weight: 500;
+    font-size: 31px;
+    line-height: 1;
+    color: #f8f6f4;
+    white-space: pre;
+    transform-origin: 50% 50%;
+    text-shadow:
+      0 0 4px #fff,
+      0 0 9px rgba(255,255,255,0.95),
+      0 0 18px rgba(255,255,255,0.7),
+      0 0 30px rgba(255,255,255,0.45);
+  }
+
+  /* TITLE (curved): char-by-char rise+fade. Inner span fades so the arc transform on .ch is preserved. */
+  #curved .ch .g {
+    display: inline-block;
+    opacity: 0;
+    animation: chIn .5s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes chIn { 0%{opacity:0;transform:translateY(0.5em)} 100%{opacity:1;transform:translateY(0)} }
+
+  /* Straight bold headline */
+  #headline {
+    position: absolute;
+    left: 243px;
+    top: 706px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+  #headline .line {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700;
+    font-size: 45px;
+    line-height: 1.06;
+    letter-spacing: -0.5px;
+    color: #f7f5f3;
+    white-space: nowrap;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.55), 0 0 2px rgba(0,0,0,0.4);
+  }
+  /* SUBTITLE (headline): word-by-word, inline-block so opacity fades cleanly. Starts after title. */
+  #headline .w {
+    display: inline-block;
+    opacity: 0;
+    animation: wIn .42s cubic-bezier(.2,.7,.3,1) both;
+  }
+  #headline .sp { display: inline-block; width: 0.26em; }
+  @keyframes wIn { 0%{opacity:0;transform:translateY(0.28em)} 100%{opacity:1;transform:translateY(0)} }
+</style>
+
+<div id="stage">
+
+  <div id="curved" data-node-id="curved" data-node-role="text">
+    <div class="arc">
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-171.90px,-6.00px) rotate(272.00deg)"><span class="g" style="animation-delay:0ms">B</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-170.48px,-22.80px) rotate(277.62deg)"><span class="g" style="animation-delay:45ms">u</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-167.43px,-39.39px) rotate(283.24deg)"><span class="g" style="animation-delay:90ms">t</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-162.77px,-55.59px) rotate(288.86deg)"><span class="g" style="animation-delay:135ms"> </span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-156.54px,-71.26px) rotate(294.48deg)"><span class="g" style="animation-delay:180ms">w</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-148.81px,-86.25px) rotate(300.10deg)"><span class="g" style="animation-delay:225ms">h</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-139.65px,-100.40px) rotate(305.71deg)"><span class="g" style="animation-delay:270ms">a</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-129.15px,-113.60px) rotate(311.33deg)"><span class="g" style="animation-delay:315ms">t</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-117.41px,-125.70px) rotate(316.95deg)"><span class="g" style="animation-delay:360ms"> </span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-104.54px,-136.59px) rotate(322.57deg)"><span class="g" style="animation-delay:405ms">i</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-90.66px,-146.17px) rotate(328.19deg)"><span class="g" style="animation-delay:450ms">f</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-75.91px,-154.34px) rotate(333.81deg)"><span class="g" style="animation-delay:495ms"> </span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-60.44px,-161.03px) rotate(339.43deg)"><span class="g" style="animation-delay:540ms">I</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-44.38px,-166.18px) rotate(345.05deg)"><span class="g" style="animation-delay:585ms"> </span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-27.89px,-169.72px) rotate(350.67deg)"><span class="g" style="animation-delay:630ms">t</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(-11.14px,-171.64px) rotate(356.29deg)"><span class="g" style="animation-delay:675ms">o</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(5.72px,-171.90px) rotate(361.90deg)"><span class="g" style="animation-delay:720ms">l</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(22.52px,-170.52px) rotate(367.52deg)"><span class="g" style="animation-delay:765ms">d</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(39.11px,-167.49px) rotate(373.14deg)"><span class="g" style="animation-delay:810ms"> </span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(55.32px,-162.86px) rotate(378.76deg)"><span class="g" style="animation-delay:855ms">y</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(71.00px,-156.66px) rotate(384.38deg)"><span class="g" style="animation-delay:900ms">o</span></span>
+      <span class="ch" style="transform:translate(-50%,-50%) translate(86.00px,-148.96px) rotate(390.00deg)"><span class="g" style="animation-delay:945ms">u</span></span>
+    </div>
+  </div>
+
+  <div id="headline" data-node-id="headline">
+    <span class="line" data-node-id="line1" data-node-role="text"><span class="w" style="animation-delay:1500ms">already</span><span class="sp"></span><span class="w" style="animation-delay:1650ms">know</span></span>
+    <span class="line" data-node-id="line2" data-node-role="text"><span class="w" style="animation-delay:1800ms">how</span><span class="sp"></span><span class="w" style="animation-delay:1950ms">to</span><span class="sp"></span><span class="w" style="animation-delay:2100ms">do</span><span class="sp"></span><span class="w" style="animation-delay:2250ms">it?</span></span>
+  </div>
+</div>
+

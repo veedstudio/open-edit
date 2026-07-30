@@ -1,0 +1,27 @@
+{
+  "sandbox": {
+    "network": {
+      "allowedDomains": [
+        "*.veed.io",
+        "fonts.googleapis.com",
+        "fonts.gstatic.com",
+        "storage.googleapis.com",
+        "github.com",
+        "api.github.com",
+        "*.githubusercontent.com"
+      ]
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/skills/open-edit/hooks/session-start.sh\" claude"
+          }
+        ]
+      }
+    ]
+  }
+}

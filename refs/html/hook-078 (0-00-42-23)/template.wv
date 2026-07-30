@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@1&family=Albert+Sans:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; }
+  #stage {
+    position: relative;
+    width: 720px;
+    height: 1280px;
+    overflow: hidden;
+    background: #2a2030;
+    font-family: 'Albert Sans', sans-serif;
+  }
+
+  .red { color: #e62129; }
+
+  .tag {
+    position: absolute;
+    font-family: 'Albert Sans', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 1px;
+    line-height: 22px;
+  }
+  #fotha { left: 78px; top: 65px; }
+  #presents { right: 35px; top: 65px; text-align: right; }
+
+  #joint {
+    position: absolute;
+    left: 0; right: 0; top: 333px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 2px;
+  }
+
+  #title {
+    position: absolute;
+    left: 58px;
+    top: 418px;
+    width: 660px;
+    font-family: 'DM Serif Display', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 116px;
+    line-height: 0.92;
+    letter-spacing: -3px;
+    white-space: nowrap;
+  }
+  /* the engine has no half-leading: lines positioned absolutely to match the Chrome decode */
+  .tline { position: absolute; left: 0; white-space: nowrap; }
+  #tline1 { top: -25px; }
+  #tline2 { top: 82px; }
+
+  #embreve {
+    position: absolute;
+    left: 0; right: 0; top: 695px;
+    text-align: center;
+    font-weight: 800;
+    font-size: 40px;
+    letter-spacing: 3px;
+  }
+  #sub1, #sub2 {
+    position: absolute;
+    left: 0; right: 0;
+    text-align: center;
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: 0.5px;
+  }
+  #sub1 { top: 746px; }
+  #sub2 { top: 769px; }
+
+  .w {
+    display: inline-block;
+    position: relative;
+    z-index: 1;
+    opacity: 0;
+    animation: wordIn 0.3s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes wordIn {
+    0%   { opacity: 0; transform: translateY(0.16em); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <div id="fotha" class="tag red" data-node-id="fotha" data-node-role="text"><span class="w" style="animation-delay:0ms">FOTHA</span></div>
+  <div id="presents" class="tag red" data-node-id="presents" data-node-role="text"><span class="w" style="animation-delay:140ms">PRESENTS</span></div>
+
+  <div id="joint" class="red" data-node-id="joint" data-node-role="text"><span class="w" style="animation-delay:280ms">A</span> <span class="w" style="animation-delay:420ms">CLAVVER!</span> <span class="w" style="animation-delay:560ms">JOINT</span></div>
+
+  <div id="title" class="red" data-node-id="title" data-node-role="text"><div class="tline" id="tline1"><span class="w" style="animation-delay:700ms">COMO</span> <span class="w" style="animation-delay:840ms">SER</span></div><div class="tline" id="tline2"><span class="w" style="animation-delay:980ms">+ORIGINAL</span></div></div>
+
+  <div id="embreve" class="red" data-node-id="embreve" data-node-role="text"><span class="w" style="animation-delay:1120ms">EM</span> <span class="w" style="animation-delay:1260ms">BREVE</span></div>
+  <div id="sub1" class="red" data-node-id="sub1" data-node-role="text"><span class="w" style="animation-delay:1400ms">TIPO</span> <span class="w" style="animation-delay:1540ms">BEM</span> <span class="w" style="animation-delay:1680ms">EM</span> <span class="w" style="animation-delay:1820ms">BREVE</span></div>
+  <div id="sub2" class="red" data-node-id="sub2" data-node-role="text"><span class="w" style="animation-delay:1960ms">MESMO,</span> <span class="w" style="animation-delay:2100ms">CONFIA</span> <span class="w" style="animation-delay:2240ms">:P</span></div>
+
+</div>
+</body>
+</html>

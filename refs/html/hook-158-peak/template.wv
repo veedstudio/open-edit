@@ -1,0 +1,59 @@
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 960px; height: 720px; }
+  #stage {
+    position: relative;
+    width: 960px;
+    height: 720px;
+    background: #0a0e16;
+    overflow: hidden;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+  }
+  #bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    padding: 63px 0 37px;
+  }
+  .row {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    overflow: visible;
+    color: #fff;
+    font-weight: 700;
+    font-size: 172px;
+    line-height: 1.2;
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.45), 0 0 22px rgba(255, 255, 255, 0.3), 0 0 44px rgba(255, 255, 255, 0.18);
+  }
+  /* the row is a full-width flex box that centers its glyph run; the inner */
+  /* span carries the tracking. text-indent on the span balances the phantom */
+  /* trailing advance letter-spacing leaves, keeping the run optically */
+  /* centered. growing text just widens the centered span -> no row overflow. */
+  .row > span { display: block; white-space: nowrap; }
+  #row-peace > span { letter-spacing: 70px; text-indent: 70px; }
+  #row-mind  > span { letter-spacing: 90px; text-indent: 90px; }
+  #row-of    > span { letter-spacing: 130px; text-indent: 130px; }
+
+  /* fade an inner inline-block word; the centered flex span is left opaque */
+  .w { display: inline-block; opacity: 0; animation: wIn .42s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes wIn { 0% { opacity: 0; transform: translateY(0.28em); } 100% { opacity: 1; transform: translateY(0); } }
+</style>
+<div id="stage">
+  <div id="overlay">
+    <div class="row" id="row-peace" data-node-id="row-peace" data-node-role="text"><span><span class="w" style="animation-delay:0ms">PEACE</span></span></div>
+    <div class="row" id="row-of" data-node-id="row-of" data-node-role="text"><span><span class="w" style="animation-delay:150ms">OF</span></span></div>
+    <div class="row" id="row-mind" data-node-id="row-mind" data-node-role="text"><span><span class="w" style="animation-delay:300ms">MIND</span></span></div>
+  </div>
+</div>

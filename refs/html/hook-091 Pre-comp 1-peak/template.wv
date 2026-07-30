@@ -1,0 +1,76 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 960px; height: 720px; }
+  #stage {
+    position: relative;
+    width: 960px;
+    height: 720px;
+    background: #1a1410;
+    font-family: 'Bebas Neue', 'Oswald', sans-serif;
+  }
+  .t {
+    position: absolute;
+    z-index: 2;
+    width: max-content;
+    color: #f0d9bc;
+    text-transform: uppercase;
+    line-height: 1;
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-weight: 400;
+  }
+  #this { left: 50px; top: 186px; font-size: 60px; }
+  #is   { left: 442px; top: 186px; font-size: 60px; }
+  #your { left: 738px; top: 183px; font-size: 60px; }
+  #talking { left: 16px; top: 250px; font-size: 138px; letter-spacing: 1px; }
+  #head { left: 566px; top: 250px; font-size: 138px; letter-spacing: 1px; }
+  #video { left: 405px; top: 407px; font-size: 60px; letter-spacing: 1px; }
+  #caption {
+    position: absolute;
+    z-index: 2;
+    left: 0; right: 0;
+    top: 622px;
+    text-align: center;
+    color: #f0d9bc;
+    font-family: 'Oswald', sans-serif;
+    font-weight: 500;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+
+  .fade, #talking, #head { opacity: 0; }
+  @keyframes fadeIn {
+    0%   { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  /* Emphasis words: alpha + vertical scale-in from the word's own center line */
+  @keyframes slabIn {
+    0%   { opacity: 0; transform: scale(1, 0.08); }
+    45%  { opacity: 1; transform: scale(1, 1.06); }
+    100% { opacity: 1; transform: scale(1, 1); }
+  }
+
+  #this    { animation: fadeIn 0.35s cubic-bezier(.2,.7,.3,1) 0.25s both; }
+  #is      { animation: fadeIn 0.35s cubic-bezier(.2,.7,.3,1) 0.43s both; }
+  #your    { animation: fadeIn 0.35s cubic-bezier(.2,.7,.3,1) 0.61s both; }
+  #talking { animation: slabIn 0.5s  cubic-bezier(.2,.7,.3,1) 0.82s both; }
+  #head    { animation: slabIn 0.5s  cubic-bezier(.2,.7,.3,1) 1.06s both; }
+  #video   { animation: fadeIn 0.35s cubic-bezier(.2,.7,.3,1) 1.34s both; }
+  #caption { animation: fadeIn 0.45s cubic-bezier(.2,.7,.3,1) 1.70s both; }
+</style>
+<div id="stage">
+  <div class="t fade" id="this" data-node-id="this" data-node-role="text">This</div>
+  <div class="t fade" id="is" data-node-id="is" data-node-role="text">Is</div>
+  <div class="t fade" id="your" data-node-id="your" data-node-role="text">Your</div>
+  <div class="t" id="talking" data-node-id="talking" data-node-role="text">Talking</div>
+  <div class="t" id="head" data-node-id="head" data-node-role="text">Head</div>
+  <div class="t fade" id="video" data-node-id="video" data-node-role="text">Video</div>
+  <div class="fade" id="caption" data-node-id="caption" data-node-role="text">powergrade and LUT along with guide will be available soon</div>
+</div>

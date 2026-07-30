@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=720, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; background: #101010; overflow: hidden; }
+  #stage {
+    position: relative;
+    width: 720px;
+    height: 1280px;
+    font-family: 'Oswald', sans-serif;
+  }
+  .layer { position: absolute; z-index: 2; }
+  .y { color: #fff402; }
+  .glow { text-shadow: 0 0 14px rgba(255,225,0,.55), 0 0 4px rgba(255,225,0,.7); }
+
+  #fotha, #presents {
+    top: 60px;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 2px;
+    display: inline-block;
+  }
+  #fotha { left: 85px; }
+  #presents { right: 60px; }
+
+  .center-row { left: 0; width: 720px; text-align: center; }
+  .center-row > .inner { display: inline-block; max-width: 680px; }
+
+  #joint-row {
+    top: 384px; left: 0; width: 720px; height: 64px;
+  }
+  #joint {
+    position: absolute; top: 4px; left: 0; width: 720px;
+    font-weight: 700; font-size: 26px; letter-spacing: 4px;
+    display: flex; align-items: flex-start; gap: 12px; justify-content: center;
+  }
+  #joint .clayver {
+    font-family: 'Staatliches', sans-serif; letter-spacing: 0; font-size: 30px;
+    transform: skewX(-6deg);
+  }
+  .laurel { position: absolute; top: 0; width: 76px; height: 64px; }
+  #laurel-l { left: 62px; }
+  #laurel-r { left: 582px; }
+  /* laurel wreath drawn with clip-path polygons — the engine's SVG path rendering is unverified;
+     each polygon fades ITSELF (polygons under an opacity-animated ancestor pop in late) */
+  .laurel .lp { position: absolute; left: 0; top: 0; width: 76px; height: 64px; background: #fff402; z-index: 1; }
+  .laurel .lbl {
+    position: absolute; left: 0; top: 0; width: 76px; height: 64px; z-index: 2;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; line-height: 1.05; letter-spacing: .5px;
+  }
+
+  #title-row { top: 462px; left: 0; width: 720px; display: flex; justify-content: center; }
+  #title {
+    font-family: 'Staatliches', sans-serif;
+    font-weight: 400;
+    font-size: 92px;
+    line-height: 1.02;
+    letter-spacing: 0px;
+    max-width: 660px;
+    padding: 8px 6px 24px;
+    transform: skewX(-3deg);
+    transform-origin: center top;
+    display: flex; flex-direction: column; align-items: center;
+    margin-top: -24px;
+  }
+  #title .ln { display: flex; height: 94px; }
+
+  /* per-char neon ignition: opacity flickers like an under-powered tube striking,
+     with a keyframed glow surge that decays to nothing so the resting frame
+     matches the static glow exactly */
+  #title .ch {
+    opacity: 0;
+    text-shadow: 0 0 14px rgba(255,225,0,.55), 0 0 4px rgba(255,225,0,.7);
+    animation: ignite .55s linear both;
+  }
+  @keyframes ignite {
+    0%   { opacity: 0;    filter: drop-shadow(0 0 0 rgba(255,244,2,0)); }
+    10%  { opacity: 0.9;  filter: drop-shadow(0 0 14px rgba(255,235,60,0.9)); }
+    20%  { opacity: 0.08; filter: drop-shadow(0 0 0 rgba(255,244,2,0)); }
+    34%  { opacity: 0.7;  filter: drop-shadow(0 0 8px rgba(255,235,60,0.55)); }
+    46%  { opacity: 0.2;  filter: drop-shadow(0 0 0 rgba(255,244,2,0)); }
+    62%  { opacity: 1;    filter: drop-shadow(0 0 18px rgba(255,235,60,0.95)); }
+    100% { opacity: 1;    filter: drop-shadow(0 0 0 rgba(255,244,2,0)); }
+  }
+
+  .fader {
+    opacity: 0;
+    animation: fadeon .45s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes fadeon {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  #subtitle-row { top: 766px; }
+  #subtitle { font-weight: 700; font-size: 21px; letter-spacing: 2px; }
+
+  #credits {
+    top: 845px; left: 0; width: 720px;
+    display: flex; flex-direction: column; align-items: center; gap: 9px;
+  }
+  #credits .crow {
+    display: flex; gap: 17px; justify-content: center;
+    font-size: 19px; font-weight: 400; letter-spacing: .5px;
+  }
+  /* each credit segment fades itself so its glow texture stays small
+     (whole rows exceed the ~512px composited-texture limit) */
+  #credits .seg { position: relative; z-index: 2; white-space: nowrap; }
+  #credits b { font-weight: 700; }
+
+  #logos {
+    top: 1188px; left: 0; width: 720px;
+    display: flex; align-items: center; gap: 16px; justify-content: center;
+  }
+  #logo-jbo { position: relative; z-index: 2; font-weight: 700; font-size: 36px; letter-spacing: 1px; }
+  #logo-prima { position: relative; font-weight: 500; font-size: 25px; letter-spacing: .5px; padding-bottom: 8px; }
+  #logo-prima .pt { position: relative; z-index: 2; }
+  /* the engine's glyph band sits ~8px lower than Chrome at 25px — drop the smile to match */
+  #logo-prima .smile {
+    position: absolute; left: 6px; right: 2px; bottom: -8px; height: 12px;
+  }
+  #logo-prima .smile .sp { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: #fff402; z-index: 1; }
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <div id="fotha" class="layer y glow fader" style="animation-delay:2150ms" data-node-id="fotha" data-node-role="text">FOTHA</div>
+  <div id="presents" class="layer y glow fader" style="animation-delay:2150ms" data-node-id="presents" data-node-role="text">PRESENTS</div>
+
+  <div id="joint-row" class="layer">
+    <div id="laurel-l" class="laurel" data-node-id="laurel-l" data-node-role="icon">
+      <div class="lp fader" style="animation-delay:2300ms; clip-path: polygon(51.1% 94.1%, 48.3% 91.5%, 45.8% 88.9%, 43.3% 86.1%, 41.0% 83.1%, 38.8% 80.1%, 36.8% 76.9%, 34.9% 73.6%, 33.2% 70.2%, 31.7% 66.7%, 13.0% 57.8%, 15.5% 55.6%, 30.2% 63.0%, 29.0% 59.3%, 27.9% 55.4%, 27.0% 51.4%, 11.0% 40.0%, 13.5% 37.8%, 26.2% 47.3%, 25.6% 43.1%, 25.2% 38.8%, 24.9% 34.4%, 14.0% 23.3%, 16.5% 21.1%, 24.8% 29.9%, 24.9% 25.3%, 25.2% 20.6%, 25.7% 15.8%, 24.0% 13.9%, 22.3% 15.4%, 21.8% 20.3%, 21.5% 25.1%, 21.4% 29.9%, 21.5% 34.6%, 34.0% 15.6%, 32.5% 18.3%, 21.8% 39.1%, 22.2% 43.6%, 22.8% 48.0%, 31.0% 32.2%, 29.5% 35.0%, 23.6% 52.3%, 24.6% 56.4%, 25.8% 60.5%, 27.1% 64.4%, 28.6% 68.2%, 32.0% 48.9%, 30.5% 51.7%, 30.2% 71.9%, 32.0% 75.5%, 34.0% 79.0%, 36.1% 82.3%, 38.4% 85.5%, 40.8% 88.6%, 43.4% 91.6%, 46.1% 94.4%, 48.9% 97.0%)"></div>
+      <div class="lp fader" style="animation-delay:2300ms; clip-path: polygon(48.9% 94.1%, 51.7% 91.5%, 54.2% 88.9%, 56.7% 86.1%, 59.0% 83.1%, 61.2% 80.1%, 63.2% 76.9%, 65.1% 73.6%, 66.8% 70.2%, 68.3% 66.7%, 87.0% 57.8%, 84.5% 55.6%, 69.8% 63.0%, 71.0% 59.3%, 72.1% 55.4%, 73.0% 51.4%, 89.0% 40.0%, 86.5% 37.8%, 73.8% 47.3%, 74.4% 43.1%, 74.8% 38.8%, 75.1% 34.4%, 86.0% 23.3%, 83.5% 21.1%, 75.2% 29.9%, 75.1% 25.3%, 74.8% 20.6%, 74.3% 15.8%, 76.0% 13.9%, 77.7% 15.4%, 78.2% 20.3%, 78.5% 25.1%, 78.6% 29.9%, 78.5% 34.6%, 66.0% 15.6%, 67.5% 18.3%, 78.2% 39.1%, 77.8% 43.6%, 77.2% 48.0%, 69.0% 32.2%, 70.5% 35.0%, 76.4% 52.3%, 75.4% 56.4%, 74.2% 60.5%, 72.9% 64.4%, 71.4% 68.2%, 68.0% 48.9%, 69.5% 51.7%, 69.8% 71.9%, 68.0% 75.5%, 66.0% 79.0%, 63.9% 82.3%, 61.6% 85.5%, 59.2% 88.6%, 56.6% 91.6%, 53.9% 94.4%, 51.1% 97.0%)"></div>
+      <div class="lbl y fader" style="animation-delay:2300ms"><div>BEST</div><div>PICTURE</div></div>
+    </div>
+    <div id="joint" class="y glow fader" style="animation-delay:2300ms" data-node-id="joint" data-node-role="text">
+      <span>A</span><span class="clayver">CLAYVER!</span><span>JOINT</span>
+    </div>
+    <div id="laurel-r" class="laurel" data-node-id="laurel-r" data-node-role="icon">
+      <div class="lp fader" style="animation-delay:2300ms; clip-path: polygon(51.1% 94.1%, 48.3% 91.5%, 45.8% 88.9%, 43.3% 86.1%, 41.0% 83.1%, 38.8% 80.1%, 36.8% 76.9%, 34.9% 73.6%, 33.2% 70.2%, 31.7% 66.7%, 13.0% 57.8%, 15.5% 55.6%, 30.2% 63.0%, 29.0% 59.3%, 27.9% 55.4%, 27.0% 51.4%, 11.0% 40.0%, 13.5% 37.8%, 26.2% 47.3%, 25.6% 43.1%, 25.2% 38.8%, 24.9% 34.4%, 14.0% 23.3%, 16.5% 21.1%, 24.8% 29.9%, 24.9% 25.3%, 25.2% 20.6%, 25.7% 15.8%, 24.0% 13.9%, 22.3% 15.4%, 21.8% 20.3%, 21.5% 25.1%, 21.4% 29.9%, 21.5% 34.6%, 34.0% 15.6%, 32.5% 18.3%, 21.8% 39.1%, 22.2% 43.6%, 22.8% 48.0%, 31.0% 32.2%, 29.5% 35.0%, 23.6% 52.3%, 24.6% 56.4%, 25.8% 60.5%, 27.1% 64.4%, 28.6% 68.2%, 32.0% 48.9%, 30.5% 51.7%, 30.2% 71.9%, 32.0% 75.5%, 34.0% 79.0%, 36.1% 82.3%, 38.4% 85.5%, 40.8% 88.6%, 43.4% 91.6%, 46.1% 94.4%, 48.9% 97.0%)"></div>
+      <div class="lp fader" style="animation-delay:2300ms; clip-path: polygon(48.9% 94.1%, 51.7% 91.5%, 54.2% 88.9%, 56.7% 86.1%, 59.0% 83.1%, 61.2% 80.1%, 63.2% 76.9%, 65.1% 73.6%, 66.8% 70.2%, 68.3% 66.7%, 87.0% 57.8%, 84.5% 55.6%, 69.8% 63.0%, 71.0% 59.3%, 72.1% 55.4%, 73.0% 51.4%, 89.0% 40.0%, 86.5% 37.8%, 73.8% 47.3%, 74.4% 43.1%, 74.8% 38.8%, 75.1% 34.4%, 86.0% 23.3%, 83.5% 21.1%, 75.2% 29.9%, 75.1% 25.3%, 74.8% 20.6%, 74.3% 15.8%, 76.0% 13.9%, 77.7% 15.4%, 78.2% 20.3%, 78.5% 25.1%, 78.6% 29.9%, 78.5% 34.6%, 66.0% 15.6%, 67.5% 18.3%, 78.2% 39.1%, 77.8% 43.6%, 77.2% 48.0%, 69.0% 32.2%, 70.5% 35.0%, 76.4% 52.3%, 75.4% 56.4%, 74.2% 60.5%, 72.9% 64.4%, 71.4% 68.2%, 68.0% 48.9%, 69.5% 51.7%, 69.8% 71.9%, 68.0% 75.5%, 66.0% 79.0%, 63.9% 82.3%, 61.6% 85.5%, 59.2% 88.6%, 56.6% 91.6%, 53.9% 94.4%, 51.1% 97.0%)"></div>
+      <div class="lbl y fader" style="animation-delay:2300ms"><div>BEST</div><div>ACT</div></div>
+    </div>
+  </div>
+
+  <div id="title-row" class="layer">
+    <div id="title" class="y" data-node-id="title" data-node-role="text"><div class="ln"><span class="ch" style="animation-delay:100ms">G</span><span class="ch" style="animation-delay:165ms">E</span><span class="ch" style="animation-delay:230ms">N</span><span class="ch" style="animation-delay:295ms">T</span><span class="ch" style="animation-delay:360ms">E&nbsp;</span><span class="ch" style="animation-delay:425ms">C</span><span class="ch" style="animation-delay:490ms">R</span><span class="ch" style="animation-delay:555ms">I</span><span class="ch" style="animation-delay:620ms">A</span><span class="ch" style="animation-delay:685ms">T</span><span class="ch" style="animation-delay:750ms">I</span><span class="ch" style="animation-delay:815ms">V</span><span class="ch" style="animation-delay:880ms">A</span></div><div class="ln"><span class="ch" style="animation-delay:945ms">V</span><span class="ch" style="animation-delay:1010ms">Ê&nbsp;</span><span class="ch" style="animation-delay:1075ms">F</span><span class="ch" style="animation-delay:1140ms">I</span><span class="ch" style="animation-delay:1205ms">L</span><span class="ch" style="animation-delay:1270ms">M</span><span class="ch" style="animation-delay:1335ms">E&nbsp;</span><span class="ch" style="animation-delay:1400ms">R</span><span class="ch" style="animation-delay:1465ms">U</span><span class="ch" style="animation-delay:1530ms">I</span><span class="ch" style="animation-delay:1595ms">M</span></div></div>
+  </div>
+
+  <div id="subtitle-row" class="layer center-row fader" style="animation-delay:2450ms">
+    <div id="subtitle" class="inner y glow" data-node-id="subtitle" data-node-role="text">INSPIRADO NO VÍDEO DA ALDEIA CRIATIVA</div>
+  </div>
+
+  <div id="credits" class="layer glow" data-node-id="credits">
+    <div class="crow y" data-node-id="credit-row1" data-node-role="text"><span class="seg fader" style="animation-delay:2600ms">Directed By <b>CLAYZIN DA GALERA</b></span><span class="seg fader" style="animation-delay:2600ms">Camera By <b>CLEBER</b></span><span class="seg fader" style="animation-delay:2600ms">Audio By <b>FLAVIO</b></span></div>
+    <div class="crow y" data-node-id="credit-row2" data-node-role="text"><span class="seg fader" style="animation-delay:2600ms">Script By <b>CLAY</b></span><span class="seg fader" style="animation-delay:2600ms">Editor By <b>LINDÃO DA MAMAE</b></span><span class="seg fader" style="animation-delay:2600ms">Art Director By <b>CLAYVZAO</b></span></div>
+    <div class="crow y" data-node-id="credit-row3" data-node-role="text"><span class="seg fader" style="animation-delay:2600ms">Stylish By <b>CLAYVER</b></span><span class="seg fader" style="animation-delay:2600ms">VFX By <b>NEM TEM VFX KK</b></span></div>
+  </div>
+
+  <div id="logos" class="layer glow" data-node-id="logos">
+    <div id="logo-jbo" class="y fader" style="animation-delay:2750ms" data-node-id="logo-jbo" data-node-role="text">JB<span class="o">O</span></div>
+    <div id="logo-prima" class="y" data-node-id="logo-prima" data-node-role="text"><span class="pt fader" style="animation-delay:2750ms">prima video</span>
+      <span class="smile">
+        <span class="sp fader" style="animation-delay:2750ms; clip-path: polygon(3.1% 29.7%, 11.6% 49.9%, 20.1% 66.2%, 28.6% 78.6%, 37.2% 87.1%, 45.7% 91.7%, 54.3% 92.3%, 62.8% 89.1%, 71.3% 81.9%, 79.9% 70.8%, 88.4% 55.8%, 96.9% 36.9%, 96.4% 20.3%, 88.0% 39.1%, 79.5% 53.9%, 71.1% 64.9%, 62.7% 72.0%, 54.2% 75.2%, 45.8% 74.6%, 37.4% 70.0%, 28.9% 61.6%, 20.5% 49.4%, 12.1% 33.2%, 3.6% 13.2%)"></span>
+        <span class="sp fader" style="animation-delay:2750ms; clip-path: polygon(89.2% 14.3%, 97.5% 28.6%, 94.6% 82.1%)"></span>
+      </span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

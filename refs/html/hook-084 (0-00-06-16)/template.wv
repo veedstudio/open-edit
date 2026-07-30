@@ -1,0 +1,150 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=882, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@400;500;600;700&family=EB+Garamond:wght@400;500;600&family=Geist:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 882px; height: 1568px; }
+
+#stage {
+  position: relative;
+  width: 882px;
+  height: 1568px;
+  overflow: hidden;
+  background: #6f7468;
+  font-family: 'EB Garamond', serif;
+  color: #fff;
+}
+
+.layer { position: absolute; z-index: 2; }
+
+/* white halo glow shared by title + headers */
+.glow { text-shadow: 0 0 14px rgba(255,255,255,0.75), 0 0 28px rgba(255,255,255,0.5); }
+.soft-glow { text-shadow: 0 0 8px rgba(255,255,255,0.6); }
+
+/* grouped char-cluster reveal: alpha + subtle blur, inner spans only */
+.g {
+  display: inline-block;
+  white-space: pre;
+  opacity: 0;
+  animation: gIn 0.24s cubic-bezier(.2,.7,.3,1) both;
+}
+.g.big { animation-duration: 0.3s; }
+@keyframes gIn {
+  0%   { opacity: 0; filter: blur(6px); }
+  100% { opacity: 1; filter: blur(0px); }
+}
+
+/* ---- top row ---- */
+#fotha {
+  left: 70px; top: 80px;
+  font-family: 'Bodoni Moda', serif;
+  font-weight: 700; font-size: 20px; letter-spacing: 1px;
+}
+#presents {
+  right: 62px; top: 80px;
+  font-family: 'Bodoni Moda', serif;
+  font-weight: 600; font-size: 18px; letter-spacing: 1px;
+}
+
+/* ---- tagline ---- */
+#tagline {
+  left: 0; right: 0; top: 488px;
+  text-align: center;
+  font-family: 'EB Garamond', serif;
+  font-weight: 600; font-size: 27px; letter-spacing: 4px;
+}
+
+/* ---- title ---- */
+#title-back, #title-stage {
+  position: absolute;
+  z-index: 2;
+  font-family: 'Bodoni Moda', serif;
+  font-weight: 500;
+  font-size: 150px;
+  line-height: 1;
+  letter-spacing: 1px;
+}
+#title-back  { left: 64px;  top: 543px; line-height: 1.3333; }
+#title-stage { left: 188px; top: 710px; line-height: 1.3333; }
+#title-temoback {
+  position: absolute; z-index: 2; left: 480px; top: 668px;
+  font-family: 'EB Garamond', serif;
+  font-weight: 500; font-size: 21px; letter-spacing: 2px;
+}
+#title-etemo {
+  position: absolute; z-index: 2; left: 122px; top: 878px;
+  font-family: 'EB Garamond', serif;
+  font-weight: 500; font-size: 21px; letter-spacing: 2px;
+}
+
+/* ---- credits ---- */
+#credits {
+  left: 0; right: 0; top: 982px;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 9px;
+  font-family: 'EB Garamond', serif;
+  font-size: 17px;
+}
+#credits .crow { display: flex; justify-content: center; gap: 46px; flex-wrap: wrap; }
+.credit { white-space: nowrap; }
+.credit .role { font-weight: 400; opacity: 0.92; }
+.credit .name { font-weight: 700; letter-spacing: 0.5px; margin-left: 6px; }
+
+/* ---- bottom logos ---- */
+#logos {
+  left: 0; right: 0; top: 1432px;
+  display: flex; justify-content: center; align-items: center; gap: 26px;
+  font-family: 'Geist', sans-serif;
+}
+#logo-jbo { font-weight: 800; font-size: 30px; letter-spacing: 1px; }
+#logo-tv  { font-weight: 600; font-size: 28px; display: flex; align-items: center; gap: 4px; }
+
+/* apple glyph drawn as clip-path shapes (U+F8FF has no glyph in the engine's fonts) */
+#logo-tv .apple { position: relative; width: 20px; height: 26px; }
+#logo-tv .apple .ab, #logo-tv .apple .al { position: absolute; display: block; background: #fff; }
+#logo-tv .apple .ab {
+  left: 0; top: 5px; width: 20px; height: 21px;
+  clip-path: polygon(50% 9%, 38% 1%, 25% 2%, 13% 11%, 6% 26%, 5% 42%, 8% 60%, 15% 77%, 25% 90%, 36% 98%, 44% 94%, 50% 93%, 56% 94%, 64% 98%, 75% 90%, 84% 78%, 89% 66%, 80% 62%, 75% 53%, 75% 43%, 80% 34%, 88% 29%, 86% 20%, 78% 8%, 66% 2%, 56% 4%);
+}
+#logo-tv .apple .al {
+  left: 9px; top: 0; width: 9px; height: 7px;
+  clip-path: polygon(10% 80%, 40% 20%, 80% 0%, 100% 30%, 70% 85%, 35% 100%);
+}
+</style>
+
+<div id="stage" data-node-id="canvas">
+
+  <div id="fotha" class="layer glow" data-node-id="fotha" data-node-role="text"><span class="g" style="animation-delay:120ms">FO</span><span class="g" style="animation-delay:190ms">TH</span><span class="g" style="animation-delay:260ms">A</span></div>
+  <div id="presents" class="layer glow" data-node-id="presents" data-node-role="text"><span class="g" style="animation-delay:430ms">PR</span><span class="g" style="animation-delay:500ms">ES</span><span class="g" style="animation-delay:570ms">EN</span><span class="g" style="animation-delay:640ms">TS</span></div>
+
+  <div id="tagline" class="layer glow" data-node-id="tagline" data-node-role="text"><span class="g" style="animation-delay:800ms">A </span><span class="g" style="animation-delay:865ms">CLA</span><span class="g" style="animation-delay:930ms">YVE</span><span class="g" style="animation-delay:995ms">R! </span><span class="g" style="animation-delay:1060ms">JOI</span><span class="g" style="animation-delay:1125ms">NT</span></div>
+
+  <div class="layer glow" id="title-back" data-node-id="title-back" data-node-role="text"><span class="g big" style="animation-delay:1250ms">BA</span><span class="g big" style="animation-delay:1380ms">CK</span></div>
+  <div class="layer glow" id="title-stage" data-node-id="title-stage" data-node-role="text"><span class="g big" style="animation-delay:1850ms">ST</span><span class="g big" style="animation-delay:1980ms">AG</span><span class="g big" style="animation-delay:2110ms">E</span></div>
+  <div id="title-temoback" class="layer soft-glow" data-node-id="title-temoback" data-node-role="text"><span class="g" style="animation-delay:1600ms">TEM</span><span class="g" style="animation-delay:1660ms"> O </span><span class="g" style="animation-delay:1720ms">BA</span><span class="g" style="animation-delay:1780ms">CK</span></div>
+  <div id="title-etemo" class="layer soft-glow" data-node-id="title-etemo" data-node-role="text"><span class="g" style="animation-delay:2250ms">E T</span><span class="g" style="animation-delay:2310ms">EM </span><span class="g" style="animation-delay:2370ms">O</span></div>
+
+  <div id="credits" class="layer soft-glow">
+    <div class="crow">
+      <span class="credit" data-node-id="credit-r1c1" data-node-role="text"><span class="role"><span class="g" style="animation-delay:2450ms">Dir</span><span class="g" style="animation-delay:2482ms">ect</span><span class="g" style="animation-delay:2514ms">ed </span><span class="g" style="animation-delay:2546ms">By</span></span><span class="name"><span class="g" style="animation-delay:2578ms">CLA</span><span class="g" style="animation-delay:2610ms">YZI</span><span class="g" style="animation-delay:2642ms">N D</span><span class="g" style="animation-delay:2674ms">A G</span><span class="g" style="animation-delay:2706ms">ALE</span><span class="g" style="animation-delay:2738ms">RA</span></span></span>
+      <span class="credit" data-node-id="credit-r1c2" data-node-role="text"><span class="role"><span class="g" style="animation-delay:2850ms">Cam</span><span class="g" style="animation-delay:2882ms">era</span><span class="g" style="animation-delay:2914ms"> By</span></span><span class="name"><span class="g" style="animation-delay:2946ms">CLE</span><span class="g" style="animation-delay:2978ms">BER</span></span></span>
+      <span class="credit" data-node-id="credit-r1c3" data-node-role="text"><span class="role"><span class="g" style="animation-delay:3090ms">Aud</span><span class="g" style="animation-delay:3122ms">io </span><span class="g" style="animation-delay:3154ms">By</span></span><span class="name"><span class="g" style="animation-delay:3186ms">FLA</span><span class="g" style="animation-delay:3218ms">VIO</span></span></span>
+    </div>
+    <div class="crow">
+      <span class="credit" data-node-id="credit-r2c1" data-node-role="text"><span class="role"><span class="g" style="animation-delay:3330ms">Scr</span><span class="g" style="animation-delay:3362ms">ipt</span><span class="g" style="animation-delay:3394ms"> By</span></span><span class="name"><span class="g" style="animation-delay:3426ms">CL</span><span class="g" style="animation-delay:3458ms">AY</span></span></span>
+      <span class="credit" data-node-id="credit-r2c2" data-node-role="text"><span class="role"><span class="g" style="animation-delay:3570ms">Edi</span><span class="g" style="animation-delay:3602ms">tor</span><span class="g" style="animation-delay:3634ms"> By</span></span><span class="name"><span class="g" style="animation-delay:3666ms">LIN</span><span class="g" style="animation-delay:3698ms">DAO</span><span class="g" style="animation-delay:3730ms"> DA</span><span class="g" style="animation-delay:3762ms"> MA</span><span class="g" style="animation-delay:3794ms">MAE</span></span></span>
+      <span class="credit" data-node-id="credit-r2c3" data-node-role="text"><span class="role"><span class="g" style="animation-delay:3906ms">Art</span><span class="g" style="animation-delay:3938ms"> Di</span><span class="g" style="animation-delay:3970ms">rec</span><span class="g" style="animation-delay:4002ms">tor</span><span class="g" style="animation-delay:4034ms"> By</span></span><span class="name"><span class="g" style="animation-delay:4066ms">CLA</span><span class="g" style="animation-delay:4098ms">YVZ</span><span class="g" style="animation-delay:4130ms">AO</span></span></span>
+    </div>
+    <div class="crow">
+      <span class="credit" data-node-id="credit-r3c1" data-node-role="text"><span class="role"><span class="g" style="animation-delay:4242ms">Sty</span><span class="g" style="animation-delay:4274ms">lis</span><span class="g" style="animation-delay:4306ms">h B</span><span class="g" style="animation-delay:4338ms">y</span></span><span class="name"><span class="g" style="animation-delay:4370ms">CLA</span><span class="g" style="animation-delay:4402ms">YVE</span><span class="g" style="animation-delay:4434ms">R</span></span></span>
+      <span class="credit" data-node-id="credit-r3c2" data-node-role="text"><span class="role"><span class="g" style="animation-delay:4546ms">VFX</span><span class="g" style="animation-delay:4578ms"> By</span></span><span class="name"><span class="g" style="animation-delay:4610ms">NEM</span><span class="g" style="animation-delay:4642ms"> TE</span><span class="g" style="animation-delay:4674ms">M V</span><span class="g" style="animation-delay:4706ms">FX </span><span class="g" style="animation-delay:4738ms">KK</span></span></span>
+    </div>
+  </div>
+
+  <div id="logos" class="layer glow">
+    <div id="logo-jbo" data-node-id="logo-jbo" data-node-role="text"><span class="g" style="animation-delay:4980ms">JB</span><span class="g" style="animation-delay:5070ms">O</span></div>
+    <div id="logo-tv" data-node-id="logo-tv" data-node-role="text"><span class="apple g" style="animation-delay:5160ms"><span class="ab"></span><span class="al"></span></span><span class="g" style="animation-delay:5250ms">tv+</span></div>
+  </div>
+</div>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Pinyon+Script&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1276px; height: 720px; overflow: hidden; }
+  .stage {
+    position: relative;
+    width: 1276px;
+    height: 720px;
+    background: #0a0608;
+    font-family: 'Manrope', system-ui, sans-serif;
+  }
+  .txt { position: absolute; z-index: 1; }
+  .ep, .things { line-height: 1.05; }
+  .ep {
+    top: 22px; left: 50%;
+    max-width: 90vw; text-align: center;
+    font-weight: 700; font-size: 28px; letter-spacing: 0.01em;
+    color: #eea33b; text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+    opacity: 0;
+  }
+  .boring {
+    top: 332px; left: 50%;
+    max-width: 78vw; white-space: nowrap; text-align: center;
+    font-family: 'Pinyon Script', 'Great Vibes', cursive;
+    font-weight: 400; font-size: 232px; line-height: 1;
+    color: #f0a82e;
+    opacity: 0;
+  }
+  /* per-letter inline-block runs + no text-shadow keep every glyph texture under
+     the engine's ~512px limit; a 320px script glyph alone overflows and fills black */
+  .boring span { display: inline-block; }
+  .things {
+    bottom: 20px; left: 50%;
+    max-width: 90vw; text-align: center;
+    font-weight: 700; font-size: 35px; letter-spacing: 0.02em;
+    color: #eea33b; text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+    opacity: 0;
+  }
+  /* line by line: ep. one, then the Boring script, then the caption.
+     each keyframe carries the element's own centering translate so it survives */
+  @keyframes epIn {
+    0%   { opacity: 0; transform: translate(-50%, -8px); }
+    100% { opacity: 1; transform: translate(-50%, 0); }
+  }
+  @keyframes boringIn {
+    0%   { opacity: 0; transform: translate(-50%, -46%) scaleX(1.12) scale(.94); }
+    100% { opacity: 1; transform: translate(-50%, -50%) scaleX(1.12) scale(1); }
+  }
+  @keyframes thingsIn {
+    0%   { opacity: 0; transform: translate(-50%, 8px); }
+    100% { opacity: 1; transform: translate(-50%, 0); }
+  }
+</style>
+</head>
+<body>
+  <div class="stage" data-node-id="canvas">
+    <div class="txt ep" data-node-id="ep" data-node-role="text" style="animation: epIn .55s cubic-bezier(.2,.7,.3,1) .15s both;">ep. one</div>
+    <div class="txt boring" data-node-id="boring" data-node-role="text" style="animation: boringIn .9s cubic-bezier(.2,.7,.3,1) .65s both;"><span>B</span><span>o</span><span>r</span><span>i</span><span>n</span><span>g</span></div>
+    <div class="txt things" data-node-id="things" data-node-role="text" style="animation: thingsIn .55s cubic-bezier(.2,.7,.3,1) 1.35s both;">the boring things</div>
+  </div>
+</body>
+</html>

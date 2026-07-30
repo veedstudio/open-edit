@@ -1,0 +1,99 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; }
+  #stage {
+    position: relative;
+    width: 720px;
+    height: 1280px;
+    font-family: 'Caveat', cursive;
+    background: #3a3640;
+  }
+  #bg {
+    position: absolute;
+    inset: 0;
+    width: 720px;
+    height: 1280px;
+    object-fit: cover;
+    display: block;
+  }
+  .label {
+    position: absolute;
+    display: inline-block;
+    color: #1c1a22;
+    background: #ece6d6;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    padding: 4px 12px 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.35);
+    transform-origin: center;
+  }
+  /* 'a sign' is plain text, NOT a pill — its own class with no background so the
+     label box never applies (the engine did not honor an inline background:transparent) */
+  .asign {
+    position: absolute;
+    display: inline-block;
+    color: #fff;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    text-shadow: 0 1px 4px rgba(0,0,0,.6);
+    transform-origin: center;
+  }
+  .arrow {
+    position: absolute;
+    /* base filter:drop-shadow on the <svg> + animated filter made the engine drop the
+       element; the keyframe handles the blur, so no base filter here */
+  }
+  .arrow path { fill: #f2efe6; }
+
+  /* word-by-word slide-from-bottom + motion-blur + alpha fade. the engine crashes on
+     var() in transforms, so each element's static rotate is baked literally into
+     its own keyframe (rotate held constant; only translateY/opacity/blur animate). */
+  .label, .arrow { opacity: 0; }
+  @keyframes sb0  {0%{opacity:0;filter:blur(12px);transform:rotate(-1.5deg) translateY(0.7em)}60%{filter:blur(2px)}100%{opacity:1;filter:blur(0);transform:rotate(-1.5deg) translateY(0)}}
+  @keyframes sb1  {0%{opacity:0;filter:blur(12px);transform:rotate(-2deg) translateY(0.7em)}60%{filter:blur(2px)}100%{opacity:1;filter:blur(0);transform:rotate(-2deg) translateY(0)}}
+  @keyframes sb2  {0%{opacity:0;filter:blur(12px);transform:rotate(-3deg) translateY(0.7em)}60%{filter:blur(2px)}100%{opacity:1;filter:blur(0);transform:rotate(-3deg) translateY(0)}}
+  @keyframes sb3  {0%{opacity:0;filter:blur(12px);transform:rotate(1deg) translateY(0.7em)}60%{filter:blur(2px)}100%{opacity:1;filter:blur(0);transform:rotate(1deg) translateY(0)}}
+  @keyframes sb4  {0%{opacity:0;filter:blur(12px);transform:translateY(0.7em)}60%{filter:blur(2px)}100%{opacity:1;filter:blur(0);transform:translateY(0)}}
+  @keyframes ar0  {0%{opacity:0;filter:blur(10px);transform:translateY(0.6em)}100%{opacity:1;filter:blur(0);transform:translateY(0)}}
+  @keyframes ar1  {0%{opacity:0;filter:blur(10px);transform:scaleX(-1) rotate(8deg) translateY(0.6em)}100%{opacity:1;filter:blur(0);transform:scaleX(-1) rotate(8deg) translateY(0)}}
+  @keyframes ar2  {0%{opacity:0;filter:blur(10px);transform:rotate(6deg) translateY(0.6em)}100%{opacity:1;filter:blur(0);transform:rotate(6deg) translateY(0)}}
+</style>
+
+<div id="stage">
+
+  <div class="label" data-node-id="label-utilitarian" data-node-role="text"
+       style="left:20px; top:254px; font-size:44px; letter-spacing:8px; transform:rotate(-1.5deg); animation:sb0 .5s cubic-bezier(.2,.7,.3,1) both; animation-delay:0ms;">utilitarian design</div>
+
+  <div class="label" data-node-id="label-ephemera" data-node-role="text"
+       style="right:24px; top:396px; font-size:44px; letter-spacing:7px; transform:rotate(-2deg); animation:sb1 .5s cubic-bezier(.2,.7,.3,1) both; animation-delay:150ms;">ephemera</div>
+
+  <div class="label" data-node-id="label-micro" data-node-role="text"
+       style="left:58px; top:564px; font-size:44px; letter-spacing:5px; transform:rotate(-3deg); animation:sb2 .5s cubic-bezier(.2,.7,.3,1) both; animation-delay:300ms;">micro-industrial</div>
+
+  <div class="label" data-node-id="label-functional" data-node-role="text"
+       style="right:30px; top:770px; font-size:46px; letter-spacing:6px; transform:rotate(1deg); animation:sb3 .5s cubic-bezier(.2,.7,.3,1) both; animation-delay:450ms;">functional design</div>
+
+  <div class="asign" data-node-id="label-asign" data-node-role="text"
+       style="left:357px; top:903px; font-size:38px; letter-spacing:1px; animation:sb4 .5s cubic-bezier(.2,.7,.3,1) both; animation-delay:600ms;">a sign.</div>
+
+  <svg class="arrow" data-node-id="arrow-1" viewBox="0 0 110 95" width="110" height="95"
+       style="left:70px; top:318px; animation:ar0 .5s cubic-bezier(.2,.7,.3,1) both; animation-delay:200ms;">
+    <path fill="#f2efe6" d="M30 6 C70 6 78 20 70 48 L86 42 L62 82 L40 46 L58 50 C64 28 56 22 30 22 Z"/>
+  </svg>
+
+  <svg class="arrow" data-node-id="arrow-2" viewBox="0 0 110 110" width="110" height="110"
+       style="left:560px; top:500px; transform:scaleX(-1) rotate(8deg); animation:ar1 .5s cubic-bezier(.2,.7,.3,1) both; animation-delay:500ms;">
+    <path fill="#f2efe6" d="M22 6 C66 4 80 22 72 56 L90 48 L64 94 L40 52 L60 58 C66 32 56 24 22 24 Z"/>
+  </svg>
+
+  <svg class="arrow" data-node-id="arrow-3" viewBox="0 0 110 110" width="110" height="110"
+       style="left:560px; top:905px; transform:rotate(6deg); animation:ar2 .5s cubic-bezier(.2,.7,.3,1) both; animation-delay:650ms;">
+    <path fill="#f2efe6" d="M22 6 C66 4 80 22 72 56 L90 48 L64 94 L40 52 L60 58 C66 32 56 24 22 24 Z"/>
+  </svg>
+</div>

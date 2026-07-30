@@ -1,0 +1,83 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 720px; height: 1280px; }
+  #stage {
+    position: relative;
+    width: 720px; height: 1280px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #6c8eb5 0%, #7694b8 50%, #82a1c0 100%);
+    font-family: 'Work Sans', Arial, Helvetica, sans-serif;
+  }
+  #clouds {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(60% 22% at 78% 41%, rgba(225,233,242,0.55), rgba(225,233,242,0) 70%),
+      radial-gradient(40% 16% at 12% 38%, rgba(220,230,240,0.40), rgba(220,230,240,0) 70%);
+  }
+  /* the ball drops platform to platform. the engine paints a transform-animated
+     element BENEATH sibling content (and an animated SVG vanishes), so the ball
+     is a SEQUENCE of static divs — each flashed on for one step via opacity
+     (following each word). the engine paints an element that animates its OWN
+     transform/opacity BENEATH static siblings, so — like the word/.wi split —
+     the ball is an inner div (animated) inside a static high-z wrapper that
+     stacks above the ribbon. steps() quantises the travel into a jagged,
+     stop-motion hop from word to word. */
+  #dot { position: absolute; inset: 0; z-index: 50; }
+  #dot i {
+    position: absolute; left: 0; top: 0; width: 44px; height: 44px;
+    background: #db5404; border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.6);
+    opacity: 0;
+    animation: ballmove 4s steps(40, jump-none) both;
+  }
+  @keyframes ballmove {
+    0% { opacity:0; transform:translate(150px,150px); }
+    8.75% { opacity:0; transform:translate(150px,150px); }
+    9.25% { opacity:1; transform:translate(150px,150px); }
+    17.75% { opacity:1; transform:translate(150px,150px); }
+    18.75% { opacity:1; transform:translate(330px,255px); }
+    27.75% { opacity:1; transform:translate(330px,255px); }
+    28.75% { opacity:1; transform:translate(470px,315px); }
+    37.75% { opacity:1; transform:translate(470px,315px); }
+    38.75% { opacity:1; transform:translate(360px,461px); }
+    47.75% { opacity:1; transform:translate(360px,461px); }
+    48.75% { opacity:1; transform:translate(300px,597px); }
+    57.75% { opacity:1; transform:translate(300px,597px); }
+    58.75% { opacity:1; transform:translate(220px,684px); }
+    67.75% { opacity:1; transform:translate(220px,684px); }
+    68.75% { opacity:1; transform:translate(330px,778px); }
+    77.75% { opacity:1; transform:translate(330px,778px); }
+    78.75% { opacity:1; transform:translate(466px,910px); }
+    100% { opacity:1; transform:translate(466px,910px); }
+  }
+
+  .word {
+    position: absolute; display: inline-block; width: max-content;
+    color: #0a0a0a; font-weight: 400; line-height: 1.3; white-space: nowrap;
+    overflow: visible; transform-origin: center; z-index: 2;
+  }
+  /* stop-motion pop rides an inner span so the outer per-word rotation is preserved */
+  .word .wi { display: inline-block; opacity: 0; animation: wpop .32s steps(4, jump-end) both; }
+  @keyframes wpop {
+    0%   { opacity: 0; transform: scale(.25) translateY(-6px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
+</style>
+<div id="stage" data-node-id="sky">
+  <div id="clouds" aria-hidden="true"></div>
+
+  <div class="word" data-node-id="there"    data-node-role="text" style="left:182px; top:194px; font-size:44px; transform:rotate(5deg);"><span class="wi" style="animation-delay:.35s">there</span></div>
+  <div class="word" data-node-id="is"       data-node-role="text" style="left:340px; top:299px; font-size:44px; transform:rotate(8deg);"><span class="wi" style="animation-delay:.75s">is</span></div>
+  <div class="word" data-node-id="always"   data-node-role="text" style="left:443px; top:359px; font-size:44px; transform:rotate(-24deg);"><span class="wi" style="animation-delay:1.15s">always</span></div>
+  <div class="word" data-node-id="a"        data-node-role="text" style="left:374px; top:505px; font-size:44px; transform:rotate(0deg);"><span class="wi" style="animation-delay:1.55s">a</span></div>
+  <div class="word" data-node-id="place"    data-node-role="text" style="left:277px; top:641px; font-size:44px; transform:rotate(-4deg);"><span class="wi" style="animation-delay:1.95s">place</span></div>
+  <div class="word" data-node-id="for"      data-node-role="text" style="left:197px; top:728px; font-size:44px; transform:rotate(-6deg);"><span class="wi" style="animation-delay:2.35s">for</span></div>
+  <div class="word" data-node-id="big"      data-node-role="text" style="left:301px; top:822px; font-size:44px; transform:rotate(-4deg);"><span class="wi" style="animation-delay:2.75s">big</span></div>
+  <div class="word" data-node-id="mistakes" data-node-role="text" style="left:363px; top:948px; font-size:46px; transform:rotate(0deg);"><span class="wi" style="animation-delay:3.15s">mistakes</span></div>
+
+  <div id="dot" data-node-id="dot"><i></i></div>
+</div>
