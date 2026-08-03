@@ -1,5 +1,21 @@
 # OpenEdit
-Not the editor you rent, the one you own.
+
+OpenEdit is an open-source, agent-driven editing pipeline that ships with VEED's HTML renderer — closed
+source, but free to use.
+
+There is no GUI and no timeline. The pipeline is driven entirely through your coding agent: it
+transcribes the audio, designs a caption style for the footage, and renders the clip.
+
+OpenEdit edits footage; it does not generate it. Supply your own source files.
+
+## Requirements
+
+| | |
+| --- | --- |
+| Platform | Apple Silicon Mac, macOS Tahoe 26.0 |
+| Intel Macs, earlier macOS | Not supported |
+| Windows, Linux | Planned; prioritisation depends on demand |
+| Account | veed.io account for transcription — [sign up](https://www.veed.io/signup) or [login](https://www.veed.io/login) |
 
 ## Installation
 Download this repo, or install via the command line with:
@@ -10,12 +26,6 @@ npx skills add veedstudio/open-edit
 ## Agents
 OpenEdit uses an agent-agnostic skill and repository guide. It supports Claude Code, Codex, and Gemini;
 the installed skill prepares the runtime and loads its `AGENTS.md` instructions explicitly.
-
-## Requirements
-
-Requires an Apple Silicon Mac, running macOS Tahoe 26.0. Windows and Linux versions are coming soon.
-
-Requires a free veed.io account for transcription, [sign up](https://www.veed.io/signup) or [login](https://www.veed.io/login).
 
 ## Usage
 Open your coding agent. For example, with Claude Code:
@@ -56,11 +66,26 @@ Add subtitles to my video [VIDEO], ensure that the hook really catches the eye a
 Add subtitles that look like this [IMG-REF], to my video [VIDEO]
 ```
 
+## Renderer
+
+Caption styles are authored in HTML and CSS. Rendering does not use a headless browser: there is no
+browser to install, launch, or keep alive for the duration of a render.
+
+Internal benchmarks measured the renderer up to 2.2x faster than Chrome-driven renderers. These
+measurements are preliminary and not yet reproducible outside VEED; a documented benchmark and its
+methodology will follow.
+
+The renderer is integrated but not required. Composition does not depend on it, so Chrome can be used
+as the render backend instead.
+
 ## Transcription
 
-OpenEdit uploads the source video to VEED and uses your workspace for transcription billing. By default, it
-does not create a VEED project. The agent guides the one-time browser login and stores a refreshable token
-locally at `veed/.veed-token.json` inside the runtime.
+The default workflow provides access to VEED's transcription and requires a VEED account. Usage limits
+are those of your VEED account. The audio track is uploaded and stored in order to transcribe it; the
+video is not uploaded.
+
+By default OpenEdit does not create a VEED project. The agent guides the one-time browser login and
+stores a refreshable token at `veed/.veed-token.json` inside the runtime.
 
 For manual use:
 
@@ -69,4 +94,15 @@ node --import tsx veed/login.ts
 node --import tsx veed/go.ts /path/to/video.mp4
 ```
 
-Transcription always consumes workspace credits.
+## Scope and limitations
+
+V1 targets captions. Motion graphics, charts, and brandbook-matched styling render today, but are less
+exercised than captions and should be expected to have rough edges.
+
+Report defects through GitHub issues.
+
+## License
+
+The editor is licensed under Apache-2.0. The renderer binaries are distributed under PolyForm Shield
+1.0.0, which permits commercial use of the videos you produce with no payment to VEED. See `LICENSE`
+and `NOTICE` for the full terms.
