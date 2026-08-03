@@ -1,4 +1,24 @@
-# OpenEdit (Beta)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/logo/light.png">
+    <img alt="OpenEdit, powered by VEED" src="docs/logo/light.png" width="440">
+  </picture>
+</p>
+
+<p align="center"><b>Not the editor you rent, but the one you own.</b></p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/platform-Apple%20Silicon%20%C2%B7%20macOS%2026-black" alt="Platform: Apple Silicon, macOS 26">
+</p>
+
+<p align="center">
+  <a href="#installation">Install</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#examples">Examples</a> ·
+  <a href="https://www.veed.io">VEED</a>
+</p>
 
 OpenEdit is an open-source, agent-driven editing pipeline that ships with VEED's HTML renderer — closed
 source, but free to use.
@@ -7,6 +27,10 @@ There is no GUI and no timeline. The pipeline is driven entirely through your co
 transcribes the audio, designs a caption style for the footage, and renders the clip.
 
 OpenEdit edits footage; it does not generate it. Supply your own source files.
+
+<a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/OpenEdit-16x9.mp4"><img src="docs/examples/openedit-launch.webp" alt="OpenEdit launch video" width="100%"></a>
+
+*This launch video was made in OpenEdit — click it to watch with sound.*
 
 ## Requirements
 
@@ -52,19 +76,45 @@ Move the text up a bit
 When he says "go buy it now", make sure the 'now' really stands out.
 ```
 
-## Prompts
-You can provide more specific or tailored prompts, for example:
+You can also hand the agent a reference image to copy a style from:
+
 ```
-Add subtitles to my video [VIDEO], avoid placing subtitles on the lower third
-
-Add subtitles to my video [VIDEO], make them really engaging and dynamic
-
-Add subtitles to my video [VIDEO], clean chill vibe
-
-Add subtitles to my video [VIDEO], ensure that the hook really catches the eye and that my call to action hits the mark
-
 Add subtitles that look like this [IMG-REF], to my video [VIDEO]
 ```
+
+## Examples
+
+Real outputs, each with the prompt that produced it. Click any example to watch it with sound.
+
+```
+create viral subtitles with /open-edit and translate my video to 5 languages using VEED Lipsync 2.0 on Fal
+```
+
+One source clip, three languages, three caption styles:
+
+| Spanish | French | German |
+| --- | --- | --- |
+| [![Spanish](docs/examples/happy3-ES-078.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/happy3-ES-078.mp4) | [![French](docs/examples/remix-FR.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/remix-FR.mp4) | [![German](docs/examples/happy2-DE-lowerthird.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/happy2-DE-lowerthird.mp4) |
+
+```
+generate 3 viral hooks in Seedance 2.0 on Fal and create dynamic motion graphics using /open-edit
+```
+
+Three AI-generated hooks, three motion-graphic treatments:
+
+| | | |
+| --- | --- | --- |
+| [![News hook](docs/examples/news-comic.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/news-comic.mp4) | [![Desk hook](docs/examples/chair-remix.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/chair-remix.mp4) | [![Makeup hook](docs/examples/makeup-happy-v2.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/makeup-happy-v2.mp4) |
+
+```
+use Figma MCP to study my BrandBook and create branded campaign graphics using /open-edit
+```
+
+One brand book, three campaign cards:
+
+| | | |
+| --- | --- | --- |
+| [![Race Fashion 1](docs/examples/race-card-1.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/race-card-1.mp4) | [![Race Fashion 2](docs/examples/race-card-2.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/race-card-2.mp4) | [![Race Fashion 3](docs/examples/race-card-4.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/race-card-4.mp4) |
 
 ## Renderer
 
@@ -106,3 +156,7 @@ Report defects through GitHub issues.
 The editor is licensed under Apache-2.0. The renderer binaries are distributed under PolyForm Shield
 1.0.0, which permits commercial use of the videos you produce with no payment to VEED. See `LICENSE`
 and `NOTICE` for the full terms.
+
+---
+
+<p align="center"><sub><b>OpenEdit</b> · powered by <a href="https://www.veed.io">VEED</a></sub></p>
