@@ -1,4 +1,4 @@
-# OpenEdit
+# OpenEdit (Beta)
 
 OpenEdit is an open-source, agent-driven editing pipeline that ships with VEED's HTML renderer — closed
 source, but free to use.
