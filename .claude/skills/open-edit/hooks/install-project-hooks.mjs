@@ -25,14 +25,30 @@ async function readJson(path) {
   }
 }
 
+// Identity is the hook PATH, not the exact command string. Comparing strings meant a config holding
+// `bash <path> codex` never matched the generated `bash "<path>" codex`, so every run appended another
+// copy — for anyone whose config was written by anything but this exact generator.
+const isOurs = (group, hookPath) =>
+  Array.isArray(group?.hooks) && group.hooks.some(hook => typeof hook?.command === 'string'
+    && hook.command.includes(hookPath));
+
 async function merge(path, event) {
   const document = await readJson(path);
   document.hooks ??= {};
   document.hooks.SessionStart ??= [];
-  const groups = document.hooks.SessionStart;
-  const alreadyPresent = groups.some(group =>
-    Array.isArray(group?.hooks) && group.hooks.some(hook => hook?.command === event.command));
-  if (alreadyPresent) return;
+  let groups = document.hooks.SessionStart;
+  const mine = groups.filter(group => isOurs(group, relativeHook));
+  if (mine.length > 0) {
+    // Collapse any duplicates a previous version accumulated; never touch anyone else's hooks.
+    if (mine.length === 1) return;
+    const first = mine[0];
+    document.hooks.SessionStart = groups.filter(group => !isOurs(group, relativeHook) || group === first);
+    groups = document.hooks.SessionStart;
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`);
+    console.error(`preflight: collapsed ${mine.length - 1} duplicate SessionStart hook(s) in ${relative(workspace, path)}`);
+    return;
+  }
   groups.push(event.group);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(document, null, 2)}\n`);

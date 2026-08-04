@@ -47,9 +47,17 @@ any of that means.
 
 ## PREFLIGHT — ALWAYS run at session start
 An installed skill contains this file plus `scripts/preflight.sh`; the full runtime may not exist yet.
-Resolve **SKILL_ROOT** as the directory containing this `SKILL.md`, and **WORKSPACE** as the user's current
-project root (or current directory outside a project). Resolve the supplied video to an absolute path
-from WORKSPACE before changing working directories.
+Resolve **SKILL_ROOT** as the directory containing this `SKILL.md`. Then resolve **WORKSPACE** by the first
+rule that applies:
+
+1. **If SKILL_ROOT sits inside an Open Edit checkout, WORKSPACE is that checkout** — preflight reuses it,
+   and the run exercises that code.
+2. **Otherwise** WORKSPACE is the user's current project root, or the current directory outside a project —
+   preflight creates its own runtime at `<WORKSPACE>/.open-edit/runtime` and every step below runs there.
+
+Preflight names which of the two it resolved (`reusing the local checkout at …` or `will use a managed clone
+at …`); read that line before trusting a run to be testing your changes. Resolve the supplied video to an
+absolute path from WORKSPACE before changing working directories.
 
 At the start of EVERY session, before doing Open Edit work, run:
 ```
@@ -73,8 +81,12 @@ bash "$SKILL_ROOT/scripts/preflight.sh" --auto-approve --workspace "$WORKSPACE"
 approval from the original render request. If the user approves only selected actions, perform only those exact
 commands yourself, then rerun `--dry`. If nothing needs approval, do not mention preflight.
 
-Exit **0** means stdout is **OPEN_EDIT_ROOT**; use it for every repo-relative command below. Exit **10** means
-approval is required or an approved prerequisite is still missing. Exit **1** is a hard invariant/install error.
+Exit **0** means stdout is **OPEN_EDIT_ROOT**; use it for every repo-relative command below. It does **not**
+mean setup is finished — a `--dry` run exits 0 while listing the `WOULD APPLY LOCALLY` work that bare
+preflight performs itself, and then ends on `not ready yet — run bare preflight …`. Read the final
+`preflight:` line, not the exit code: `ready — OPEN_EDIT_ROOT=…` means go. Exit **10** means **only** that
+`APPROVAL REQUIRED` was printed and the user must approve every listed action first. Exit **1** is a hard
+invariant/install error.
 For development, `--repository <URL-or-local-path> --ref <branch>` overrides the initial clone source. A managed
 clone records its origin, branch, and commit and rejects conflicting later overrides. A clean checkout is offered
 a fast-forward update; any local or untracked changes are reported and left untouched.

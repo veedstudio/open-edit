@@ -133,6 +133,22 @@ discover_runtime() {
 }
 
 discover_runtime
+
+# Say which code is about to run, and warn when a local checkout is being bypassed. WORKSPACE is only
+# reused when it IS an Open Edit checkout; otherwise everything below runs from a clone of
+# $DEFAULT_REF, so pointing --workspace at the wrong directory silently runs different code.
+BUNDLED_CHECKOUT="$(resolve_dir "$SCRIPT_ROOT/../../.." 2>/dev/null || true)"
+if [ "$ROOT_KIND" = "reused" ]; then
+  say "reusing the local checkout at $ROOT"
+else
+  say "workspace $WORKSPACE will use a managed clone at $MANAGED_ROOT"
+  if [ -n "$BUNDLED_CHECKOUT" ] && is_open_edit_checkout "$BUNDLED_CHECKOUT" \
+     && [ "$BUNDLED_CHECKOUT" != "$WORKSPACE" ]; then
+    say "NOTE: this skill lives in the checkout $BUNDLED_CHECKOUT, which will NOT be used."
+    say "      To run that code instead, pass --workspace $BUNDLED_CHECKOUT"
+  fi
+fi
+
 if [ "$ROOT_KIND" = "managed" ]; then
   REPOSITORY="$RECORDED_REPOSITORY"; REF="$RECORDED_REF"
 else
@@ -309,8 +325,12 @@ if [ "$ROOT_KIND" = "missing" ]; then
   say "runtime is not ready"
 elif repo_deps_ready && [ -x "$(engine_path)" ]; then
   say "ready — OPEN_EDIT_ROOT=$ROOT"
-else
+elif [ "$NEEDS_APPROVAL" -ne 0 ]; then
   say "local setup is incomplete because an approved prerequisite is missing"
+else
+  # Nothing is awaiting approval: the outstanding work is the WOULD APPLY LOCALLY list above, which
+  # bare preflight performs itself. Saying "approval" here sent agents looking for a user to ask.
+  say "not ready yet — run bare preflight (no --dry) to apply the local setup listed above"
 fi
 
 if [ "$NEEDS_APPROVAL" -ne 0 ]; then
