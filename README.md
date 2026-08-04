@@ -23,10 +23,12 @@
 OpenEdit is an open-source, agent-driven editing pipeline that ships with VEED's HTML renderer — closed
 source, but free to use.
 
-There is no GUI and no timeline. The pipeline is driven entirely through your coding agent: it
-transcribes the audio, designs a caption style for the footage, and renders the clip.
-
-OpenEdit edits footage; it does not generate it. Supply your own source files.
+There is no GUI and no timeline. The pipeline is driven entirely through your coding agent — edit,
+cut, and reframe footage; layer motion graphics and visual elements; turn
+slides or websites into video; capture web pages; and pull in any video/image generating service
+or MCP server when it helps. Source video is optional: stills, slides, generated media, or pure
+motion graphics are enough when the brief calls for it. Be creative and fluid — try new ideas
+rather than collapsing every ask onto captions.
 
 <a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/OpenEdit-16x9.mp4"><img src="docs/examples/openedit-launch.webp" alt="OpenEdit launch video" width="100%"></a>
 

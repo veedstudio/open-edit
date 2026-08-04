@@ -1,12 +1,28 @@
 # AGENTS.md
 
-This repo turns a short video into ONE stylized **captioned MP4** — subtitles across every spoken beat,
-rendered over the real footage by `veed-engine-cli` (the veed render engine). It runs via the `open-edit` skill
-(`.claude/skills/open-edit/SKILL.md`) — the golden master. The default (recipe-backed) run is
-**scripted end to end** — recipes are compiled code (`refs/html/<id>/recipe.ts`), zero tokens at run time;
-subagents remain only for the opt-in vision analysis (run when the user asks to refine the style); the
-CREATIVE path face-1 (the user brought their own reference/brand/concept) is authored INLINE by the
-orchestrator, and creative iteration on a delivered result is REMIXED inline.
+This repo is a **video creation and editing system** powered by `veed-engine-cli` (the veed render engine).
+It is not limited to captions: agents can edit, cut, and reframe footage; layer motion graphics and
+visual elements (shapes, images, animations — not just text); turn slides or websites into video;
+capture web pages; and compose rich stylized output over real footage.
+
+**Video is not always required.** Work from stills, slides, websites, generated imagery, audio-only
+sources, or pure motion graphics when that fits the ask — source footage is optional, not assumed.
+
+**Use the full toolbox.** Reach for any video or image generating service, and any available MCP
+server, when it helps — don't limit yourself to the local engine and recipe path.
+
+**Be creative and fluid.** Try new ideas and avenues. Prototype, explore alternatives, and follow
+promising directions rather than collapsing every ask onto the captioned-recipe default. Match the
+ask; invent when the brief is open.
+
+One common path is stylized captioned video via the `open-edit` skill
+(`.claude/skills/open-edit/SKILL.md`) The default (recipe-backed)
+caption run is **scripted end to end** — recipes are compiled code (`refs/html/<id>/recipe.ts`), zero
+tokens at run time; subagents remain only for the opt-in vision analysis (run when the user asks to
+refine the style); the CREATIVE path face-1 (the user brought their own reference/brand/concept) is
+authored INLINE by the orchestrator, and creative iteration on a delivered result is REMIXED inline.
+Treat captions as one capability among many — match the ask, and use the full engine surface when
+the work calls for edits, motion graphics, or other compositions.
 
 ## To run a video
 When the user says "run the open-edit skill on `<video.mp4>`", follow
