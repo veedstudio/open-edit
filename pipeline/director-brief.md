@@ -1,10 +1,20 @@
 # DIRECTOR — the engine contract (read this + your execution contract)
 
-You are executing the DESIGN + RENDER pass for ONE short-form video. You author ONE continuous captioned
-composition over the real footage and render it to an MP4. Author it as a single `.wv`
+You are executing the DESIGN + RENDER pass for ONE short-form video. Usually that means ONE continuous
+captioned composition over the real footage, rendered to an MP4. Author it as a single `.wv`
 document (HTML/CSS, a Chrome subset rendered by `veed-engine-cli`) that plays across the WHOLE clip —
 each spoken caption shown only in its own cue window. No per-beat files: one timeline,
 one render.
+
+**A `.wv` is an extension of CSS and can be treated as such** — an HTML fragment plus a `<style>` block,
+standard CSS throughout, no JavaScript and no proprietary timeline format. The motion IS CSS motion:
+`@keyframes` + `animation` + `animation-delay` are the timeline. So everything you already know about CSS
+applies directly here; the only thing to learn is which parts of it this engine does not implement (ENGINE
+LIMITS below).
+
+Footage is a LAYER in that document, never a prerequisite for it. A run with no source video (motion
+graphics, stills, slides, generated imagery) authors the same single `.wv` with no footage layer, and every
+rule below applies to it unchanged.
 
 Commit ONE design system in a single pass — do NOT re-litigate the aesthetic once chosen. You verify with
 `veed-engine-cli --verify` (an analytic playback check — see RENDER + VERIFY), then render. You do NOT
@@ -16,6 +26,9 @@ Your execution contract (the filled step-4B contract from the SKILL) gives: the 
 authority) plus 1-2 recipe SHEETS as craft substrate, the video path, the DIRECTION, the ENGAGEMENT mode,
 and the ANIMATION LEVEL. `analysis.json` (per-beat composition facts) exists ONLY on style-refine runs — when
 present it is authoritative for placement; when absent, place by the safe margins below.
+With no source video there is no `meta.json`, `transcript.json` or video path to hand you: the contract
+carries the canvas, the duration and the content from the ASK instead, and there are no cue windows to
+honour. That is a complete contract, not a missing one — proceed on it.
 
 (Recipe-backed picks never reach this pass: recipes are compiled code — `refs/html/<id>/recipe.ts`, run
 by `pipeline/scripts/generate-recipe.ts` — so you execute this contract only for a CREATIVE run: face-1 (the user

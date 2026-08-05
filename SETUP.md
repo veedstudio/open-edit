@@ -24,8 +24,10 @@ Preflight has three modes: bare applies safe local setup, `--dry` reports withou
 4. **veed-engine-cli** — the render engine. Its first install is automatic and local; later updates require
    approval. `pipeline/scripts/install-veed-engine.sh` downloads and verifies the latest macOS-arm64 release into `.veed-engine/`.
    Set `VEED_ENGINE_BIN` to use an existing installation.
-5. **VEED login** — `node --import tsx veed/login.ts` (one-time OAuth, ~30-day refreshable token). Transcription
-   runs through VEED's transcription API. See `README.md`.
+5. **A transcription provider** — the skill asks once and remembers the answer. Either
+   **VEED** (`node --import tsx veed/login.ts`, one-time OAuth, ~30-day refreshable token; a free account
+   covers about 2 minutes a month) or **WhisperX** locally (`bash pipeline/scripts/install-whisperx.sh`,
+   free and offline). You can also point it at your own service. See `README.md`.
 6. **config.ts** — optional machine-path overrides. Videos live anywhere:
    invoke the skill with the video's path (absolute, or relative to your CWD).
 

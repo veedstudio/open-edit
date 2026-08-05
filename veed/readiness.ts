@@ -40,10 +40,12 @@ add('VEED API base', true, VEED_API_BASE, false);
 
 const tokenPath = DEFAULT_TOKEN_PATH;
 const tokenEnv = (process.env.VEED_ACCESS_TOKEN ?? '').trim() !== '';
+// Optional, not blocking: only the VEED provider reads this token.
 add(
   'VEED login token',
   tokenEnv || existsSync(tokenPath),
-  tokenEnv ? 'VEED_ACCESS_TOKEN set' : existsSync(tokenPath) ? `cached at ${tokenPath}` : 'not logged in yet; run: node --import tsx veed/login.ts',
+  tokenEnv ? 'VEED_ACCESS_TOKEN set' : existsSync(tokenPath) ? `cached at ${tokenPath}` : 'not logged in yet; needed ONLY for the VEED provider — run: node --import tsx veed/login.ts',
+  false,
 );
 
 // --- report ---
@@ -55,7 +57,7 @@ for (const c of checks) {
 const blockingMisses = checks.filter((c) => !c.ok && c.blocking);
 console.log('='.repeat(40));
 if (blockingMisses.length === 0) {
-  console.log('All blocking checks pass. Items marked "opt" only matter for the render step.');
+  console.log('All blocking checks pass. Items marked "opt" are needed only by the step or provider named beside them.');
 } else {
   console.log(`${blockingMisses.length} blocking item(s) to resolve: ${blockingMisses.map((c) => c.label).join(', ')}`);
 }

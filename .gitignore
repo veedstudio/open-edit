@@ -34,3 +34,6 @@ veed/.veed-client.json
 # Internal build docs / working files (not published)
 DESIGN.md
 plans/
+
+# transcription provider choice (owner-only, never committed)
+.open-edit-prefs.json

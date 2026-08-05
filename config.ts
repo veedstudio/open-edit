@@ -18,3 +18,10 @@ export const FFPROBE = process.env.VEED_ENGINE_FFPROBE
 // install if behind — no version is pinned here. Default: the repo-local .veed-engine/ install produced
 // by pipeline/scripts/install-veed-engine.sh.
 export const VEED_ENGINE_BIN = process.env.VEED_ENGINE_BIN ?? path.join(REPO_ROOT, '.veed-engine', 'veed-engine-cli');
+
+// WhisperX — the local, free transcription provider (prep/transcribe.ts), installed on request by
+// pipeline/scripts/install-whisperx.sh. Default: PATH.
+export const WHISPERX_BIN = process.env.WHISPERX_BIN ?? 'whisperx';
+
+// Fallback quality tier, used only until the user's choice is recorded in .open-edit-prefs.json.
+export const WHISPERX_MODEL = process.env.WHISPERX_MODEL ?? 'small.en';
