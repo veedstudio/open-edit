@@ -30,7 +30,7 @@ or MCP server when it helps. Source video is optional: stills, slides, generated
 motion graphics are enough when the brief calls for it. Be creative and fluid — try new ideas
 rather than collapsing every ask onto captions.
 
-<a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/OpenEdit-16x9.mp4"><img src="docs/examples/openedit-launch.webp" alt="OpenEdit launch video" width="100%"></a>
+<a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/OpenEdit-4x3-trim.mp4"><img src="docs/examples/openedit-launch.webp" alt="OpenEdit launch video" width="100%"></a>
 
 *This launch video was made in OpenEdit — click it to watch with sound.*
 
