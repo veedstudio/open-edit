@@ -99,8 +99,11 @@ export async function transcribeWithVeed(deps: TranscribeDeps, opts: TranscribeO
     (s) => (s.status === 'error' ? 'failed' : s.status === 'active' ? 'done' : 'wait'),
     'transcription',
     (s) =>
+      // The likeliest failure by far, so it carries the allowance and the fix rather than a reason code.
       s.errorReason === 'outOfCredits'
-        ? 'VEED: transcription failed - this workspace has no transcription credits left'
+        ? 'VEED: this workspace is out of transcription credits. A free account covers about 2 minutes '
+          + 'a month; more needs a plan — https://www.veed.io/pricing. Or transcribe locally instead: '
+          + 'node --import tsx prep/transcribe.ts <video.mp4>'
         : `VEED: transcription failed (${s.errorReason ?? 'unknown'})`,
   );
   if (!subtitle.subtitles) throw new Error('VEED: transcription active but returned no subtitles track');

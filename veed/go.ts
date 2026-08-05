@@ -3,7 +3,7 @@
 // editor pipeline already consumes (prep.ts then cuts the base frames from it).
 //
 //   1. Log in once:  node --import tsx veed/login.ts
-//   2. Run:          node --import tsx veed/go.ts <video.mp4>
+//   2. Run:          node --import tsx veed/go.ts <video.mp4> [...]
 //
 // Env: VEED_ORIGIN (default https://www.veed.io), VEED_ACCESS_TOKEN (optional,
 // overrides the stored login).
@@ -36,7 +36,7 @@ function noTokenHelp(): void {
       'It opens your browser once and stores a refreshable token, owner-only, at',
       `  ${DEFAULT_TOKEN_PATH}`,
       '',
-      'then re-run:  node --import tsx veed/go.ts <video.mp4>',
+      'then re-run:  node --import tsx veed/go.ts <video.mp4> [...]',
     ].join('\n'),
   );
 }
@@ -51,28 +51,35 @@ async function main(): Promise<void> {
     noTokenHelp();
     process.exit(1);
   }
-  const videoArg = process.argv[2];
-  if (!videoArg) {
-    console.error('usage: node --import tsx veed/go.ts <video.mp4>');
+  const videoArgs = process.argv.slice(2);
+  if (videoArgs.length === 0) {
+    console.error('usage: node --import tsx veed/go.ts <video.mp4> [...]');
     process.exit(1);
   }
-  const video = resolveVideoArg(videoArg);
-  if (!existsSync(video)) {
-    console.error(`video not found: ${video}`);
+  // Resolve and check every path before uploading any of them: a typo in the last argument should not
+  // be discovered after the earlier videos have already spent transcription credits.
+  const videos = videoArgs.map(resolveVideoArg);
+  const missing = videos.filter((v) => !existsSync(v));
+  if (missing.length > 0) {
+    console.error(missing.map((v) => `video not found: ${v}`).join('\n'));
     process.exit(1);
   }
-  const key = basename(video, extname(video)).replace(/\s+/g, '_');
-  const outDir = join(REPO_ROOT, 'runs', key);
-  await mkdir(outDir, { recursive: true });
 
-  console.log(`[veed-transcribe] ${video}`);
-  const transcript = await transcribeWithVeed(
-    { http: realHttp(token), readVideoBytes, log: (m) => console.log(`  ${m}`) },
-    { videoPath: video },
-  );
-  const out = join(outDir, 'transcript.json');
-  await writeFile(out, JSON.stringify(transcript, null, 2));
-  console.log(`wrote ${out} (${transcript.chunks.length} beats)`);
+  const http = realHttp(token);
+  for (const video of videos) {
+    const key = basename(video, extname(video)).replace(/\s+/g, '_');
+    const outDir = join(REPO_ROOT, 'runs', key);
+    await mkdir(outDir, { recursive: true });
+
+    console.log(`[veed-transcribe] ${video}`);
+    const transcript = await transcribeWithVeed(
+      { http, readVideoBytes, log: (m) => console.log(`  ${m}`) },
+      { videoPath: video },
+    );
+    const out = join(outDir, 'transcript.json');
+    await writeFile(out, JSON.stringify(transcript, null, 2));
+    console.log(`wrote ${out} (${transcript.chunks.length} beats)`);
+  }
 }
 
 main().catch((e: unknown) => {

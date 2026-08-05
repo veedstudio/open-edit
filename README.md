@@ -41,7 +41,7 @@ rather than collapsing every ask onto captions.
 | Platform | Apple Silicon Mac, macOS Tahoe 26.0 |
 | Intel Macs, earlier macOS | Not supported |
 | Windows, Linux | Planned; prioritisation depends on demand |
-| Account | veed.io account for transcription — [sign up](https://www.veed.io/signup) or [login](https://www.veed.io/login) |
+| Transcription | needed only to caption speech — OpenEdit asks once and remembers: VEED ([sign up](https://www.veed.io/signup) / [login](https://www.veed.io/login)), WhisperX locally, or your own service |
 
 ## Installation
 Download this repo, or install via the command line with:
@@ -132,19 +132,39 @@ as the render backend instead.
 
 ## Transcription
 
-The default workflow provides access to VEED's transcription and requires a VEED account. Usage limits
-are those of your VEED account. The audio track is uploaded and stored in order to transcribe it; the
-video is not uploaded.
+OpenEdit asks once which provider to use and records the answer at the runtime root
+(`.open-edit-prefs.json`); it does not ask again. Every provider writes the same file —
+`runs/<key>/transcript.json`, with real per-word timings — and nothing downstream can tell which one ran.
 
-By default OpenEdit does not create a VEED project. The agent guides the one-time browser login and
-stores a refreshable token at `veed/.veed-token.json` inside the runtime.
-
-For manual use:
+**VEED** — best quality, and the default workflow. Requires a VEED account; usage limits are your
+account's, and a free account covers about 2 minutes of transcription a month, beyond which it needs a
+[plan](https://www.veed.io/pricing). The audio track is uploaded and stored in order to transcribe it; the
+video is not uploaded. By default OpenEdit does not create a VEED project. The agent guides the one-time
+browser login and stores a refreshable token at `veed/.veed-token.json` inside the runtime.
 
 ```sh
 node --import tsx veed/login.ts
 node --import tsx veed/go.ts /path/to/video.mp4
 ```
+
+**WhisperX** — free, local and offline; nothing leaves your machine. Installed on request, and the first
+run also downloads a model. CPU-bound on Apple Silicon, with two quality tiers.
+
+```sh
+bash pipeline/scripts/install-whisperx.sh                  # on request, once
+node --import tsx prep/transcribe.ts /path/to/video.mp4    # --model medium for the better tier
+```
+
+**Your own service** — produce a Whisper-family JSON however you like (WhisperX, openai-whisper,
+whisper-timestamped, mlx-whisper, the OpenAI API with `timestamp_granularities=["word"]`, or whisper.cpp
+`-oj`) and map it. No credentials pass through OpenEdit.
+
+```sh
+node --import tsx prep/whisper.ts transcription.json /path/to/video.mp4
+```
+
+Per-word timings are required whichever provider you use: without them the caption reveals drift out of
+sync with the audio, so a transcript that has none is refused rather than rendered badly.
 
 ## Scope and limitations
 

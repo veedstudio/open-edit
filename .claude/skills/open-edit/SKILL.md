@@ -1,12 +1,39 @@
 ---
 name: open-edit
-description: Orchestrate a captioned-video run — given a short video, produce ONE stylized captioned MP4 (subtitles across every spoken beat) rendered over the real footage. Use when the user wants a stylized caption render for a video.
+description: Orchestrate a video run rendered by VEED's engine — stylized captions over footage, edits and reframes, layered motion graphics, or graphics with no footage at all. Takes any number of source videos, including none. Use when the user wants video made, edited, or captioned by an agent.
 ---
 
-# open-edit — captioned-video orchestrator
+# open-edit — video orchestrator
 
-Turns a short video into ONE stylized captioned MP4, rendered over the real footage by `veed-engine-cli` (the veed render engine).
-The default run is **fully scripted end to end**: recipes are COMPILED CODE (`refs/html/<id>/recipe.ts`),
+Renders video with `veed-engine-cli` (the veed render engine). Stylized captions over real footage —
+subtitles across every spoken beat — is the best-travelled path and most of what follows details it, but
+captions are one capability, not the boundary: edits, reframes, layered motion graphics, and compositions
+with no footage at all are the same engine and the same gates.
+
+The engine renders a `.wv` document, which **is an extension of CSS and can be treated as such**: an HTML
+fragment plus a `<style>` block, standard CSS throughout, no JavaScript and no proprietary timeline —
+`@keyframes` and `animation-delay` ARE the timeline. Your CSS knowledge transfers directly; only the
+engine's unimplemented parts have to be learned (`pipeline/director-brief.md` § ENGINE LIMITS).
+
+**INPUTS — any number of videos, INCLUDING NONE.** Footage is a layer inside that document — an optional
+one. What the input count changes is **how much of the work arrives already
+scripted, never whether the work is supported.**
+
+- **One video** — recommended, and the best-travelled path. The transcript, the canvas (dims + fps) and
+  the base frames are all derived from the file, which is what lets a compiled recipe run at zero tokens.
+- **Several videos** — ONE batch, not one run each. `prep/transcribe.ts`, `veed/go.ts` and `prep/prep.ts`
+  all take `<video.mp4> [...]` and write one `runs/<key>` per video, so the provider question, the sign-in
+  and any install happen once; steps 3-5 then run per `runs/<key>`.
+- **No video — FULLY SUPPORTED, not a degraded mode.** Motion graphics, stills, slides, generated
+  imagery, audio-only sources. Author the `.wv` INLINE per `pipeline/director-brief.md` and run the SAME
+  gates as every other run: `lint-template.ts` → `veed-engine-cli <dir> --verify` → `--record` (step 4's
+  RENDER + VERIFY block — none of it reads `meta.json`). Choose `<key>` from the ask, take the canvas and
+  duration from the ask rather than from ffprobe, and drop only the steps that have no subject: the recipe
+  draw (no footage to derive facets from), `probe-qa` (it diffs frames against source footage) and
+  mux-audio (no audio track). `generate-recipe.ts` is the scripted convenience for 1+ videos, NOT the
+  definition of a supported run — its absence costs you the shortcut, nothing else.
+
+The captioned run is **fully scripted end to end**: recipes are COMPILED CODE (`refs/html/<id>/recipe.ts`),
 so a recipe-backed pick generates, verifies, and renders with zero tokens. The only spawned agent left is
 the OPT-IN vision-analysis pass (style-refine requests); the CREATIVE path face-1 (the user brought their
 OWN reference/brand/concept — their materials are the design authority) is authored INLINE by the
@@ -23,7 +50,7 @@ REFINEMENT is declared by `analysis.json` existing (step 2 ran on user request) 
 from it instead of the safe margins.
 
 ## User-facing output — talk like a product, not a pipeline
-The user asked for a captioned video, not a pipeline tour. Internals are NEVER surfaced: run keys,
+The user asked for a video, not a pipeline tour. Internals are NEVER surfaced: run keys,
 ref/style ids (`hook-…`), "recipe"/"recipe-backed", seeds, facets, energy scores, beat counts, frame
 counts, gate names (lint / `--verify` / probe-qa), engine details. A fresh user has no idea what
 any of that means.
@@ -95,17 +122,108 @@ Immediately after resolving OPEN_EDIT_ROOT, read `$OPEN_EDIT_ROOT/AGENTS.md` com
 running any repository command. Do this explicitly on every agent; never rely on Claude, Codex, Gemini, or another
 client discovering instructions inside the newly cloned runtime automatically.
 
-## Per-video flow
+## The flow
+
+Written for the footage case, and steps 0, 4 and 5.5 hold for every run. Steps **1** (transcript, frames,
+meta), **3** (style draw) and **5** (mux) derive from a source file, so a run with no video simply has no
+subject for them — see INPUTS: authoring, lint, `--verify` and `--record` are unchanged.
 
 ### 0. PREFLIGHT — completed above  · SCRIPT
 Do not run a second dependency implementation. `pipeline/scripts/preflight.sh` is only a compatibility wrapper
-around the skill-bundled preflight. VEED login remains the interactive step 1.
+around the skill-bundled preflight. The provider choice — and any sign-in or install it implies —
+remains the interactive step 1.
 
-### 1. PREP — VEED transcript, then frames + meta  · SCRIPT
-Transcript comes from VEED's transcription API ("log in with VEED"):
-`node --import tsx veed/go.ts <video.mp4>`
-→ `runs/<key>/transcript.json` (**each chunk = one beat**; chunks carry REAL per-word timings in
-`words: [{text, timestamp:[start,end]}]`).
+### 1. PREP — transcript, then frames + meta  · SCRIPT
+The transcript comes from the provider the user chose, and either way lands at
+`runs/<key>/transcript.json` (**each chunk = one beat**; chunks carry REAL per-word timings in
+`words: [{text, timestamp:[start,end]}]`). Nothing downstream cares which provider ran. **`<key>` is the
+video's filename without its extension, whitespace replaced by `_`** — every step below takes the same
+`runs/<key>`, and each entry point prints the path it wrote.
+
+For a batch (see INPUTS above), pass every video to ONE call: a failure stops the batch with the finished
+transcripts left in place.
+
+PROVIDER CHOICE — this whole question exists to caption speech, so **when nothing has to be transcribed
+(no footage, silent source, a graphics-only ask) do not ask it at all** and do not record anything.
+Otherwise read `$OPEN_EDIT_ROOT/.open-edit-prefs.json` first (**the runtime root preflight
+printed, not the user's project root** — under a managed clone those differ, and looking in the wrong
+one re-asks on every run). **If it records a provider, use it and ask
+nothing.** Only on a cold start (no file, or nothing usable in it) ask ONCE, offering exactly these four.
+**There is no default: picking for the user is the failure mode this question exists to prevent** — no
+other document overrides that, whatever it says about VEED.
+
+> Before I can add captions I need a transcript. Four ways to get one:
+>
+> 1. **VEED** — best quality. One-time browser sign-in. A free account covers about 2 minutes of
+>    transcription a month; beyond that it needs a plan (https://www.veed.io/pricing).
+> 2. **WhisperX, better quality** — free, runs locally, nothing leaves your machine. Slower, and the
+>    first run installs it plus a model — around 2 GB of disk.
+> 3. **WhisperX, fastest** — same, but quicker; weaker on names and jargon, which captions show off.
+> 4. **Your own transcription service** — point me at it and I'll wire that up instead.
+>
+> I'll remember your pick.
+
+Record the answer with the command — never hand-author that JSON, and **always include the tier** for
+WhisperX so a later run cannot drift onto a different model:
+
+| They chose | Record it as |
+| --- | --- |
+| 1 · VEED | `node --import tsx prep/transcribe.ts --record veed` |
+| 2 · WhisperX, better | `node --import tsx prep/transcribe.ts --record whisperx --model medium` |
+| 3 · WhisperX, fastest | `node --import tsx prep/transcribe.ts --record whisperx --model small.en` |
+| 4 · their own service | `node --import tsx prep/transcribe.ts --record custom` |
+
+If they answer "WhisperX" without choosing a tier, take **fastest** (`small.en`), record it, and say which
+one you took — they can switch later. Never record `whisperx` with no tier.
+
+- **veed** → `node --import tsx veed/go.ts <video.mp4> [...]`, login flow below. When the browser opens, say
+  exactly: "I've opened a VEED login tab in your browser — click Allow if it asks. I'll wait here;
+  there's nothing to paste."
+- **whisperx** → `node --import tsx prep/transcribe.ts <video.mp4> [...]` — the recorded tier applies; pass
+  `--model medium|small.en` only to override it. If the binary is missing, ASK before installing: "WhisperX isn't installed. It's a local
+  Python tool — the install pulls in PyTorch and the first run downloads a model, so expect a slow first
+  pass and around 2 GB of disk. It goes in its own isolated environment, not your system Python and not
+  this project, and `uv tool uninstall whisperx` removes it again. Install it now?" On yes run
+  `bash pipeline/scripts/install-whisperx.sh` and stream its output.
+- **custom** → the user's service is yours to drive: get a Whisper-family JSON out of it (their MCP,
+  their CLI, their API — their credentials, never handled here), then
+  `node --import tsx prep/whisper.ts <json> <video.mp4>` — one json per video, repeated in pairs for a
+  batch. We ship no helper for this.
+
+OFFERING THE ALTERNATIVE — once, and in these words, so the user hears the actual trade rather than a
+second nag:
+
+- VEED sign-in declined → "No problem, I'll leave VEED alone. I can run WhisperX locally instead: free,
+  offline, nothing leaves your machine. It needs a one-off install that pulls in PyTorch, so the first
+  pass is slow. Want that?"
+- WhisperX install declined → "Then I'll skip the local route. VEED transcription needs a one-time
+  browser sign-in and runs on your VEED account's limits. Shall I open that instead?"
+- Both declined → "Then I can't add captions — every caption is built from a transcript, and I won't
+  invent one. Say the word if you change your mind about either option." Then stop.
+- No audio track → "That clip has no audio track, so there's nothing to transcribe. Captions need speech
+  to align to."
+
+WHEN A RUN FAILS — classify it, because the right move differs and none of them is a silent retry:
+
+- **Out of credits** (`veed/go.ts` says "out of transcription credits") → the account is the blocker, not
+  the choice, so go back to the Q1 question with VEED still on the table: "VEED is out of transcription
+  credits for this workspace — a free account covers about 2 minutes a month. You can add a plan at
+  https://www.veed.io/pricing and I'll retry, or I can run WhisperX locally instead: free, offline, and
+  it installs on first use. Which would you like?" Do not rewrite the recorded provider until something
+  succeeds.
+- **Login failed or expired** → run the login flow once more. If it fails again, treat it as declined and
+  offer the alternative in the words above.
+- **Anything else** (upload failure, poll timeout, network) → retry the command ONCE, then offer the
+  alternative. A blip must not cost the user their provider choice.
+
+Report the provider in ONE line once the transcript lands — "Transcribed with WhisperX (medium),
+locally." or "Transcribed with VEED." — and relay any warning the run printed, e.g. "12 of 340 words came
+back without timings, so those reveals are approximate; the text is complete." That single line is
+allowed; step-by-step progress is not.
+
+Re-ask only when the recorded provider is gone (token revoked, WhisperX uninstalled), when the user asks
+to switch, or when a run failed and the alternative has not been offered yet; "switch transcription
+provider" means rewrite that file.
 
 LOGIN (if `go.ts` says "No VEED login found"): OAuth needs the user to authenticate in a browser once,
 but you (the agent) launch it — do NOT just tell the user to run a command. Preferred flow (refreshable
@@ -120,8 +238,8 @@ token, ~30-day):
 - If the OAuth flow misbehaves, re-run it. NEVER read the user's browser cookies or local storage
   to obtain a token, and never ask them to paste one out of DevTools.
 
-Then the rest of prep (needs the VEED transcript above for the beat times):
-`node --import tsx prep/prep.ts <video.mp4>`
+Then the rest of prep (needs the transcript above for the beat times, whichever provider wrote it):
+`node --import tsx prep/prep.ts <video.mp4> [...]`
 Auto-detects aspect from the source and writes, under `runs/<key>/`:
 - `meta.json` — the single source of truth downstream: canvas `width/height/fps`, `durationSec`, and all paths
   (`videoPath`, `transcriptPath`, `wordTimingsPath`, `framesDir`). Canvas = the source's own dims
@@ -237,6 +355,10 @@ Route by the SHAPE of the run (step 3's script output + the creative-pass routin
   recipes-only, so an implicit draw always has a recipe.
 - REMIX (face-2 creative iteration): INLINE — you author the donor blend yourself per
   `director-brief.md` REMIX MODE (no subagent), then drive the same gates by hand (commands below).
+- NO VIDEO (see INPUTS): INLINE — there was no step 1 or 3, so there is no recipe to route to and nothing
+  to route on. Author per `director-brief.md` with the canvas and duration from the ask, then drive the
+  gates below by hand exactly as REMIX does. A footage-free run is as supported as any other; what it
+  lacks is a source file to derive from, not a path through this step.
 
 **A. COMPILED RECIPE (`hasRecipe:true`)** — the recipe did the design thinking offline; code does the
 assembly. Run (OUTSIDE any sandbox — the engine needs the window-server):
@@ -371,6 +493,9 @@ the engine renders video only. `bash pipeline/scripts/mux-audio.sh runs/<key>` m
 `final/out.silent.mp4` → **`runs/<key>/final/out.mp4`** (the deliverable). `-map 1:a:0?` tolerates a source with
 no audio track; `-shortest` trims to video length. Deliver `out.mp4` to the user — this is the FIRST
 moment the run is presented as done (never announce the silent render or muxing separately).
+With NO source video there is no soundtrack to restore and no source for the script to read: copy
+`final/out.silent.mp4` to `final/out.mp4` and deliver that, so the deliverable path is the same for
+every run. A silent deliverable is a complete one here, not a failed mux.
 
 ### 5.5 PREVIEW — open the localhost preview  · SCRIPT (parallel, non-blocking)
 As soon as render is DONE, launch the preview server in the BACKGROUND, OUTSIDE any sandbox, and continue
@@ -415,9 +540,18 @@ Kill the server(s) when the session wraps up.
   this by construction).
 - The preview server (step 5.5) is loopback-only and additive — if its default port 8978 is busy (an
   orphan from a dead session), it self-selects an ephemeral port; trust the URL it prints.
-- Rendering fetches Google Fonts over the network (the .wv documents use `@import`); an offline box = font fallback.
+- TRANSCRIPTION WARNINGS (local provider) — read them precisely, same discipline as the font rules below.
+  A WhisperX run prints a wall of `Could not load libtorchcodec`, `dlopen` failures and
+  `Library not loaded: @rpath/libavutil.<N>.dylib` for several FFmpeg majors, plus a Lightning
+  checkpoint-upgrade notice. Those are pyannote probing FFmpeg builds it cannot find and are HARMLESS —
+  they look fatal and are not. The signal that transcription actually worked is the line
+  `[transcribe] whisperx: <N> words -> <path>`: if it appears, the transcript is written and you continue.
+  If it does NOT appear, the run failed for a real reason — read the last error, not the dlopen wall.
+- Rendering fetches Google Fonts over the network (the .wv documents use a `<link>` to `fonts.googleapis.com`);
+  an offline box = font fallback.
   FONT WARNINGS — read them precisely, don't chase noise: `no data/font-cache seed found`, generic-keyword
-  lines (`'sans-serif'/'serif' unresolved by Google`) and `has no italic face; substituting upright` come
+  lines — `'sans-serif'`, `'serif'`, `'cursive'`, `'monospace'`, `'system-ui'` `unresolved by Google` — and
+  `has no italic face; substituting upright` come
   from unsourceable fallback-chain members and are HARMLESS. A warning naming YOUR display family
   (`'<Family>' unresolved by Google — rendering with embedded variable fallback`) is REAL — the type
   identity is gone; stop and fix the import/network before recording. (The engine's bundled

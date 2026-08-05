@@ -9,7 +9,7 @@ is the conceptual map. One video → ONE captioned MP4. No per-shot intermediate
 | # | step | kind | what |
 |---|------|------|------|
 | 0 | preflight | SCRIPT | check `veed-engine-cli` vs the latest release; offer install if stale/missing |
-| 1 | prep | SCRIPT | VEED transcript (`veed/go.ts`; chunks = beats, real per-word timings) → `word-timings.json` (per-word absolute-ms reveal delays, synthesized by `prep/prep.ts`) + base frames; auto-detect aspect → write `meta.json` (canvas + duration + paths) |
+| 1 | prep | SCRIPT | transcript from the chosen provider (VEED `veed/go.ts`, local WhisperX `prep/transcribe.ts`, or the user's own via `prep/whisper.ts`; chunks = beats, real per-word timings) → `word-timings.json` (per-word absolute-ms reveal delays, synthesized by `prep/prep.ts`) + base frames; auto-detect aspect → write `meta.json` (canvas + duration + paths) |
 | 2 | analyse | AGENT (vision) | **OPT-IN, skipped by default** — run only when the user asks to refine the style; then ONE nameless bg subagent reads the frames + transcript → `analysis.json` (per-beat shot/bboxes/neg-space/brightness in CANVAS px), and step 4 re-runs with it. The **only** vision pass. `analysis.json` existing IS the fast-path/refinement switch. |
 | 3 | sample ONE style | SCRIPT | `pipeline/scripts/sample-style.ts` — facet-scored seeded draw of one aspect-matched ref from `refs/tags.json` (v3 RUNTIME INDEX, recipes only; `fit` = aspect SOT; transcript energy weights the draw) → `style.json` (facets, energy, coverage, alternates). Zero tokens. The CREATIVE PASS routes here too: face-1 (user brought materials) → step 4 from-scratch; face-2 REMIX (any creative iteration) / RE-ROLL (variants asks) / patch (defects). |
 | 4 | design + render | SCRIPT (recipe) · INLINE (creative face-1 · remix) | default → **compiled recipe** (`pipeline/scripts/generate-recipe.ts`: the generator module emits `final/template.wv` + `manifest.json` deterministically — word delays from `word-timings.json` by construction, zero tokens — then drives the gate chain: lint → `--verify` with the mechanical ladder fix loop (≤2 cycles) → `--record` → probe-qa); **face-1** (INLINE, orchestrator-authored: one design system from the USER'S materials, 1-2 recipe sheets as craft substrate, per `director-brief.md`; lint + `--verify` to exit 0, then `--record` → probe-qa); **REMIX** (inline donor blend per the brief's REMIX MODE in `runs/<key>-remix`, same gates) |
@@ -17,7 +17,8 @@ is the conceptual map. One video → ONE captioned MP4. No per-shot intermediate
 | 5.5 | preview | SCRIPT (parallel) | `preview/server.ts runs/<key>` — localhost preview opened for the user (read-only): watch and scrub the footage, follow the transcript, preview the subtitles; auto-swaps to the new `final/out.mp4` when an amend re-render lands. Launched in the background; the pipeline never waits on it |
 
 ## Where quality lives (do not let these drift)
-- **Prep (1)** transcribes via VEED (real per-word timings), then extracts the base
+- **Prep (1)** transcribes with whichever provider the user chose — asked once, recorded in
+  `.open-edit-prefs.json` at the runtime root (real per-word timings either way) — then extracts the base
   frames and fixes the canvas from the source aspect; every downstream step reads `runs/<key>/meta.json`
   (never re-derives dims).
 - **Analysis (2)** is opt-in — the default run derives vibe from the transcript and places by safe margins.

@@ -28,8 +28,8 @@ the work calls for edits, motion graphics, or other compositions.
 When the user says "run the open-edit skill on `<video.mp4>`", follow
 `.claude/skills/open-edit/SKILL.md` exactly (the FAST PATH):
 **preflight** (automatically prepare the workspace-local runtime; ask before global installs or updates) →
-**prep** (VEED transcript via `veed/go.ts`, then `prep/prep.ts`: `meta.json` + `word-timings.json` from
-VEED's real per-word times + base frames) → **sample ONE style** (`sample-style.ts`, facet-scored, seeded,
+**prep** (transcript from the recorded provider — `veed/go.ts` or `prep/transcribe.ts` — then `prep/prep.ts`: `meta.json` + `word-timings.json` from
+the transcript's real per-word times + base frames) → **sample ONE style** (`sample-style.ts`, facet-scored, seeded,
 zero tokens → `style.json`; the pool is the recipes-only runtime index `refs/tags.json`, so the draw is
 always recipe-backed) → **design + render** (`pipeline/scripts/generate-recipe.ts --run runs/<key>
 --record`, a SCRIPT driving the full gate chain: the compiled recipe emits the .wv document → lint → `--verify`
@@ -61,7 +61,7 @@ fast-path/refinement switch.
   into the final .wv document deterministically. Authored + validated offline (derived from the sheet);
   `hasRecipe` keys on the module existing.
 - `pipeline/scripts/` — `sample-style.ts` (facet-scored seeded style pick) · `generate-recipe.ts` (runs the compiled recipe: generate → lint → `--verify` fix loop → `--record` → probe) · `lint-template.ts` (mechanical engine-limit gate) · `probe-qa.ts` (frame QA vs the source) · `resolve-video.ts` (the video-arg resolution rule shared by both entry points) · `synth-word-timings.ts` (imported by prep) · `extract-beat-frames.ts` (imported by prep) · `mux-audio.sh`, `preflight.sh`, `install-veed-engine.sh` (deterministic).
-- `veed/` — VEED-native transcription + login (owns `transcript.json`; real per-word timings). `prep/prep.ts` — `meta.json` + `word-timings.json` + base frames (needs the VEED transcript). `refs/` — `html/` refs + `tags.json` (v3, the RUNTIME INDEX — recipes only, facet taxonomy, `fit` = aspect SOT) + per-ref `recipe.md` (the prose recipe sheet a compiled recipe is derived from — the fast path runs the compiled module, never the sheet; the creative pass reads sheets as craft substrate and REMIX donors).
+- `veed/` — VEED-native transcription + login (one writer of `transcript.json`; real per-word timings). `prep/prep.ts` — `meta.json` + `word-timings.json` + base frames (needs a transcript from any provider). `refs/` — `html/` refs + `tags.json` (v3, the RUNTIME INDEX — recipes only, facet taxonomy, `fit` = aspect SOT) + per-ref `recipe.md` (the prose recipe sheet a compiled recipe is derived from — the fast path runs the compiled module, never the sheet; the creative pass reads sheets as craft substrate and REMIX donors).
 - `config.ts` — all machine paths (ffmpeg / ffprobe / veed-engine). `docs/` — FLOW (orchestration) · recipe-format (the recipe law). Engine support matrix = the `feature-support.md` asset downloaded with the engine release into `.veed-engine/` (not vendored here).
 
 ## Hard rules (do not drift — these protect output quality)
@@ -108,6 +108,64 @@ workspace. There is no project-scoped path: the no-project route is the only one
 - `oauth.ts`, `login.ts`, and `token-store.ts` own PKCE login, local token storage, and refresh.
 - `transcript-mapper.ts` converts VEED captions to the pipeline's timestamped chunk shape.
 - `readiness.ts` reports live-run prerequisites.
+
+## Transcription providers
+
+`runs/<key>/transcript.json` is the only seam. Anything that writes that shape is a valid provider and
+nothing downstream can tell which one ran. **There is no default provider**: on a cold start the choice
+belongs to the user (SKILL.md step 1), and picking one for them is a defect, not a shortcut. VEED is
+listed first because it transcribes best, not because it wins ties.
+
+| Provider | What it is | Entry point |
+| --- | --- | --- |
+| `veed` | Premium quality, hosted. One-time browser sign-in; limits are the VEED account's. | `veed/go.ts` |
+| `whisperx` | Free, local, offline. Two tiers: `medium` (slower, better) and `small.en` (fastest, weaker on names). CPU-bound here — CTranslate2 has no GPU path on Apple Silicon. | `prep/transcribe.ts` |
+| `custom` | The user's own service or MCP. **We provide no support code**: you obtain a Whisper-family JSON however their tool works, then map it. No credential ever passes through OpenEdit. | `prep/whisper.ts <json> <video>` |
+
+The choice is recorded in `$OPEN_EDIT_ROOT/.open-edit-prefs.json` — the runtime root, which is not the
+user's project root when the runtime is a managed clone — as `{ transcription: { provider, model? } }`, and is not
+re-asked. Write it with `node --import tsx prep/transcribe.ts --record <provider> [--model <id>]` rather
+than by hand; `prep/transcribe.ts` also exports `readPrefs` / `writePrefs` / `recordedModel` for
+programmatic use. An absent, corrupt or unrecognised file reads as a cold start with a stated reason, and
+a recorded `model` becomes the default tier for later runs.
+
+Every provider entry point takes `<video.mp4> [...]`, like `prep/prep.ts`, and writes one `runs/<key>` per
+video — so a batch asks the provider question, signs in, and installs once. A failure stops the batch and
+leaves the transcripts already written in place.
+
+```sh
+# whisperx, installed on request only — isolated uv/pipx environment, ~2 GB with weights,
+# removed again with `uv tool uninstall whisperx`
+bash pipeline/scripts/install-whisperx.sh                       # uv/pipx, pinned interpreter
+node --import tsx prep/transcribe.ts <video.mp4> [...] [--model medium] [--language de]
+
+# custom: any Whisper-family JSON the user's service produced, one json per video
+node --import tsx prep/whisper.ts transcription.json <video.mp4> [<json> <video.mp4> ...]
+```
+
+`prep/whisper-mapper.ts` accepts the Python Whisper family (WhisperX, openai-whisper,
+whisper-timestamped, mlx-whisper), the OpenAI API's `verbose_json` with
+`timestamp_granularities=["word"]`, and whisper.cpp's `-oj -ml 1` millisecond offsets.
+
+**Per-word times are mandatory**, and a transcript with none at all is refused — `prep` would otherwise
+even-split every cue and the word reveals would drift. Individual words a provider leaves untimed
+(WhisperX does this whenever alignment cannot match a word) keep their text and get a window
+interpolated from their timed neighbours, across segment boundaries where necessary; the count is
+reported, because approximate timing is acceptable and missing words are not. The mapper asserts its own
+output word count against its input and throws if they differ, so no future edit can reintroduce a
+silent drop. A "word" containing whitespace — whisper.cpp without `-ml 1` emits whole sentences that way
+— is split into tokens and counted as inferred, rather than passing as word-timed and being even-split
+later. Provider order is not trusted: chunks are sorted, and words whose times run backwards are
+reordered so the caption text and the reveals agree.
+
+If a transcription MCP is available, prefer one that writes a file and returns its path. Routing
+hundreds of timestamps through model context invites drift in the numbers themselves.
+
+A failed VEED run is classified rather than retried blindly (SKILL.md step 1): out of credits returns to
+the provider question with VEED still offered — a free account covers about 2 minutes a month, so
+`veed/orchestrate.ts` names https://www.veed.io/pricing and the local alternative in the error itself; a
+login failure retries the login once; anything else retries the command once. The recorded provider is
+never rewritten on failure.
 
 Run the isolated VEED tests without network access:
 

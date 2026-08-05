@@ -73,16 +73,25 @@ async function prep(file: string): Promise<void> {
   console.log(`[prep] ${key}: DONE`);
 }
 
-// Per-beat absolute-ms word reveal delays for the word-level caption animation. VEED chunks carry REAL per-word
+// Per-beat absolute-ms word reveal delays for the word-level caption animation. Transcripts carry REAL per-word
 // times in words:[{text,timestamp}] (the same shape as a TimedChunk) — flatten those as the word-level
-// source; even split only when a transcript has no word arrays at all.
+// source; even split only when a transcript has no word arrays at all. Every provider supplies real
+// times, so an even split means the transcript itself is deficient.
 async function ensureWordTimings(dir: string, transcriptPath: string, key: string): Promise<void> {
   const t = JSON.parse(await readFile(transcriptPath, 'utf8')) as { chunks?: (TimedChunk & { words?: TimedChunk[] })[] };
   const chunks = Array.isArray(t.chunks) ? t.chunks : [];
   const wordChunks = chunks.flatMap((c) => Array.isArray(c.words) ? c.words : []);
   const wt = synthWordTimings(chunks, wordChunks.length ? wordChunks : undefined);
   await writeFile(join(dir, 'word-timings.json'), JSON.stringify(wt, null, 2));
-  console.log(`[prep] ${key}: word-timings.json (${wordChunks.length ? 'VEED per-word times' : 'even split'})`);
+  if (wordChunks.length) {
+    console.log(`[prep] ${key}: word-timings.json (real per-word times)`);
+  } else {
+    // An even split desynchronises the word reveals, so it must not read like a routine log line.
+    console.warn(
+      `[prep] ${key}: WARNING word-timings.json is an EVEN SPLIT — ${transcriptPath} carries no ` +
+      'per-word times, so word reveals will drift out of sync with the audio.',
+    );
+  }
 }
 
 async function run(): Promise<void> {
