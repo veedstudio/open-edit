@@ -18,7 +18,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { FFMPEG, FFPROBE, REPO_ROOT, WHISPERX_BIN, WHISPERX_MODEL } from '../config.ts';
-import { resolveVideoArg } from '../pipeline/scripts/resolve-video.ts';
+// runKeyOf is re-exported rather than redefined, so existing importers of this module keep working while
+// there stays exactly one copy of the rule.
+import { resolveVideoArg, runKeyOf } from '../pipeline/scripts/resolve-video.ts';
+export { runKeyOf };
 import { mapWhisperTranscript, type Transcript, type WhisperJson } from './whisper-mapper.ts';
 
 export const PREFS_PATH = join(REPO_ROOT, '.open-edit-prefs.json');
@@ -187,9 +190,7 @@ export async function runWhisperx(
   return JSON.parse(await readFile(produced, 'utf8')) as WhisperJson;
 }
 
-export function runKeyOf(video: string): string {
-  return basename(video, extname(video)).replace(/\s+/g, '_');
-}
+
 
 export async function transcribeLocally(
   videoArg: string,

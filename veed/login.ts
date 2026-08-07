@@ -8,13 +8,13 @@ import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline/promises';
 import { randomBytes } from 'node:crypto';
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { REPO_ROOT } from '../config.ts';
 import { VEED_ORIGIN as ORIGIN } from './api.ts';
 import { loginSuccessPage } from './login-page.ts';
 import { buildAuthorizeUrl, makePkcePair, OAUTH_SCOPE } from './oauth.ts';
-import { DEFAULT_TOKEN_PATH as TOKEN_PATH } from './token-store.ts';
+import { DEFAULT_TOKEN_PATH as TOKEN_PATH, writeTokenFileAtomically } from './token-store.ts';
 
 const CLIENT_PATH = join(REPO_ROOT, 'veed', '.veed-client.json');
 const LOOPBACK_PORT = 8977;
@@ -170,24 +170,14 @@ async function main(): Promise<void> {
     expires_in: number;
   };
 
-  await writeFile(
-    TOKEN_PATH,
-    JSON.stringify(
-      {
-        accessToken: token.access_token,
-        refreshToken: token.refresh_token ?? null,
-        expiresAt: Date.now() + token.expires_in * 1000,
-        origin: ORIGIN,
-        clientId,
-        tokenEndpoint: discovery.token_endpoint,
-      },
-      null,
-      2,
-    ),
-    { mode: 0o600 },
-  );
-  // writeFile's mode only applies on creation; tighten re-logins too.
-  await chmod(TOKEN_PATH, 0o600);
+  await writeTokenFileAtomically(TOKEN_PATH, {
+    accessToken: token.access_token,
+    refreshToken: token.refresh_token ?? null,
+    expiresAt: Date.now() + token.expires_in * 1000,
+    origin: ORIGIN,
+    clientId,
+    tokenEndpoint: discovery.token_endpoint,
+  });
   console.log(`Logged in. Token stored at ${TOKEN_PATH}`);
 }
 

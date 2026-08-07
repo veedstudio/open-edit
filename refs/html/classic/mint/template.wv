@@ -1,0 +1,38 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; font-family:'Anton', Impact, sans-serif; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; inset:0; opacity:0; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  .ln { position:absolute; left:0; right:0; z-index:2; text-align:center; line-height:1.2;
+        color:rgba(255,255,255,1); font-weight:400;
+        letter-spacing:-0.02083em; text-shadow:1px 0 0 #000000, -1px 0 0 #000000, 0 1px 0 #000000, 0 -1px 0 #000000, 1px 1px 0 #000000, -1px 1px 0 #000000, 1px -1px 0 #000000, -1px -1px 0 #000000, 3px 4px 4px #000000; }
+  .w { display:inline-block; }
+.w{animation-name:chOn;animation-timing-function:linear;animation-fill-mode:none;}
+@keyframes chOn{0%{color:rgba(255,255,255,1)}10%{color:rgba(128,255,201,1)}88%{color:rgba(128,255,201,1)}100%{color:rgba(255,255,255,1)}}
+
+
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:200ms;animation-duration:1900ms;">
+  <div class="pg" id="b1p1" style="z-index:1;opacity:1;">
+    <div class="ln" id="b1p1l1" data-node-role="text" style="top:1098px;font-size:35px;"><span class="w" id="b1w1" style="animation-delay:200ms;animation-duration:317ms;">MAKE</span>&#160;<span class="w" id="b1w2" style="animation-delay:517ms;animation-duration:316ms;">YOUR</span>&#160;<span class="w" id="b1w3" style="animation-delay:833ms;animation-duration:317ms;">CAPTIONS</span>&#160;<span class="w" id="b1w4" style="animation-delay:1150ms;animation-duration:317ms;">LOOK</span>&#160;<span class="w" id="b1w5" style="animation-delay:1467ms;animation-duration:316ms;">THIS</span>&#160;<span class="w" id="b1w6" style="animation-delay:1783ms;animation-duration:317ms;">GOOD</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:2100ms;animation-duration:2200ms;">
+  <div class="pg" id="b2p1" style="z-index:1;opacity:1;">
+    <div class="ln" id="b2p1l1" data-node-role="text" style="top:1098px;font-size:35px;"><span class="w" id="b2w7" style="animation-delay:2100ms;animation-duration:367ms;">EVERY</span>&#160;<span class="w" id="b2w8" style="animation-delay:2467ms;animation-duration:366ms;">WORD</span>&#160;<span class="w" id="b2w9" style="animation-delay:2833ms;animation-duration:367ms;">LANDS</span>&#160;<span class="w" id="b2w10" style="animation-delay:3200ms;animation-duration:367ms;">RIGHT</span>&#160;<span class="w" id="b2w11" style="animation-delay:3567ms;animation-duration:366ms;">ON</span>&#160;<span class="w" id="b2w12" style="animation-delay:3933ms;animation-duration:367ms;">TIME</span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:4300ms;animation-duration:1700ms;">
+  <div class="pg" id="b3p1" style="z-index:1;opacity:1;">
+    <div class="ln" id="b3p1l1" data-node-role="text" style="top:1098px;font-size:35px;"><span class="w" id="b3w13" style="animation-delay:4300ms;animation-duration:320ms;">RENDERED</span>&#160;<span class="w" id="b3w14" style="animation-delay:4620ms;animation-duration:320ms;">STRAIGHT</span>&#160;<span class="w" id="b3w15" style="animation-delay:4940ms;animation-duration:320ms;">OVER</span>&#160;<span class="w" id="b3w16" style="animation-delay:5260ms;animation-duration:320ms;">YOUR</span>&#160;<span class="w" id="b3w17" style="animation-delay:5580ms;animation-duration:420ms;">FOOTAGE</span></div>
+  </div>
+</div>

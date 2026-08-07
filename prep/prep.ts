@@ -7,17 +7,14 @@
 // Paths come from ../config.ts.
 // Run:  node --import tsx prep/prep.ts <video.mp4> [<video2.mp4> ...]
 //   (any path works — absolute or relative to your CWD; outputs land in <repo>/runs/<key>/)
+import { parseFlags } from '../veed/args.ts';
 import { access, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-import { basename, extname, join } from 'node:path';
+import { join } from 'node:path';
 import { FFPROBE, REPO_ROOT } from '../config.ts';
 import { extractBeatFrames } from '../pipeline/scripts/extract-beat-frames.ts';
-import { resolveVideoArg } from '../pipeline/scripts/resolve-video.ts';
+import { resolveVideoArg, runKeyOf } from '../pipeline/scripts/resolve-video.ts';
 import { synthWordTimings, type TimedChunk } from '../pipeline/scripts/synth-word-timings.ts';
-
-function keyOf(file: string): string {
-  return basename(file, extname(file)).replace(/\s+/g, '_');
-}
 
 interface Canvas { aspect: '9:16' | '16:9'; width: number; height: number; fps: number }
 
@@ -49,7 +46,7 @@ function probeCanvas(src: string): { canvas: Canvas; durationSec: number } {
 }
 
 async function prep(file: string): Promise<void> {
-  const key = keyOf(file);
+  const key = runKeyOf(file);
   const src = resolveVideoArg(file); // same rule as veed/go.ts — the two must never disagree about the source file
   const dir = join(REPO_ROOT, 'runs', key);
   await mkdir(dir, { recursive: true });
@@ -95,7 +92,13 @@ async function ensureWordTimings(dir: string, transcriptPath: string, key: strin
 }
 
 async function run(): Promise<void> {
-  const videos = process.argv.slice(2);
+  // Every argument is a video; prep takes no flags at all. Said strictly, so a flag meant for some other
+  // script is named here rather than resolved as a file path and reported as a missing video.
+  const { positionals: videos } = parseFlags({
+    args: process.argv.slice(2),
+    options: {},
+    allowPositionals: true,
+  });
   if (videos.length === 0) throw new Error('usage: node --import tsx prep/prep.ts <video.mp4> [...]');
   for (const file of videos) await prep(file);
   console.log('PREP DONE');

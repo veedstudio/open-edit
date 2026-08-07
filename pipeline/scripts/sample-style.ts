@@ -21,9 +21,11 @@
 //                    index is 100% compiled — the hard filter already does this)
 // Writes runs/<key>/style.json — see StylePick.
 //   node --import tsx pipeline/scripts/sample-style.ts --run <runDir> [--seed N] [--style <id>] [--recipes-only]
+import { parseFlags } from '../../veed/args.ts';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { REPO_ROOT } from '../../config.ts';
 import { generatorRelPath } from '../recipes/lib.ts';
 
 // Draw-exclusion by tag. Empty since the engine --verify occlusion false-positive
@@ -123,16 +125,20 @@ const ENERGY_FACETS: Record<'high' | 'low' | 'mid', string[]> = {
 
 // ---------- pool ----------
 
+function readIndex(repoRoot: string): TagEntryV3[] {
+  const data = JSON.parse(readFileSync(join(repoRoot, 'refs/tags.json'), 'utf8')) as { version?: number; refs?: TagEntryV3[] };
+  if (data.version !== 3 || !Array.isArray(data.refs)) throw new Error('refs/tags.json is not the v3 runtime index ({version:3, refs:[…]})');
+  return data.refs;
+}
+
 // All refs a run could use: v3 runtime-index entry, no excluded tag, aspect fit, prefab present.
 // Stable order → stable draw. The index is recipes-only BY CONTRACT — an entry missing ANY of its
 // three files (template.wv, recipe.md, recipe.ts) is an integrity error, never a silent downgrade.
 // A cut deletes the whole refs/html/<id>/ folder, so a half-applied cut takes out all three at once:
 // the prefab check has to throw like the other two, or the pool silently shrinks by one.
 export function candidatesFor(repoRoot: string, aspect: '9:16' | '16:9'): Candidate[] {
-  const data = JSON.parse(readFileSync(join(repoRoot, 'refs/tags.json'), 'utf8')) as { version?: number; refs?: TagEntryV3[] };
-  if (data.version !== 3 || !Array.isArray(data.refs)) throw new Error('refs/tags.json is not the v3 runtime index ({version:3, refs:[…]})');
   const out: Candidate[] = [];
-  for (const e of data.refs) {
+  for (const e of readIndex(repoRoot)) {
     if (e.excluded) continue;
     if (Object.values(e.facets).flat().some((t) => EXCLUDED_TAGS.has(t))) continue;
     if (!e.facets.fit.includes(aspect)) continue;
@@ -171,7 +177,7 @@ function weightedDraw(pool: Candidate[], wanted: string[], seed: number): Candid
 }
 
 export function sampleStyle(runDir: string, opts: { seed?: number; style?: string; recipesOnly?: boolean } = {}): StylePick {
-  const repoRoot = join(import.meta.dirname ?? __dirname, '..', '..');
+  const repoRoot = REPO_ROOT;
   const meta = JSON.parse(readFileSync(join(runDir, 'meta.json'), 'utf8')) as { key?: string; width: number; height: number };
   const aspect: '9:16' | '16:9' = meta.height >= meta.width ? '9:16' : '16:9';
   const key = meta.key ?? basename(runDir);
@@ -229,9 +235,16 @@ export function sampleStyle(runDir: string, opts: { seed?: number; style?: strin
 // Canonical reader for runs/<key>/style.json. hasRecipe defaults to FALSE unless the file says
 // exactly `true` — a missing/legacy/malformed field must route to the from-scratch variant, never
 // to generate-recipe.ts (which would chase a nonexistent generator module).
+// refId is validated against the runtime index, exactly as --style is on the way in: this is a file
+// on disk, and its refId becomes an import()ed module path in generate-recipe.ts. Membership, not
+// eligibility — aspect and exclusions are the draw's business, containment is this one's.
 export function readStylePick(runDir: string): Pick<StylePick, 'refId' | 'refPath' | 'hasRecipe' | 'seed'> & { facets?: Facets } {
   const raw = JSON.parse(readFileSync(join(runDir, 'style.json'), 'utf8')) as Partial<StylePick>;
   if (!raw.refId || !raw.refPath) throw new Error(`style.json in ${runDir} is missing refId/refPath`);
+  const known = new Set(readIndex(REPO_ROOT).map((e) => e.id));
+  if (!known.has(raw.refId)) {
+    throw new Error(`style.json in ${runDir} names refId ${JSON.stringify(raw.refId)}, which is not in the runtime index (refs/tags.json) — re-run sample-style.ts for this run`);
+  }
   return {
     refId: raw.refId,
     refPath: raw.refPath,
@@ -242,16 +255,25 @@ export function readStylePick(runDir: string): Pick<StylePick, 'refId' | 'refPat
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const argv = process.argv.slice(2);
-  const get = (f: string) => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : undefined; };
-  const run = get('--run');
+  // Strict: an unknown flag is an error. A typo here silently redraws the style someone thought they
+  // were overriding, and the run then renders the wrong pick while reporting the wrong id.
+  const { values } = parseFlags({
+    args: process.argv.slice(2),
+    options: {
+      run: { type: 'string' },
+      seed: { type: 'string' },
+      style: { type: 'string' },
+      'recipes-only': { type: 'boolean' },
+    },
+  });
+  const run = values.run;
   if (!run) { console.error('usage: node --import tsx pipeline/scripts/sample-style.ts --run <runDir> [--seed N] [--style <id>] [--recipes-only]'); process.exit(2); }
   let seed: number | undefined;
-  if (get('--seed') !== undefined) {
-    seed = Number(get('--seed'));
-    if (!Number.isFinite(seed)) { console.error(`--seed must be a number, got "${get('--seed')}"`); process.exit(2); }
+  if (values.seed !== undefined) {
+    seed = Number(values.seed);
+    if (!Number.isFinite(seed)) { console.error(`--seed must be a number, got "${values.seed}"`); process.exit(2); }
   }
-  const s = sampleStyle(run, { seed, style: get('--style'), recipesOnly: argv.includes('--recipes-only') });
+  const s = sampleStyle(run, { seed, style: values.style, recipesOnly: values['recipes-only'] ?? false });
   const cov = s.coverage.filtered ? 'recipes-only pool' : `COVERAGE MODE (${s.coverage.sheets}/${s.coverage.threshold} sheets)`;
   console.log(`[sample-style] ${s.refId} seed=${s.seed} recipe=${s.hasRecipe ? 'yes' : 'no'} energy=${s.energy} ${cov}`);
   console.log(`  alternates: ${s.alternates.join(', ')}`);

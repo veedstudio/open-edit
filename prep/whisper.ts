@@ -13,11 +13,12 @@
 //
 // The key is derived from the video filename exactly as veed/go.ts and prep/prep.ts derive it, so
 // prep picks the transcript up with no further arguments.
+import { parseFlags } from '../veed/args.ts';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { REPO_ROOT } from '../config.ts';
-import { resolveVideoArg } from '../pipeline/scripts/resolve-video.ts';
+import { resolveVideoArg, runKeyOf } from '../pipeline/scripts/resolve-video.ts';
 import { validateTranscript } from './transcribe.ts';
 import { mapWhisperTranscript, type WhisperJson } from './whisper-mapper.ts';
 
@@ -38,7 +39,7 @@ async function mapOne(jsonArg: string, videoArg: string): Promise<void> {
   const { transcript, interpolated, reordered } = mapWhisperTranscript(raw);
   validateTranscript(transcript);
 
-  const key = basename(video, extname(video)).replace(/\s+/g, '_');
+  const key = runKeyOf(video);
   const outDir = join(REPO_ROOT, 'runs', key);
   await mkdir(outDir, { recursive: true });
   const out = join(outDir, 'transcript.json');
@@ -61,7 +62,13 @@ async function mapOne(jsonArg: string, videoArg: string): Promise<void> {
 }
 
 async function run(): Promise<void> {
-  const args = process.argv.slice(2);
+  // Pairs of paths, no flags. Strict, so a stray flag is named instead of being counted as one half of a
+  // pair and silently mapping a transcript onto the wrong video.
+  const { positionals: args } = parseFlags({
+    args: process.argv.slice(2),
+    options: {},
+    allowPositionals: true,
+  });
   // Each video carries its own transcription, so the arguments are pairs; an odd count means one is
   // missing, and guessing which would map a transcript onto the wrong video.
   if (args.length === 0 || args.length % 2 !== 0) {

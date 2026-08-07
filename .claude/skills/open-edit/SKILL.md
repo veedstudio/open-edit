@@ -53,7 +53,9 @@ from it instead of the safe margins.
 The user asked for a video, not a pipeline tour. Internals are NEVER surfaced: run keys,
 ref/style ids (`hook-…`), "recipe"/"recipe-backed", seeds, facets, energy scores, beat counts, frame
 counts, gate names (lint / `--verify` / probe-qa), engine details. A fresh user has no idea what
-any of that means.
+any of that means. The CLASSIC POOL is equally internal: never say "classic", "preset", "route", or a
+preset id (`simple`, `glass`, …) — "Classic route, 'simple' preset" is exactly the leak this section
+bars. The user asked for clean captions; say you're on it, then deliver.
 - **Never name the style — and never expose the mechanics of choosing it.** The ref id, its metadata,
   and the sampling machinery ("the sampled pick", "the draw", seeds, alternates) are all internal.
   Talk about "the style" as an abstract thing that exists for this video: "the style centres text
@@ -154,7 +156,7 @@ other document overrides that, whatever it says about VEED.
 
 > Before I can add captions I need a transcript. Four ways to get one:
 >
-> 1. **VEED** — best quality. One-time browser sign-in. A free account covers about 2 minutes of
+> 1. **VEED** — best quality. One-time browser sign-in. A free account covers about 10 minutes of
 >    transcription a month; beyond that it needs a plan (https://www.veed.io/pricing).
 > 2. **WhisperX, better quality** — free, runs locally, nothing leaves your machine. Slower, and the
 >    first run installs it plus a model — around 2 GB of disk.
@@ -207,7 +209,7 @@ WHEN A RUN FAILS — classify it, because the right move differs and none of the
 
 - **Out of credits** (`veed/go.ts` says "out of transcription credits") → the account is the blocker, not
   the choice, so go back to the Q1 question with VEED still on the table: "VEED is out of transcription
-  credits for this workspace — a free account covers about 2 minutes a month. You can add a plan at
+  credits for this workspace — a free account covers about 10 minutes a month. You can add a plan at
   https://www.veed.io/pricing and I'll retry, or I can run WhisperX locally instead: free, offline, and
   it installs on first use. Which would you like?" Do not rewrite the recorded provider until something
   succeeds.
@@ -302,6 +304,43 @@ index id; anything outside the index is not a runtime pick and the script reject
   `--style` by their explicit pick or cancel. NEVER reach for the from-scratch pass to paper over a coverage gap.
 - **RECIPES ARE THE PRODUCT**: the draw, `--style`, and `alternates` are all RECIPE-BACKED only —
   the runtime index contains nothing else.
+- **CLASSIC POOL — explicit-simplicity route (intent, not vibe)**: `refs/html/classic/tags.json` holds a
+  small set of plain caption presets (single font, simple or no word animation; every preset is dual-aspect).
+  Route here ONLY when the user's INITIAL prompt itself asks for a simplified/standard look — "simple",
+  "clean", "minimal", "just subtitles", "black bars behind the text", "highlight the spoken word", or
+  similar prose (each entry lists its `cues`; match on meaning, not exact strings). On this route SKIP
+  sample-style and pick in TWO stages: (1) the ask's cues NARROW the pool — often barely ("simple" alone
+  eliminates nothing; a concrete ask like "black bars" narrows hard); (2) the CONTENT decides among what
+  remains, the same signal the seeded draw scores from the transcript — word rate, caps, exclamations,
+  overall tone: calm/measured speech → the soft picks (`energy: calm|clean`), fast punchy
+  delivery → the highlight picks (`energy: punchy`); busy footage favors a `bg` (bars/plate)
+  for legibility. DEFAULT TO MOTION: prefer a word-by-word preset (`motion` != none — float-in, colour
+  flash, per-word fade) even for calm content; pick a static preset (`motion: none`) only when the user
+  says no animation ("static", "no motion", "nothing moving") or their concrete ask lands on one
+  ("black bars" → the bars preset is static, and the concrete ask wins). Preset ids are ARBITRARY
+  LABELS, never selectors — "give me a simple style" does NOT mean the preset named `simple`; a
+  hype-paced clip answering that ask is better served by `rizz` or `mint` than by a static preset. Then run step 4 variant A with
+  `--module refs/html/classic/<id>/recipe.ts` appended (same command, same gates; no `style.json`
+  exists and none is needed). The pick is INTERNAL like any other (User-facing output): never surface
+  "classic", "preset", preset ids, or the pool's existence — the user hears at most "going with a clean
+  look for this clip". No simplicity hint → never classic; the seeded draw stays the
+  default. Classic presets are END styles on the bank side: never donors or craft substrate for any
+  OTHER run's remix/face-1, and never in the seeded draw. Iteration on a delivered classic run routes
+  three ways:
+  **PARAMETER AMENDS stay classic** — "make the text blue", "add an outline", "bigger", "move it up",
+  "highlight in green", "all caps": anything expressible as a field of the classic spec (color, outline,
+  shadow, size/position fractions, casing, highlight colour, font weight). COPY the preset's `recipe.ts`
+  to the scratchpad, fix its relative `classic-lib.ts` import to the absolute path, edit ONLY the spec
+  fields in the copy, rerun with `--module <copy>` (same gates; the library recipe is never edited).
+  **"Another simple one / different simple style"** re-picks a different classic preset through this
+  same route. **A new creative DIRECTION** (a mood, a reference, new layout/motion language, "make it
+  more interesting") GRADUATES to REMIX — but the user is iterating on THEIR current look, so the
+  delivered classic design is the CONTINUITY SKELETON (donor A): translate its spec (font, casing,
+  palette, placement, bars/plate, motion) into the skeleton role and keep whatever the ask doesn't
+  touch; runtime-index donors supply only the divergence (B by `type`, optional C by `device`) per
+  REMIX MODE. The never-a-donor bar is about the BANK: classic refs never serve as donors or craft
+  substrate for any OTHER run and never enter the seeded draw — a classic run's own iteration keeping
+  its own skeleton is not a violation.
 - **CREATIVE PASS, two faces**: the user does NOT know recipes exist and never needs to — route on the
   SHAPE of the ask, never on whether they said "mix".
   **face-1** — the prompt ARRIVES WITH the user's OWN reference/brand/concept (an image, a brand kit, a
@@ -350,6 +389,8 @@ needs neither: its look comes from the donor sheets per the brief's REMIX MODE.)
 Route by the SHAPE of the run (step 3's script output + the creative-pass routing own this decision):
 - variant A (`recipe=yes` — every default run): **SCRIPT — no agent, no model, zero tokens.** The recipe
   is compiled code. (Rerun the step-3 script if you no longer have its output — same run key → same result.)
+  The classic route (step 3's CLASSIC POOL) is this same variant with
+  `--module refs/html/classic/<id>/recipe.ts` appended.
 - variant B (creative face-1; also refine re-runs after step 2): INLINE — you execute the from-scratch
   contract (B below) YOURSELF, no subagent. A default run can NEVER route here: the runtime index is
   recipes-only, so an implicit draw always has a recipe.
@@ -475,7 +516,8 @@ surface one only if it's likely visible in the deliverable.
 the `key` field inside `meta.json` to `<key>-remix` so downstream paths stay coherent). Pick donors per
 step 3 (A = current pick's sheet as skeleton, same aspect; B = different `type` facet; optional C =
 different `device` facet — B and C may be off-aspect, geometry re-derived at this canvas; sheets at
-`refs/html/<id>/recipe.md`), author
+`refs/html/<id>/recipe.md`; donors come from the RUNTIME INDEX only — classic-pool refs are never
+donors and ship no sheet), author
 `runs/<key>-remix/final/{template.wv, manifest.json}` per `director-brief.md` REMIX MODE, then drive
 the gates yourself (verify/record OUTSIDE any sandbox):
   1. `node --import tsx pipeline/scripts/lint-template.ts runs/<key>-remix/final/template.wv` — exit 1 →
