@@ -8,10 +8,12 @@
 // copy). Never edit a library recipe (refs/html/<id>/recipe.ts) for one run: copy it to the scratchpad,
 // rewrite its relative lib import to the absolute pipeline/recipes/lib.ts path, edit the copy, pass it here.
 // Exit: 0 done · 1 a gate failed (lint error, verify after the fix cycles, record, or probe FAIL) ·
-// 2 usage · 3 no compiled recipe for the sampled ref (caller runs the from-scratch inline pass).
+// 2 usage, or a refused input (a --module that does not exist, a style.json pointing outside the
+// recipe library) · 3 no compiled recipe for the sampled ref (caller runs the from-scratch inline pass).
+import { parseFlags } from '../../veed/args.ts';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { REPO_ROOT, VEED_ENGINE_BIN } from '../../config.ts';
 import { lintTemplate } from './lint-template.ts';
@@ -31,19 +33,30 @@ function boundsLineIds(verifyOut: string): string[] {
 }
 
 async function main(): Promise<number> {
-  const argv = process.argv.slice(2);
-  const get = (f: string) => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : undefined; };
-  const runArg = get('--run');
+  // Strict: an unknown flag is an error, never a no-op. This script once accepted --style, ignored it,
+  // and re-rendered the previously sampled ref — printing the OLD id while looking like it had worked.
+  // A flag that changes nothing must say so rather than let a run look like it obeyed.
+  const { values } = parseFlags({
+    args: process.argv.slice(2),
+    options: {
+      run: { type: 'string' },
+      module: { type: 'string' },
+      record: { type: 'boolean' },
+      verify: { type: 'boolean' },
+      'progress-output': { type: 'boolean' },
+    },
+  });
+  const runArg = values.run;
   if (!runArg) {
     console.error('usage: node --import tsx pipeline/scripts/generate-recipe.ts --run <runDir> [--verify] [--record] [--module <path>]');
     return 2;
   }
   const runDir = resolve(runArg);
-  const doRecord = argv.includes('--record');
-  const doVerify = argv.includes('--verify') || doRecord; // record only ever happens on a clean verify
+  const doRecord = values.record ?? false;
+  const doVerify = (values.verify ?? false) || doRecord; // record only ever happens on a clean verify
 
   // --module needs no style.json (independent/standalone runs); the sampled-ref path requires it.
-  const moduleOverride = get('--module');
+  const moduleOverride = values.module;
   let modPath: string;
   if (moduleOverride) {
     modPath = resolve(moduleOverride);
@@ -52,6 +65,13 @@ async function main(): Promise<number> {
   } else {
     const style = readStylePick(runDir);
     modPath = join(REPO_ROOT, generatorRelPath(style.refId));
+    // Last line before import(): whatever style.json said, a library module lives under refs/html/.
+    // --module is exempt by design — an explicit operator path (the scratchpad copy) is the point.
+    const libraryRoot = join(REPO_ROOT, 'refs', 'html') + sep;
+    if (!modPath.startsWith(libraryRoot)) {
+      console.error(`[generate-recipe] refusing to load ${modPath}: outside ${libraryRoot}`);
+      return 2;
+    }
     if (!style.hasRecipe || !existsSync(modPath)) {
       console.error(`[generate-recipe] no compiled recipe for "${style.refId}" (${modPath}) — run the from-scratch inline pass (SKILL step 4 variant B)`);
       return 3;

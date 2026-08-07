@@ -37,3 +37,6 @@ plans/
 
 # transcription provider choice (owner-only, never committed)
 .open-edit-prefs.json
+
+# Python bytecode from the generators
+__pycache__/

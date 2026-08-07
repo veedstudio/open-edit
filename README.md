@@ -137,7 +137,7 @@ OpenEdit asks once which provider to use and records the answer at the runtime r
 `runs/<key>/transcript.json`, with real per-word timings — and nothing downstream can tell which one ran.
 
 **VEED** — best quality, and the default workflow. Requires a VEED account; usage limits are your
-account's, and a free account covers about 2 minutes of transcription a month, beyond which it needs a
+account's, and a free account covers about 10 minutes of transcription a month, beyond which it needs a
 [plan](https://www.veed.io/pricing). The audio track is uploaded and stored in order to transcribe it; the
 video is not uploaded. By default OpenEdit does not create a VEED project. The agent guides the one-time
 browser login and stores a refreshable token at `veed/.veed-token.json` inside the runtime.

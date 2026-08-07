@@ -162,7 +162,7 @@ If a transcription MCP is available, prefer one that writes a file and returns i
 hundreds of timestamps through model context invites drift in the numbers themselves.
 
 A failed VEED run is classified rather than retried blindly (SKILL.md step 1): out of credits returns to
-the provider question with VEED still offered — a free account covers about 2 minutes a month, so
+the provider question with VEED still offered — a free account covers about 10 minutes a month, so
 `veed/orchestrate.ts` names https://www.veed.io/pricing and the local alternative in the error itself; a
 login failure retries the login once; anything else retries the command once. The recorded provider is
 never rewritten on failure.
@@ -171,5 +171,6 @@ Run the isolated VEED tests without network access:
 
 ```sh
 node --import tsx --test \
-  tests/oauth.test.ts tests/orchestrate.test.ts tests/token-store.test.ts tests/transcript-mapper.test.ts
+  tests/cli-entry.test.ts tests/oauth.test.ts tests/orchestrate.test.ts tests/token-store.test.ts \
+  tests/transcript-mapper.test.ts
 ```

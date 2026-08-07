@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "note": "CLASSIC POOL — intent-routed, never vibe-drawn. Not part of refs/tags.json: no seeded draw, no facet scoring, NEVER a creative/remix donor or craft substrate. Route here only when the user's own prompt asks for a simplified/standard caption style (see cues). Every preset is dual-aspect (one recipe serves 9:16 and 16:9); run via generate-recipe --module refs/html/classic/<id>/recipe.ts.",
+  "presets": [
+    {
+      "id": "simple",
+      "look": "white bold Poppins, soft drop shadow, centered, no background, no word animation",
+      "bg": "none",
+      "motion": "none",
+      "energy": "clean",
+      "cues": ["simple", "clean", "plain", "minimal", "basic", "standard captions", "no animation", "just subtitles"]
+    },
+    {
+      "id": "karl",
+      "look": "white UPPERCASE Poppins semibold, soft shadow, words rise in from below as spoken",
+      "bg": "none",
+      "motion": "float-in per word",
+      "energy": "clean",
+      "cues": ["subtle animation", "gentle", "understated", "professional but alive", "uppercase"]
+    },
+    {
+      "id": "lowkey",
+      "look": "white bold Poppins on solid black line bars, static",
+      "bg": "black bars per line",
+      "motion": "none",
+      "energy": "calm",
+      "cues": ["black boxes", "bars behind text", "high contrast", "readable over busy footage", "news style"]
+    },
+    {
+      "id": "rizz",
+      "look": "white UPPERCASE extra-bold Poppins, outline + shadow, active word flashes yellow",
+      "bg": "none",
+      "motion": "colour flash on active word",
+      "energy": "punchy",
+      "cues": ["highlight the current word", "karaoke style", "yellow highlight", "bold captions", "social style"]
+    },
+    {
+      "id": "mint",
+      "look": "white UPPERCASE Anton condensed, thin outline, active word flashes mint green",
+      "bg": "none",
+      "motion": "colour flash on active word",
+      "energy": "punchy",
+      "cues": ["condensed", "tall font", "green highlight", "impact style"]
+    },
+    {
+      "id": "glass",
+      "look": "lowercase Inter on a dark frosted blurred plate, words fade in just before they are spoken",
+      "bg": "frosted plate",
+      "motion": "per-word fade",
+      "energy": "calm",
+      "cues": ["glass", "frosted", "blurred background box", "elegant", "soft", "apple style", "premium minimal"]
+    }
+  ]
+}

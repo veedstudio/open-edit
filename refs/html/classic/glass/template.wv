@@ -1,0 +1,43 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; font-family:'Inter', sans-serif; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; inset:0; opacity:0; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  .ln { position:absolute; left:0; right:0; z-index:2; text-align:center; line-height:1.2;
+        color:#FFFFFF; font-weight:500;
+        letter-spacing:-0.04em; text-shadow:0px 0px 16px rgba(0,0,0,0.184); }
+  .w { display:inline-block; }
+.w{opacity:0;animation-name:aIn;animation-timing-function:cubic-bezier(.55,.085,.68,.53);animation-fill-mode:both;}
+@keyframes aIn{from{opacity:0}to{opacity:1}}
+
+.plate{position:absolute;z-index:1;background:rgba(20,20,22,.45);backdrop-filter:blur(31px);}
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:200ms;animation-duration:1900ms;">
+  <div class="pg" id="b1p1" style="z-index:1;opacity:1;">
+    <div class="plate" style="left:181px;top:976px;width:375px;height:114px;border-radius:27px;"></div>
+    <div class="ln" id="b1p1l1" data-node-role="text" style="top:990px;font-size:39px;"><span class="w" id="b1w1" style="animation-delay:200ms;animation-duration:200ms;">make</span>&#160;<span class="w" id="b1w2" style="animation-delay:317ms;animation-duration:200ms;">your</span>&#160;<span class="w" id="b1w3" style="animation-delay:633ms;animation-duration:200ms;">captions</span></div>
+    <div class="ln" id="b1p1l2" data-node-role="text" style="top:1019px;font-size:39px;"><span class="w" id="b1w4" style="animation-delay:950ms;animation-duration:200ms;">look</span>&#160;<span class="w" id="b1w5" style="animation-delay:1267ms;animation-duration:200ms;">this</span>&#160;<span class="w" id="b1w6" style="animation-delay:1583ms;animation-duration:200ms;">good</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:2100ms;animation-duration:2200ms;">
+  <div class="pg" id="b2p1" style="z-index:1;opacity:1;">
+    <div class="plate" style="left:78px;top:991px;width:581px;height:85px;border-radius:27px;"></div>
+    <div class="ln" id="b2p1l1" data-node-role="text" style="top:1004px;font-size:39px;"><span class="w" id="b2w7" style="animation-delay:2100ms;animation-duration:200ms;">every</span>&#160;<span class="w" id="b2w8" style="animation-delay:2267ms;animation-duration:200ms;">word</span>&#160;<span class="w" id="b2w9" style="animation-delay:2633ms;animation-duration:200ms;">lands</span>&#160;<span class="w" id="b2w10" style="animation-delay:3000ms;animation-duration:200ms;">right</span>&#160;<span class="w" id="b2w11" style="animation-delay:3367ms;animation-duration:200ms;">on</span>&#160;<span class="w" id="b2w12" style="animation-delay:3733ms;animation-duration:200ms;">time</span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:4300ms;animation-duration:1700ms;">
+  <div class="pg" id="b3p1" style="z-index:1;opacity:1;">
+    <div class="plate" style="left:189px;top:976px;width:358px;height:114px;border-radius:27px;"></div>
+    <div class="ln" id="b3p1l1" data-node-role="text" style="top:990px;font-size:39px;"><span class="w" id="b3w13" style="animation-delay:4300ms;animation-duration:200ms;">rendered</span>&#160;<span class="w" id="b3w14" style="animation-delay:4420ms;animation-duration:200ms;">straight</span></div>
+    <div class="ln" id="b3p1l2" data-node-role="text" style="top:1019px;font-size:39px;"><span class="w" id="b3w15" style="animation-delay:4740ms;animation-duration:200ms;">over</span>&#160;<span class="w" id="b3w16" style="animation-delay:5060ms;animation-duration:200ms;">your</span>&#160;<span class="w" id="b3w17" style="animation-delay:5380ms;animation-duration:200ms;">footage</span></div>
+  </div>
+</div>

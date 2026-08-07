@@ -29,8 +29,16 @@ export interface RecipeGenerator {
   generate(meta: RunMeta, timings: WordTimings, opts?: RecipeOptions): RecipeOutput;
 }
 
+// Ref ids are folder names: letters/digits plus the spaces, parens, dots, hyphens and underscores the
+// pool already uses ("hook-091 Pre-comp 1-peak"). No separators, so no id can climb out of refs/html/.
+const REF_ID = /^[A-Za-z0-9][A-Za-z0-9 ()._-]*$/;
+
 // Module path convention — file exists ⇔ the ref's recipe is compiled (sample-style keys hasRecipe on this).
+// The result is import()ed by generate-recipe.ts, so a traversing id would execute an arbitrary file:
+// this syntactic gate is the cheap backstop under readStylePick's index check and the call-site
+// containment assert, not the only guard.
 export function generatorRelPath(refId: string): string {
+  if (!REF_ID.test(refId)) throw new Error(`unsafe refId: ${JSON.stringify(refId)}`);
   return `refs/html/${refId}/recipe.ts`;
 }
 

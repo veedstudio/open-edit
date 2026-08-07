@@ -26,7 +26,7 @@ Preflight has three modes: bare applies safe local setup, `--dry` reports withou
    Set `VEED_ENGINE_BIN` to use an existing installation.
 5. **A transcription provider** — the skill asks once and remembers the answer. Either
    **VEED** (`node --import tsx veed/login.ts`, one-time OAuth, ~30-day refreshable token; a free account
-   covers about 2 minutes a month) or **WhisperX** locally (`bash pipeline/scripts/install-whisperx.sh`,
+   covers about 10 minutes a month) or **WhisperX** locally (`bash pipeline/scripts/install-whisperx.sh`,
    free and offline). You can also point it at your own service. See `README.md`.
 6. **config.ts** — optional machine-path overrides. Videos live anywhere:
    invoke the skill with the video's path (absolute, or relative to your CWD).

@@ -1,0 +1,39 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; font-family:'Poppins', sans-serif; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; inset:0; opacity:0; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  .ln { position:absolute; left:0; right:0; z-index:2; text-align:center; line-height:1.2;
+        color:#ffffff; font-weight:700;
+        letter-spacing:0em; text-shadow:0px 0px 22px rgba(0,0,0,0.8); }
+  .w { display:inline-block; }
+
+.bar{display:inline-block;background:rgba(0,0,0,1);padding:0.2em 0.300em;}
+
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:200ms;animation-duration:1900ms;">
+  <div class="pg" id="b1p1" style="z-index:1;opacity:1;">
+    <div class="ln" id="b1p1l1" data-node-role="text" style="top:1034px;font-size:35px;"><span class="bar"><span class="w" id="b1w1">Make</span>&#160;<span class="w" id="b1w2">your</span>&#160;<span class="w" id="b1w3">captions</span></span></div>
+    <div class="ln" id="b1p1l2" data-node-role="text" style="top:1083px;font-size:35px;"><span class="bar"><span class="w" id="b1w4">look</span>&#160;<span class="w" id="b1w5">this</span>&#160;<span class="w" id="b1w6">good</span></span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:2100ms;animation-duration:2200ms;">
+  <div class="pg" id="b2p1" style="z-index:1;opacity:1;">
+    <div class="ln" id="b2p1l1" data-node-role="text" style="top:1059px;font-size:35px;"><span class="bar"><span class="w" id="b2w7">every</span>&#160;<span class="w" id="b2w8">word</span>&#160;<span class="w" id="b2w9">lands</span>&#160;<span class="w" id="b2w10">right</span>&#160;<span class="w" id="b2w11">on</span>&#160;<span class="w" id="b2w12">time</span></span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:4300ms;animation-duration:1700ms;">
+  <div class="pg" id="b3p1" style="z-index:1;opacity:1;">
+    <div class="ln" id="b3p1l1" data-node-role="text" style="top:1034px;font-size:35px;"><span class="bar"><span class="w" id="b3w13">rendered</span>&#160;<span class="w" id="b3w14">straight</span></span></div>
+    <div class="ln" id="b3p1l2" data-node-role="text" style="top:1083px;font-size:35px;"><span class="bar"><span class="w" id="b3w15">over</span>&#160;<span class="w" id="b3w16">your</span>&#160;<span class="w" id="b3w17">footage</span></span></div>
+  </div>
+</div>
