@@ -17,6 +17,7 @@ import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { REPO_ROOT, VEED_ENGINE_BIN } from '../../config.ts';
 import { lintTemplate } from './lint-template.ts';
+import { ensureFontCoverage } from './ensure-font-coverage.ts';
 import { probeRun } from './probe-qa.ts';
 import { readStylePick } from './sample-style.ts';
 import { generatorRelPath, type RecipeGenerator, type RunMeta } from '../recipes/lib.ts';
@@ -86,9 +87,17 @@ async function main(): Promise<number> {
   const demote: Record<string, number> = {};
   const tplPath = join(finalDir, 'template.wv');
   const manifestPath = join(finalDir, 'manifest.json');
+  // The transcript's own words, for the font-coverage guarantee below.
+  const transcriptText = timings.beats
+    .flatMap((beat) => beat.words.map((word) => word.w))
+    .join('');
   const write = () => {
     const out = recipe.generate(meta, timings, { demote });
-    writeFileSync(tplPath, out.wv);
+    // A Latin-only font stack renders a CJK transcript as tofu on every
+    // caption, and probe-qa cannot tell (tofu has ink and contrast). The
+    // covering family is added deterministically inside the one writer of
+    // the document; Latin runs pass through byte-identical.
+    writeFileSync(tplPath, ensureFontCoverage(out.wv, transcriptText));
     writeFileSync(manifestPath, out.manifest);
   };
   write();
