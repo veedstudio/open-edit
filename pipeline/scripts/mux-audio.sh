@@ -1,5 +1,5 @@
 #!/bin/bash
-# Step 5 — restore the soundtrack. veed-engine-cli renders video only; this muxes the original audio
+# MUX AUDIO — restore the soundtrack. veed-engine-cli renders video only; this muxes the original audio
 # onto the clean silent render. Deterministic; run OUTSIDE any sandbox is NOT required (ffmpeg only).
 #
 #   bash pipeline/scripts/mux-audio.sh <run-dir>

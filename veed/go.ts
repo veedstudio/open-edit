@@ -47,14 +47,16 @@ async function main(): Promise<void> {
   // typo. Checked the other way round, a mistyped flag surfaces as "no VEED login found" on any machine
   // that happens not to be logged in, which sends someone off fixing the wrong thing.
   //
-  // Strict: this command takes a list of files, so a bare token is expected, but anything that looks
-  // like a flag is one and must be recognised. A mistyped flag used to be resolved as a path and then
-  // reported as a missing video, which names the wrong problem.
-  const { positionals: videoArgs } = parseFlags({
+  // Transcription BILLS a workspace, so it has to be nameable — without this an account with several
+  // could only ever use whichever one the listing put first. Strict, with the videos as positionals: a
+  // mistyped flag used to be resolved as a path and then reported as a missing video, which names the
+  // wrong problem.
+  const { values, positionals: videoArgs } = parseFlags({
     args: process.argv.slice(2),
-    options: {},
+    options: { workspace: { type: 'string' } },
     allowPositionals: true,
   });
+  const workspaceId = values.workspace;
   if (videoArgs.length === 0) {
     console.error('usage: node --import tsx veed/go.ts <video.mp4> [...]');
     process.exit(1);
@@ -88,7 +90,7 @@ async function main(): Promise<void> {
     console.log(`[veed-transcribe] ${video}`);
     const transcript = await transcribeWithVeed(
       { http, readVideoBytes, log: (m) => console.log(`  ${m}`) },
-      { videoPath: video },
+      { videoPath: video, workspaceId },
     );
     const out = join(outDir, 'transcript.json');
     await writeFile(out, JSON.stringify(transcript, null, 2));

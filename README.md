@@ -38,8 +38,9 @@ rather than collapsing every ask onto captions.
 
 | | |
 | --- | --- |
-| Platform | Apple Silicon Mac, macOS Tahoe 26.0 |
-| Intel Macs, earlier macOS | Not supported |
+| Platform | Apple Silicon Mac. Preflight requires macOS on arm64 and stops there |
+| Intel Macs | Not supported — the renderer ships macOS-arm64 only |
+| Older macOS | Built and tested on Tahoe 26.0. Nothing checks the version, so earlier releases may work — untested |
 | Windows, Linux | Planned; prioritisation depends on demand |
 | Transcription | needed only to caption speech — OpenEdit asks once and remembers: VEED ([sign up](https://www.veed.io/signup) / [login](https://www.veed.io/login)), WhisperX locally, or your own service |
 

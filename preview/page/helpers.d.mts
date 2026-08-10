@@ -22,6 +22,7 @@ export function refocusScrollDelta(
   canvasSize: number,
   fraction: number,
 ): number;
+export function rearmDecoder(video: HTMLVideoElement, userAgent?: string): boolean;
 export function cueBlockGeometry(
   chunk: CueChunk,
   durationSec: number | undefined,

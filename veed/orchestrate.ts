@@ -3,12 +3,12 @@
 // injected so the call sequence is testable offline (see orchestrate.test.ts). go.ts wires the real ones.
 import type { VeedHttp } from './api.ts';
 import {
-  listWorkspaces,
   createUploadableAsset,
   getAsset,
   startTranscription,
   getSubtitle,
 } from './api.ts';
+import { describeChoice, formatWorkspaceTable, resolveWorkspace } from './workspace.ts';
 import { mapVeedTranscript } from './transcript-mapper.ts';
 import type { Transcript } from './transcript-mapper.ts';
 
@@ -49,14 +49,27 @@ export async function transcribeWithVeed(deps: TranscribeDeps, opts: TranscribeO
     throw new Error(`VEED: ${label} did not finish after ${maxAttempts} polls (${pollIntervalMs}ms each)`);
   }
 
-  // 1. resolve a workspace (the asset + transcription need a real owner)
+  // 1. resolve a workspace (the asset + transcription need a real owner, and transcription BILLS it).
+  // This used to take workspaces[0] silently, which meant an account with several was charged wherever
+  // the listing happened to order first. The shared resolver picks only when there is nothing to pick,
+  // and says which either way — see veed/workspace.ts.
   let workspaceId = opts.workspaceId;
   if (!workspaceId) {
-    const workspaces = await listWorkspaces(http);
-    if (workspaces.length === 0) throw new Error('VEED: account has no workspace to own the asset');
-    workspaceId = workspaces[0].id;
+    const resolution = await resolveWorkspace({ http });
+    if (resolution.kind === 'must-choose') {
+      throw new Error(
+        'VEED: this account has several workspaces and transcription bills one of them, so it will not be ' +
+        `picked for you. Re-run naming it, for example --workspace ${resolution.workspaces[0].id}:\n` +
+        `${formatWorkspaceTable(resolution.workspaces)}`,
+      );
+    }
+    workspaceId = resolution.workspace.id;
+    log(describeChoice(resolution.workspace, resolution.source));
+  } else {
+    log(`workspace ${workspaceId}`);
   }
-  log(`workspace ${workspaceId}`);
+
+  const billedWorkspaceId: string = workspaceId;
 
   // 2. mint a signed upload URL, then PUT the bytes to GCS. The upload is UNSCOPED: the asset is
   // owned by its creator, and no project is involved anywhere in this flow. The transcribe route
@@ -88,7 +101,7 @@ export async function transcribeWithVeed(deps: TranscribeDeps, opts: TranscribeO
   // 4. start transcription, billed to the workspace resolved above.
   const started = await startTranscription(http, {
     assetId: uploadable.asset.id,
-    workspaceId,
+    workspaceId: billedWorkspaceId,
     videoUrl: cdnUrl,
   });
   log(`transcription ${started.id} (${started.status})`);

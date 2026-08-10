@@ -23,10 +23,10 @@ scripted, never whether the work is supported.**
   the base frames are all derived from the file, which is what lets a compiled recipe run at zero tokens.
 - **Several videos** — ONE batch, not one run each. `prep/transcribe.ts`, `veed/go.ts` and `prep/prep.ts`
   all take `<video.mp4> [...]` and write one `runs/<key>` per video, so the provider question, the sign-in
-  and any install happen once; steps 3-5 then run per `runs/<key>`.
+  and any install happen once; STYLE, DESIGN + RENDER and MUX then run per `runs/<key>`.
 - **No video — FULLY SUPPORTED, not a degraded mode.** Motion graphics, stills, slides, generated
   imagery, audio-only sources. Author the `.wv` INLINE per `pipeline/director-brief.md` and run the SAME
-  gates as every other run: `lint-template.ts` → `veed-engine-cli <dir> --verify` → `--record` (step 4's
+  gates as every other run: `lint-template.ts` → `veed-engine-cli <dir> --verify` → `--record` (the DESIGN + RENDER step's
   RENDER + VERIFY block — none of it reads `meta.json`). Choose `<key>` from the ask, take the canvas and
   duration from the ask rather than from ffprobe, and drop only the steps that have no subject: the recipe
   draw (no footage to derive facets from), `probe-qa` (it diffs frames against source footage) and
@@ -40,13 +40,13 @@ OWN reference/brand/concept — their materials are the design authority) is aut
 orchestrator, and creative iteration on a delivered result is REMIXED inline (no subagent). There are **no per-shot intermediates and no
 user-approval gate**. Read `docs/FLOW.md` for the map.
 
-Default run (the FAST PATH) = steps 0 → 1 → 3 → 4 → 5 (step 2 is SKIPPED). Vibe/genre/energy come from the
+Default run (the FAST PATH) = PREFLIGHT → PREP → SAMPLE ONE STYLE → DESIGN + RENDER → MUX AUDIO (ANALYSE is SKIPPED). Vibe/genre/energy come from the
 transcript; placement comes from the brief's safe margins; the style is SAMPLED by script; word reveal
-timings are precomputed (`word-timings.json`). The runtime index is recipes-only, so a default run's step 4
+timings are precomputed (`word-timings.json`). The runtime index is recipes-only, so a default run's DESIGN + RENDER step
 is always `pipeline/scripts/generate-recipe.ts` — a SCRIPT, no model, no subagent: the recipe already did
 the design thinking, offline, and the code does the assembly + the full gate chain (lint → verify → record
 → probe). Creative face-1 is authored INLINE by the orchestrator; the only spawned agent is the opt-in analyse pass.
-REFINEMENT is declared by `analysis.json` existing (step 2 ran on user request) — placement then composes
+REFINEMENT is declared by `analysis.json` existing (the ANALYSE step ran on user request) — placement then composes
 from it instead of the safe margins.
 
 ## User-facing output — talk like a product, not a pipeline
@@ -126,16 +126,17 @@ client discovering instructions inside the newly cloned runtime automatically.
 
 ## The flow
 
-Written for the footage case, and steps 0, 4 and 5.5 hold for every run. Steps **1** (transcript, frames,
-meta), **3** (style draw) and **5** (mux) derive from a source file, so a run with no video simply has no
-subject for them — see INPUTS: authoring, lint, `--verify` and `--record` are unchanged.
+Written for the footage case. PREFLIGHT, DESIGN + RENDER and PREVIEW hold for every run; **PREP**
+(transcript, frames, meta), **SAMPLE ONE STYLE** (the style draw) and **MUX AUDIO** derive from a source
+file, so a run with no video simply has no subject for them — see INPUTS: authoring, lint, `--verify` and
+`--record` are unchanged.
 
-### 0. PREFLIGHT — completed above  · SCRIPT
+### PREFLIGHT — completed above  · SCRIPT
 Do not run a second dependency implementation. `pipeline/scripts/preflight.sh` is only a compatibility wrapper
 around the skill-bundled preflight. The provider choice — and any sign-in or install it implies —
-remains the interactive step 1.
+remains the interactive PREP step.
 
-### 1. PREP — transcript, then frames + meta  · SCRIPT
+### PREP — transcript, then frames + meta  · SCRIPT
 The transcript comes from the provider the user chose, and either way lands at
 `runs/<key>/transcript.json` (**each chunk = one beat**; chunks carry REAL per-word timings in
 `words: [{text, timestamp:[start,end]}]`). Nothing downstream cares which provider ran. **`<key>` is the
@@ -178,10 +179,10 @@ WhisperX so a later run cannot drift onto a different model:
 If they answer "WhisperX" without choosing a tier, take **fastest** (`small.en`), record it, and say which
 one you took — they can switch later. Never record `whisperx` with no tier.
 
-- **veed** → `node --import tsx veed/go.ts <video.mp4> [...]`, login flow below. When the browser opens, say
+- **veed** → `node --import tsx veed/go.ts <video> [...]`, login flow below. When the browser opens, say
   exactly: "I've opened a VEED login tab in your browser — click Allow if it asks. I'll wait here;
   there's nothing to paste."
-- **whisperx** → `node --import tsx prep/transcribe.ts <video.mp4> [...]` — the recorded tier applies; pass
+- **whisperx** → `node --import tsx prep/transcribe.ts <video> [...]` — the recorded tier applies; pass
   `--model medium|small.en` only to override it. If the binary is missing, ASK before installing: "WhisperX isn't installed. It's a local
   Python tool — the install pulls in PyTorch and the first run downloads a model, so expect a slow first
   pass and around 2 GB of disk. It goes in its own isolated environment, not your system Python and not
@@ -189,8 +190,9 @@ one you took — they can switch later. Never record `whisperx` with no tier.
   `bash pipeline/scripts/install-whisperx.sh` and stream its output.
 - **custom** → the user's service is yours to drive: get a Whisper-family JSON out of it (their MCP,
   their CLI, their API — their credentials, never handled here), then
-  `node --import tsx prep/whisper.ts <json> <video.mp4>` — one json per video, repeated in pairs for a
-  batch. We ship no helper for this.
+  `node --import tsx prep/whisper.ts <json> <video>` — one json per video, repeated in pairs for a
+  batch. `prep/whisper.ts` IS the shipped mapper; what we ship no helper for is DRIVING the user's
+  service, which is yours to do with their tool.
 
 OFFERING THE ALTERNATIVE — once, and in these words, so the user hears the actual trade rather than a
 second nag:
@@ -200,10 +202,17 @@ second nag:
   pass is slow. Want that?"
 - WhisperX install declined → "Then I'll skip the local route. VEED transcription needs a one-time
   browser sign-in and runs on your VEED account's limits. Shall I open that instead?"
-- Both declined → "Then I can't add captions — every caption is built from a transcript, and I won't
-  invent one. Say the word if you change your mind about either option." Then stop.
-- No audio track → "That clip has no audio track, so there's nothing to transcribe. Captions need speech
-  to align to."
+- Both hosted routes declined → "Then I won't transcribe — every caption is built from a transcript and
+  I won't invent one. Two routes are still open: point me at your own transcription service and I'll
+  wire it up, or give me the caption copy and I'll place it by hand rather than synced to speech.
+  Otherwise, say the word if you change your mind about VEED or WhisperX." Stop only if they decline
+  those two as well.
+- No audio track → "That clip has no audio track, so there's no speech to caption. I can still put text
+  on it — titles, lower thirds, motion graphics — from copy you give me. Want that?" Transcription is
+  the step with no subject here, not the run: with no transcript there is no recipe to route to, so
+  author DESIGN + RENDER INLINE per `director-brief.md` exactly as the NO VIDEO case does, with the
+  footage as the base layer and timings chosen by you rather than synced to speech. Only an ask for
+  speech captions specifically has nothing left to do.
 
 WHEN A RUN FAILS — classify it, because the right move differs and none of them is a silent retry:
 
@@ -241,22 +250,22 @@ token, ~30-day):
   to obtain a token, and never ask them to paste one out of DevTools.
 
 Then the rest of prep (needs the transcript above for the beat times, whichever provider wrote it):
-`node --import tsx prep/prep.ts <video.mp4> [...]`
+`node --import tsx prep/prep.ts <video> [...]`
 Auto-detects aspect from the source and writes, under `runs/<key>/`:
 - `meta.json` — the single source of truth downstream: canvas `width/height/fps`, `durationSec`, and all paths
   (`videoPath`, `transcriptPath`, `wordTimingsPath`, `framesDir`). Canvas = the source's own dims
   (rotation-corrected) and fps, probed by prep; `aspect` = portrait (9:16) or landscape (16:9) label.
 - `word-timings.json` — per beat: `cueDelayMs`/`cueDurMs` + every word's absolute-ms `delayMs`, synthesized
-  from the VEED chunks' real per-word times (even split only if a transcript has none). Step 4 pastes
+  from the VEED chunks' real per-word times (even split only if a transcript has none). The DESIGN + RENDER step pastes
   these VERBATIM — compiled recipes by construction, the inline creative passes per the director brief;
   timing is never re-derived.
 - `frames/beat-N.png` — one clean still per beat at the chunk MID time, emitted at HALF canvas (×2 → canvas).
 
-### 2. ANALYSE — frames + transcript → analysis.json  · AGENT (vision) — OPT-IN, refine only
+### ANALYSE — frames + transcript → analysis.json  · AGENT (vision) — OPT-IN, refine only
 **SKIP this step by default.** Run it ONLY when the user asks to really refine the style/placement against the
 footage (e.g. "refine the style", "tuck the captions into the negative space"). On such a request: run this
-step, then re-run step 4 as the FROM-SCRATCH inline pass (variant B — compiled recipes are deterministic and
-ignore `analysis.json`; the pass finds the file and composes from it), then step 5. On a refine-only re-run (no
+step, then re-run DESIGN + RENDER as the FROM-SCRATCH inline pass (variant B — compiled recipes are deterministic and
+ignore `analysis.json`; the pass finds the file and composes from it), then MUX AUDIO. On a refine-only re-run (no
 user-brought materials) fill the execution contract's USER MATERIALS slot with `none — hold the delivered run's system;
 compose placement from analysis.json` and use the delivered pick's sheet + its nearest alternate as the
 craft substrate.
@@ -284,13 +293,13 @@ WRITE {repo}/runs/{key}/analysis.json EXACTLY:
 RETURN tight: video format (9:16|16:9) · overall vibe/genre · subject + setting · energy (calm|hype). No preamble.
 ```
 
-### 3. SAMPLE ONE STYLE — deterministic, zero tokens  · SCRIPT
+### SAMPLE ONE STYLE — deterministic, zero tokens  · SCRIPT
 `node --import tsx pipeline/scripts/sample-style.ts --run runs/<key>`
 Facet-scored seeded draw of ONE aspect-matched ref from `refs/tags.json` (v3: the RUNTIME INDEX —
 recipes only; `fit` is the aspect SOT). Vibe comes from the transcript automatically (energy from word
 rate/caps/exclamations — no LLM, no frames) and weights the draw; same run key → same ref. Writes
 `runs/<key>/style.json` `{refId, refPath, facets, hasRecipe, seed, energy, coverage, alternates}`.
-The script's `recipe=yes|no` OUTPUT is the routing decision for step 4 — never parse or hand-edit
+The script's `recipe=yes|no` OUTPUT is the routing decision for the DESIGN + RENDER step — never parse or hand-edit
 `style.json` yourself (the index is fully compiled, so an implicit draw always prints `recipe=yes`).
 The drawn ref id and everything in `style.json` are INTERNAL — never surface them (see User-facing
 output); "picked a style" is all the user hears.
@@ -301,7 +310,9 @@ index id; anything outside the index is not a runtime pick and the script reject
   its prefab.
 - **COVERAGE MODE** (`coverage.filtered:false` — possible only if curation ever shrinks an aspect below
   the threshold): STOP and tell the user honestly the aspect isn't covered by recipes; options are
-  `--style` by their explicit pick or cancel. NEVER reach for the from-scratch pass to paper over a coverage gap.
+  `--style` by their explicit pick, an authored-from-scratch run if they ask for one, or cancel. NEVER
+  reach for the from-scratch pass SILENTLY — the ban is on substituting it without the user choosing it,
+  not on the path existing.
 - **RECIPES ARE THE PRODUCT**: the draw, `--style`, and `alternates` are all RECIPE-BACKED only —
   the runtime index contains nothing else.
 - **CLASSIC POOL — explicit-simplicity route (intent, not vibe)**: `refs/html/classic/tags.json` holds a
@@ -319,7 +330,7 @@ index id; anything outside the index is not a runtime pick and the script reject
   says no animation ("static", "no motion", "nothing moving") or their concrete ask lands on one
   ("black bars" → the bars preset is static, and the concrete ask wins). Preset ids are ARBITRARY
   LABELS, never selectors — "give me a simple style" does NOT mean the preset named `simple`; a
-  hype-paced clip answering that ask is better served by `rizz` or `mint` than by a static preset. Then run step 4 variant A with
+  hype-paced clip answering that ask is better served by `rizz` or `mint` than by a static preset. Then run DESIGN + RENDER variant A with
   `--module refs/html/classic/<id>/recipe.ts` appended (same command, same gates; no `style.json`
   exists and none is needed). The pick is INTERNAL like any other (User-facing output): never surface
   "classic", "preset", preset ids, or the pool's existence — the user hears at most "going with a clean
@@ -344,7 +355,7 @@ index id; anything outside the index is not a runtime pick and the script reject
 - **CREATIVE PASS, two faces**: the user does NOT know recipes exist and never needs to — route on the
   SHAPE of the ask, never on whether they said "mix".
   **face-1** — the prompt ARRIVES WITH the user's OWN reference/brand/concept (an image, a brand kit, a
-  described idea): skip the draw-and-ship — run the from-scratch INLINE pass (step 4 variant B). The USER'S
+  described idea): skip the draw-and-ship — run the from-scratch INLINE pass (DESIGN + RENDER variant B). The USER'S
   materials are the design authority (their files/links must be OPENED and looked at); 1-2
   nearest recipe SHEETS (picked from `refs/tags.json` by facets — closest type/energy; `alternates`
   in style.json is a ready shortlist) ride along as engine-proven craft substrate — mechanics only,
@@ -367,36 +378,36 @@ index id; anything outside the index is not a runtime pick and the script reject
     aspect-free, so a landscape run draws on portrait recipes and vice versa; re-derive every
     geometric number from that donor at this canvas. Execute per `director-brief.md` REMIX
     MODE in a fresh run dir `runs/<key>-remix` — then the same gates: lint → verify → record →
-    probe → mux (commands in step 4). Never a raw prefab, never an id outside the index.
+    probe → mux (commands in DESIGN + RENDER). Never a raw prefab, never an id outside the index.
   - **RE-ROLL only when the user asks for VARIANTS, not for creative input**: "show me more options",
     "another style", "make 5 different versions" (that's N draws — run them as N `--seed`s through
-    step 4A, parallel when N>1). Re-roll serves the user who never had an idea in the first place;
+    DESIGN + RENDER variant A, parallel when N>1). Re-roll serves the user who never had an idea in the first place;
     the moment the ask carries ANY creative direction it is a REMIX, never a re-roll.
   - Defect repairs (typo, overlap, out-of-sync word) are neither — fix at the SOURCE, then re-run the
     gates. Creative-run output (face-1/REMIX — agent-authored) → patch the run's template directly.
     Recipe-run output → NEVER hand-edit the generated .wv document (generate-recipe.ts owns it): a text/timing
     defect = fix transcript/word-timings and re-run the script; placement-vs-footage = the refine path
-    (step 2); a deliberate one-run tweak = the CUSTOMISING `--module` copy (step 4A).
+    (ANALYSE); a deliberate one-run tweak = the CUSTOMISING `--module` copy (DESIGN + RENDER variant A).
 
 Then, for FACE-1 runs only, set:
-- **ENGAGEMENT mode** — pass the seed copy VERBATIM to step 4 (see below; wording changes output).
+- **ENGAGEMENT mode** — pass the seed copy VERBATIM to DESIGN + RENDER (see below; wording changes output).
 - **ANIMATION LEVEL** — `word` (default; almost always) / `cue` line (titles, or plain/corporate) / `none`
   (minimal/corporate). Respect any stated user preference; ask if genuinely unsure.
 (Recipe runs need NONE of these — the compiled recipe fixes engagement, animation, and design. A REMIX
 needs neither: its look comes from the donor sheets per the brief's REMIX MODE.)
 
-### 4. DESIGN + RENDER — SCRIPT (recipe) / INLINE (creative face-1 · remix)
-Route by the SHAPE of the run (step 3's script output + the creative-pass routing own this decision):
+### DESIGN + RENDER — SCRIPT (recipe) / INLINE (creative face-1 · remix)
+Route by the SHAPE of the run (the SAMPLE ONE STYLE script's output + the creative-pass routing own this decision):
 - variant A (`recipe=yes` — every default run): **SCRIPT — no agent, no model, zero tokens.** The recipe
-  is compiled code. (Rerun the step-3 script if you no longer have its output — same run key → same result.)
-  The classic route (step 3's CLASSIC POOL) is this same variant with
+  is compiled code. (Rerun the SAMPLE ONE STYLE script if you no longer have its output — same run key → same result.)
+  The classic route (SAMPLE ONE STYLE's CLASSIC POOL) is this same variant with
   `--module refs/html/classic/<id>/recipe.ts` appended.
-- variant B (creative face-1; also refine re-runs after step 2): INLINE — you execute the from-scratch
+- variant B (creative face-1; also refine re-runs after ANALYSE): INLINE — you execute the from-scratch
   contract (B below) YOURSELF, no subagent. A default run can NEVER route here: the runtime index is
   recipes-only, so an implicit draw always has a recipe.
 - REMIX (face-2 creative iteration): INLINE — you author the donor blend yourself per
   `director-brief.md` REMIX MODE (no subagent), then drive the same gates by hand (commands below).
-- NO VIDEO (see INPUTS): INLINE — there was no step 1 or 3, so there is no recipe to route to and nothing
+- NO VIDEO (see INPUTS): INLINE — neither PREP nor SAMPLE ONE STYLE ran, so there is no recipe to route to and nothing
   to route on. Author per `director-brief.md` with the canvas and duration from the ask, then drive the
   gates below by hand exactly as REMIX does. A footage-free run is as supported as any other; what it
   lacks is a source file to derive from, not a path through this step.
@@ -415,10 +426,10 @@ title line steps that page down the size ladder and regenerates; ≤2 cycles), r
 them to the user), then PROBES
 the render (`probe-qa`: per-beat mid + tail frames vs the source — caption present, WCAG-ish contrast —
 the defects `--verify` can't see). Exits:
-**0** → step 5 · **1** = a gate failed — report the failure honestly in plain terms (raw FAIL lines only
+**0** → MUX AUDIO · **1** = a gate failed — report the failure honestly in plain terms (raw FAIL lines only
 on request); on a probe FAIL offer a
 `--seed`/`--style` re-run; never redesign or hand-edit the .wv document · **3** = the sampled ref has no compiled
-recipe (stale `style.json`; rerun step 3).
+recipe (stale `style.json`; rerun SAMPLE ONE STYLE).
 
 CUSTOMISING (only when the user explicitly asks for a tweak to a recipe run): **NEVER edit a library
 recipe (`refs/html/<id>/recipe.ts`) in place** — it is validated, shared by every run. COPY it to your
@@ -436,7 +447,7 @@ Commit ONE design system in a single pass (no aesthetic re-litigation), author O
 `.wv` document over the FULL footage, then self-verify with lint + `veed-engine-cli --verify` and render. The
 engine contract (`pipeline/director-brief.md`) is the crown jewel — obey it exactly. Raw prefabs are NOT
 inputs here — the user's materials are the design authority; our contribution is validated craft, not
-uncured references. (Refine re-runs after step 2 use this same variant — see step 2 for how to fill the
+uncured references. (Refine re-runs after ANALYSE use this same variant — see ANALYSE for how to fill the
 materials slot then.)
 
 Execution contract (follow it YOURSELF, filling {…}):
@@ -492,7 +503,49 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs the window-server; binary = {repo
      manifest.json alongside "render": {"verify":{"expect":[{"element":"cap3","visible":true,"from":2.1,"to":3.4}]}}.
      --verify then FAILs[expect-visible]/[expect-hidden] if a word isn't on-screen when it should be. Use when a
      beat's reveal timing is subtle; ids only (a word with no id can't be targeted).
-  3. RECORD the deliverable — ONLY after --verify is clean. --verify and --record are mutually exclusive, so this is a
+  3. WCAG PASS (DEFAULT on creative runs; level AA) — after --verify is clean, before recording. It
+     DETECTS and REPORTS; it NEVER silently changes colours — the human chooses.
+       node --import tsx {repo}/pipeline/scripts/wcag-pass.ts --run {repo}/runs/{key}
+     It samples the REAL rendered background behind every caption, checks WCAG AA contrast, writes
+     final/contrast-statistics.json (the policy-free statistics the verdicts and the recommendation
+     studio are computed from), and STOPS. It prints `status: pass|attention` plus EXHAUSTIVE `review:`
+     disposition lines (will fix / no colour satisfies / halo recommended / indeterminate — report these
+     honestly). Exit 1 = tooling missing or crashed (fix the environment; see config.ts WCAG_* vars) —
+     not a design failure.
+     - `status: pass` → all caption text clears AA. Note it and move on.
+     - `status: attention` → some caption text has low contrast. Tell the user in PLAIN PRODUCT TERMS:
+       how many of how many text elements fail, and the worst offenders (from the `review:` lines). Then
+       ASK which of these to do — do NOT pick for them, do NOT silently apply:
+         (a) OPEN THE RECOMMENDATION STUDIO — curated, clickable colour/design options to choose from. It
+             is served by the preview server (the PREVIEW step) at the /wcag/ route — if that server is
+             running, open `http://127.0.0.1:<port>/wcag/` for the user (the port from the `preview:`
+             line); only if no preview server is up, generate the static page instead:
+               node --import tsx {repo}/pipeline/scripts/wcag/recommend.ts --run {repo}/runs/{key}
+             (writes runs/{key}/final/wcag-recommendations.html — open that file).
+             When the user CLICKS a choice, the studio writes runs/{key}/final/wcag-choice.json
+             ({"schema":1,"chosen":[{level,group,kind:"colour"|"shadow"|"outline"|"background",hex,backingHex?,selector?}]}).
+             READ that file to tell the user what they picked, then run the apply step (b) — a clicked
+             choice always takes effect (wcag-pass sees the file and drives the applier with it).
+             CHAT IS AN EQUAL PATH: if the user says what they want in words ("apply the AA corpus colour",
+             "add a shadow halo behind the caption" → kind:"shadow"), WRITE the same wcag-choice.json shape
+             yourself, then apply.
+         (b) APPLY — promoted only on MEASURED improvement:
+               node --import tsx {repo}/pipeline/scripts/wcag-pass.ts --run {repo}/runs/{key} --apply
+             With a runs/{key}/final/wcag-choice.json present, --apply drives the applier from that explicit
+             choice (colour / shadow / outline / background backing) and ALWAYS runs it; with NO choice file it falls
+             back to the automatic hue-preserving colour set (value/saturation shift only, design identity
+             kept), applied only where a colours-only fix is applicable. FINAL IS FINAL — no sibling dirs,
+             no video artifacts; on promotion the remediated template becomes runs/{key}/final/template.wv
+             and the file artifacts land inside final/: template.draft.wv (pre-remediation original),
+             template.draft.wcag-remediated.wv (the remediation output), template.final.wv (clone of
+             the shipping template on promotion), wcag-remediation.css (per-rule evidence),
+             wcag-remediation-plan.json, contrast-statistics{,.remediated}.json. After promoting it re-runs
+             --verify on final/ itself, and prints `status: pass|remediated|not-improved|residual` + the
+             same EXHAUSTIVE `review:` lines.
+         (c) LEAVE AS-IS — record the original unchanged.
+  4. RECORD the deliverable — ONLY after --verify is clean, always FROM runs/{key}/final (whatever the
+     user chose in the WCAG PASS already lives in final/template.wv — the untouched original, or an
+     --apply promotion). --verify and --record are mutually exclusive, so this is a
      SECOND invocation:
        {repo}/.veed-engine/veed-engine-cli {repo}/runs/{key}/final --progress-output --record {repo}/runs/{key}/final/out.silent.mp4
      --progress-output prints `progress: N/M frames (X%)` lines during the record; recording is long-running —
@@ -502,7 +555,9 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs the window-server; binary = {repo
   mechanical frame QA — comes right AFTER the record step; it is not part of the verify loop.)
 OUTPUT: {repo}/runs/{key}/final/{template.wv, manifest.json, out.silent.mp4}.
 THEN (same turn, no pause): note the locked system so you can describe the delivered look in plain
-terms (aesthetic, fonts, palette, device — not gate status) and continue straight to probe-qa + mux.
+terms (aesthetic, fonts, palette, device — not gate status), note the wcag status (pass / attention with
+what the user chose — recommendation studio, --apply's remediated palette shift, or leave-as-is), and
+continue straight to probe-qa + mux.
 ```
 
 After recording: run the last gate —
@@ -514,7 +569,7 @@ surface one only if it's likely visible in the deliverable.
 **REMIX EXECUTION (face-2, inline — no subagent).** Set up a fresh run dir `runs/<key>-remix`: copy
 `meta.json`, `transcript.json`, `word-timings.json` from `runs/<key>` (same footage, same timings; update
 the `key` field inside `meta.json` to `<key>-remix` so downstream paths stay coherent). Pick donors per
-step 3 (A = current pick's sheet as skeleton, same aspect; B = different `type` facet; optional C =
+SAMPLE ONE STYLE (A = current pick's sheet as skeleton, same aspect; B = different `type` facet; optional C =
 different `device` facet — B and C may be off-aspect, geometry re-derived at this canvas; sheets at
 `refs/html/<id>/recipe.md`; donors come from the RUNTIME INDEX only — classic-pool refs are never
 donors and ship no sheet), author
@@ -524,13 +579,26 @@ the gates yourself (verify/record OUTSIDE any sandbox):
      fix the flagged rule, re-lint.
   2. `.veed-engine/veed-engine-cli runs/<key>-remix/final --verify` — fix ONLY flagged elements, re-run to
      exit 0 (≤2 fix cycles, then stop and report honestly).
-  3. `.veed-engine/veed-engine-cli runs/<key>-remix/final --progress-output --record runs/<key>-remix/final/out.silent.mp4`
+  3. `node --import tsx pipeline/scripts/wcag-pass.ts --run runs/<key>-remix` — the SAME default WCAG AA
+     gate as the main flow's WCAG PASS (a remix is a creative run): it DETECTS and REPORTS only, never
+     silently changing colours. `status: pass` → note and proceed. `status: attention` → tell the user in
+     plain product terms (how many text elements fail, worst offenders from the `review:` lines) and ASK
+     which to do — (a) open the clickable recommendation studio: if the preview server is running open
+     `http://127.0.0.1:<port>/wcag/` for them, else `node --import tsx pipeline/scripts/wcag/recommend.ts
+     --run runs/<key>-remix` (writes final/wcag-recommendations.html; open it). A click writes
+     runs/<key>-remix/final/wcag-choice.json — read it and run apply (b). Chat is an EQUAL path: if the user
+     asks in words, write the same wcag-choice.json shape yourself, then apply. (b) apply
+     (`… wcag-pass.ts --run runs/<key>-remix --apply` — with a wcag-choice.json it applies that explicit
+     choice and always runs; with none it falls back to the automatic colour set; promotes a remediated
+     final/template.wv on measured improvement, draft preserved as template.draft.wv, re-verifies
+     after promoting), or (c) leave as-is. Never pick for them; report the status + review lines honestly.
+  4. `.veed-engine/veed-engine-cli runs/<key>-remix/final --progress-output --record runs/<key>-remix/final/out.silent.mp4`
      — the `progress:` lines confirm it's alive; don't narrate them.
-  4. `node --import tsx pipeline/scripts/probe-qa.ts runs/<key>-remix` — FAIL → report honestly in plain
+  5. `node --import tsx pipeline/scripts/probe-qa.ts runs/<key>-remix` — FAIL → report honestly in plain
      terms, never redesign; warns → proceed.
-Then step 5 (mux) on `runs/<key>-remix`. The deliverable lives next to the original — the user compares.
+Then MUX AUDIO on `runs/<key>-remix`. The deliverable lives next to the original — the user compares.
 
-### 5. MUX AUDIO — restore the soundtrack  · SCRIPT
+### MUX AUDIO — restore the soundtrack  · SCRIPT
 the engine renders video only. `bash pipeline/scripts/mux-audio.sh runs/<key>` muxes the original audio onto
 `final/out.silent.mp4` → **`runs/<key>/final/out.mp4`** (the deliverable). `-map 1:a:0?` tolerates a source with
 no audio track; `-shortest` trims to video length. Deliver `out.mp4` to the user — this is the FIRST
@@ -539,7 +607,7 @@ With NO source video there is no soundtrack to restore and no source for the scr
 `final/out.silent.mp4` to `final/out.mp4` and deliver that, so the deliverable path is the same for
 every run. A silent deliverable is a complete one here, not a failed mux.
 
-### 5.5 PREVIEW — open the localhost preview  · SCRIPT (parallel, non-blocking)
+### PREVIEW — open the localhost preview  · SCRIPT (parallel, non-blocking, runs alongside the rest)
 As soon as render is DONE, launch the preview server in the BACKGROUND, OUTSIDE any sandbox, and continue
 immediately:
 `node --import tsx preview/server.ts runs/<key>`
@@ -565,9 +633,9 @@ Kill the server(s) when the session wraps up.
 - **variety / bold-broadcast** (good for 16:9 landscape): "loud broadcast / sports-lower-third energy; big type in the landscape thirds; heavy effects."
 
 ## Gotchas
-- veed-engine-cli is checked by Step 0 (preflight) — keep it current via `bash pipeline/scripts/install-veed-engine.sh`; macOS-arm64 binary. Older builds lose features (e.g. pre-0.3 = no shadows = major degrade).
-- Sandbox: step 1 (veed/go.ts) needs network egress to `*.veed.io` — a sandboxed
-  `fetch failed` there means the sandbox blocked the call; re-run it outside the sandbox. Step 4's
+- veed-engine-cli is checked by PREFLIGHT — keep it current via `bash pipeline/scripts/install-veed-engine.sh`; macOS-arm64 binary. Older builds lose features (e.g. pre-0.3 = no shadows = major degrade).
+- Sandbox: PREP (veed/go.ts) needs network egress to `*.veed.io` — a sandboxed
+  `fetch failed` there means the sandbox blocked the call; re-run it outside the sandbox. The DESIGN + RENDER step's
   engine `--verify`/`--record` always runs OUTSIDE the sandbox (it needs the window-server).
 - Recipes are COMPILED CODE (`refs/html/<id>/recipe.ts` over the shared `pipeline/recipes/lib.ts`),
   authored + validated OFFLINE, one-time per ref (derived from the ref's prose sheet
@@ -578,9 +646,9 @@ Kill the server(s) when the session wraps up.
 - **USER MATERIALS GET OPENED** (creative face-1): the design pass OPENS and studies the user's
   files/links (that's the point). The opt-in ANALYSE pass stays
   the only agent that reads the FOOTAGE frames.
-- Word timing is NEVER invented — step 4 pastes `word-timings.json` delays verbatim (compiled recipes do
+- Word timing is NEVER invented — DESIGN + RENDER pastes `word-timings.json` delays verbatim (compiled recipes do
   this by construction).
-- The preview server (step 5.5) is loopback-only and additive — if its default port 8978 is busy (an
+- The preview server (PREVIEW) is loopback-only and additive — if its default port 8978 is busy (an
   orphan from a dead session), it self-selects an ephemeral port; trust the URL it prints.
 - TRANSCRIPTION WARNINGS (local provider) — read them precisely, same discipline as the font rules below.
   A WhisperX run prints a wall of `Could not load libtorchcodec`, `dlopen` failures and

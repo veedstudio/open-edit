@@ -88,7 +88,7 @@ fast-path/refinement switch.
   reads the FOOTAGE frames** — it writes per-beat facts in CANVAS px to `analysis.json`; the design pass
   composes from those numbers when the file exists (safe margins otherwise) and never opens the frames.
   (User-SUPPLIED materials on face-1 are the one exception to "no vision in design" — studying them is the point.)
-- Engine = `veed-engine-cli` (the veed render engine, downloaded directly from the upstream `veedstudio/weave-renderer-public-releases` repo into `.veed-engine/` via `pipeline/scripts/install-veed-engine.sh`; **Step 0 of the SKILL self-checks the version** vs the latest GitHub release).
+- Engine = `veed-engine-cli` (the veed render engine, downloaded directly from the upstream `veedstudio/weave-renderer-public-releases` repo into `.veed-engine/` via `pipeline/scripts/install-veed-engine.sh`; **the SKILL's PREFLIGHT step self-checks the version** vs the latest GitHub release).
 
 ## Conventions
 - Canvas (probed by prep): the source's own width/height (rotation-corrected) and fps (nominal `r_frame_rate`); `aspect` is an orientation label — 9:16 when h ≥ w, else 16:9. Beat render frame = `round(beatMidSec * fps)`.
@@ -113,7 +113,7 @@ workspace. There is no project-scoped path: the no-project route is the only one
 
 `runs/<key>/transcript.json` is the only seam. Anything that writes that shape is a valid provider and
 nothing downstream can tell which one ran. **There is no default provider**: on a cold start the choice
-belongs to the user (SKILL.md step 1), and picking one for them is a defect, not a shortcut. VEED is
+belongs to the user (SKILL.md, the PREP step), and picking one for them is a defect, not a shortcut. VEED is
 listed first because it transcribes best, not because it wins ties.
 
 | Provider | What it is | Entry point |
@@ -161,7 +161,7 @@ reordered so the caption text and the reveals agree.
 If a transcription MCP is available, prefer one that writes a file and returns its path. Routing
 hundreds of timestamps through model context invites drift in the numbers themselves.
 
-A failed VEED run is classified rather than retried blindly (SKILL.md step 1): out of credits returns to
+A failed VEED run is classified rather than retried blindly (SKILL.md, the PREP step): out of credits returns to
 the provider question with VEED still offered — a free account covers about 10 minutes a month, so
 `veed/orchestrate.ts` names https://www.veed.io/pricing and the local alternative in the error itself; a
 login failure retries the login once; anything else retries the command once. The recorded provider is
@@ -171,6 +171,7 @@ Run the isolated VEED tests without network access:
 
 ```sh
 node --import tsx --test \
-  tests/cli-entry.test.ts tests/oauth.test.ts tests/orchestrate.test.ts tests/token-store.test.ts \
-  tests/transcript-mapper.test.ts
+  tests/cli-entry.test.ts tests/login-page.test.ts tests/oauth.test.ts tests/orchestrate.test.ts \
+  tests/token-store.test.ts \
+  tests/transcript-mapper.test.ts tests/workspace.test.ts
 ```
