@@ -21,7 +21,7 @@ Commit ONE design system in a single pass — do NOT re-litigate the aesthetic o
 extract frames / eyeball the video / run any visual self-check unless the execution contract EXPLICITLY tells you
 to. You do not redesign based on renders, run legibility passes, or chase timing.
 
-Your execution contract (the filled step-4B contract from the SKILL) gives: the run dir, `meta.json` (canvas W/H/fps + `durationSec` + all paths),
+Your execution contract (the filled DESIGN + RENDER variant B contract from the SKILL) gives: the run dir, `meta.json` (canvas W/H/fps + `durationSec` + all paths),
 `transcript.json` (captions + windows), the USER'S MATERIALS (their reference/brand/concept — the design
 authority) plus 1-2 recipe SHEETS as craft substrate, the video path, the DIRECTION, the ENGAGEMENT mode,
 and the ANIMATION LEVEL. `analysis.json` (per-beat composition facts) exists ONLY on style-refine runs — when
@@ -191,14 +191,14 @@ The binary is `{run dir}/../../.veed-engine/veed-engine-cli` (the preflight-mana
 Do NOT extract frames or run any ffmpeg/visual self-check unless the execution contract EXPLICITLY instructs it — --verify
 is the self-check. Author the timeline correctly up front using the recipe + limits above so --verify passes on the
 first pass; it is a safety net, not a design loop. (The last gate, `probe-qa` — mechanical frame QA vs the source —
-runs right after the record (SKILL step 4, same turn); it is not part of this verify loop and never a licence to
+runs right after the record (the SKILL's DESIGN + RENDER step, same turn); it is not part of this verify loop and never a licence to
 eyeball frames.)
 
 ## OUTPUT
 - `{run}/final/template.wv` — the single-timeline document.
 - `{run}/final/manifest.json` — EXACT: `{"render":{"width":{W},"height":{H},"fps":{FPS},"duration":{durationSec}}}`
   (duration covers the FULL clip).
-- `{run}/final/out.silent.mp4` — the render (video only; audio is muxed in step 5).
+- `{run}/final/out.silent.mp4` — the render (video only; audio is muxed in the MUX AUDIO step).
 
 ## REPORT (fold into your summary — after probe-qa + mux, same turn, no preamble)
 - aesthetic name + fonts + hex palette + recurring device.

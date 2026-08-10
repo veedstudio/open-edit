@@ -11,9 +11,9 @@ export function realHttp(token: string): VeedHttp {
   // seeds the GCS resumable session); Node's fetch doesn't add one itself.
   const base = { authorization: `Bearer ${token}`, origin: VEED_ORIGIN };
   return {
-    async getJson<T>(path: string): Promise<T> {
+    async getJson<T>(path: string, headers?: Record<string, string>): Promise<T> {
       const res = await fetch(VEED_API_BASE + path, {
-        headers: { ...base, accept: 'application/json' },
+        headers: { ...base, accept: 'application/json', ...headers },
         signal: AbortSignal.timeout(JSON_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(`GET ${path} -> ${res.status} ${(await res.text().catch(() => '')).slice(0, 300)}`);

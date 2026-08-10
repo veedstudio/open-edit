@@ -1,4 +1,4 @@
-// Recipe runner — the fast path's step 4 for recipe-backed picks. Loads the compiled recipe for the
+// Recipe runner — the fast path's DESIGN + RENDER for recipe-backed picks. Loads the compiled recipe for the
 // run's sampled ref (refs/html/<id>/recipe.ts), generates runs/<key>/final/{template.wv,
 // manifest.json} deterministically (zero tokens), then optionally drives the full gate chain:
 // lint → --verify (mechanical ladder fix loop) → --record → probe-qa. Run OUTSIDE any sandbox when
@@ -43,17 +43,33 @@ async function main(): Promise<number> {
       module: { type: 'string' },
       record: { type: 'boolean' },
       verify: { type: 'boolean' },
+      wcag: { type: 'boolean' },
+      'wcag-apply': { type: 'boolean' },
       'progress-output': { type: 'boolean' },
     },
   });
   const runArg = values.run;
   if (!runArg) {
-    console.error('usage: node --import tsx pipeline/scripts/generate-recipe.ts --run <runDir> [--verify] [--record] [--module <path>]');
+    console.error('usage: node --import tsx pipeline/scripts/generate-recipe.ts --run <runDir> [--verify] [--record] [--wcag] [--wcag-apply] [--module <path>]');
     return 2;
   }
   const runDir = resolve(runArg);
   const doRecord = values.record ?? false;
   const doVerify = (values.verify ?? false) || doRecord; // record only ever happens on a clean verify
+  // --wcag: opt-in WCAG AA contrast pass between verify and record (DEFAULT on
+  // the creative faces, which run the gates by hand — see the skill; opt-in
+  // here so the recipe fast path stays byte-identical until asked). It runs
+  // DETECT-ONLY: it audits real rendered contrast + emits contrast-statistics.json
+  // and reports, but changes nothing. It only makes sense inside the gate
+  // chain — bare --wcag would run without a rendered final/ to audit.
+  // --wcag-apply implies --wcag and runs the pass in APPLY mode (remediate +
+  // promote a remediated final/template.wv on measured improvement).
+  const doWcagApply = values['wcag-apply'] ?? false;
+  const doWcag = (values.wcag ?? false) || doWcagApply;
+  if (doWcag && !doVerify) {
+    console.error('[generate-recipe] --wcag requires --verify or --record (the WCAG pass runs after a clean verify)');
+    return 2;
+  }
 
   // --module needs no style.json (independent/standalone runs); the sampled-ref path requires it.
   const moduleOverride = values.module;
@@ -73,7 +89,7 @@ async function main(): Promise<number> {
       return 2;
     }
     if (!style.hasRecipe || !existsSync(modPath)) {
-      console.error(`[generate-recipe] no compiled recipe for "${style.refId}" (${modPath}) — run the from-scratch inline pass (SKILL step 4 variant B)`);
+      console.error(`[generate-recipe] no compiled recipe for "${style.refId}" (${modPath}) — run the from-scratch inline pass (SKILL: DESIGN + RENDER variant B)`);
       return 3;
     }
   }
@@ -126,6 +142,21 @@ async function main(): Promise<number> {
   if (Object.keys(demote).length && lint().some((x) => x.severity === 'error')) {
     console.error('[generate-recipe] lint failed after ladder demotion — generator bug; report, never hand-edit');
     return 1;
+  }
+
+  // Gate 3.5 — WCAG: audit real rendered contrast + emit contrast-statistics.json,
+  // then report. DETECT-ONLY: status 'attention' lists every low-contrast
+  // selector but changes nothing — record still consumes the verified final/.
+  if (doWcag) {
+    const { runWcagPass } = await import('./wcag-pass.ts');
+    try {
+      const d = runWcagPass(runDir, { apply: doWcagApply });
+      console.log(`[generate-recipe] wcag: ${d.status}${d.promoted ? ' (remediated template promoted into final/template.wv)' : ''}`);
+      for (const n of d.notes) console.log(`[generate-recipe] wcag: ${n}`);
+    } catch (e) {
+      console.error(String((e as Error).message ?? e));
+      return 1;
+    }
   }
 
   if (doRecord) {

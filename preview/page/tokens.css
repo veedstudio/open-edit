@@ -1,0 +1,35 @@
+/* VEED page design tokens — SINGLE SOURCE OF TRUTH for every user-facing HTML page this repo
+ * generates (the preview page, the WCAG recommendation studio, future reports). Extracted
+ * verbatim from preview/page/style.css; values follow the Brand Guidelines 2026 ramps. Any
+ * generated page must inline or link THIS file — never reinvent tokens. See internal/doc/PAGES.md. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap"); /* only the weights this page uses */
+:root {
+  --sunken: #f5f5f4;   /* background-sunken · stone-100 */
+  --base: #fafaf9;     /* background-base · stone-50 */
+  --raised: #ffffff;   /* background-raised · white */
+  --border: #d6d3d1;   /* border-default · stone-300 */
+  --border-subtle: #e7e5e4; /* border-subtle · stone-200 */
+  --ink: #0c0a09;      /* text-default · stone-950 */
+  --sub: #79716b;      /* text-subtle · stone-500 */
+  --xsub: #a6a09b;     /* stone-400 (their x-subtle is too faint for UI text) */
+  --lime-text: #5ea500;   /* text-brand · lime-600 */
+  --lime-soft: rgba(154, 230, 0, 0.18); /* lime-400 wash */
+  --violet: #8b5cf6;      /* the editor's subtitle-lane hue (timeline blocks) */
+  --violet-mid: #a78bfa;
+  --violet-fill: #ede9fe;
+  --shadow: 0 1px 2px rgba(12, 10, 9, 0.05), 0 2px 8px rgba(12, 10, 9, 0.05);
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; /* --font-body */
+  --heading: "SwissNow", "Inter", -apple-system, sans-serif;                  /* --font-heading */
+}
+/* Brand faces from VEED's public CDN, same files the editor loads (shared-ui fonts.css).
+ * font-display: swap → offline just falls back to the system stack. */
+@font-face {
+  font-family: "SwissNow";
+  src: url("https://static-assets.veed.io/fonts/SwissNow/SwissNow-Regular.woff2") format("woff2");
+  font-style: normal; font-weight: 400; font-display: swap;
+}
+@font-face {
+  font-family: "SwissNow";
+  src: url("https://static-assets.veed.io/fonts/SwissNow/SwissNow-Medium.woff2") format("woff2");
+  font-style: normal; font-weight: 500; font-display: swap;
+}

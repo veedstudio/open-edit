@@ -8,7 +8,9 @@ export const VEED_ORIGIN = (process.env.VEED_ORIGIN ?? 'https://www.veed.io').re
 export const VEED_API_BASE = (process.env.VEED_API_BASE ?? `${VEED_ORIGIN}/api/v1`).replace(/\/$/, '');
 
 export interface VeedHttp {
-  getJson<T>(path: string): Promise<T>;
+  // `headers` is for the few routes that take their scope out-of-band: the usage report reads the
+  // workspace from a header rather than from the path or the body.
+  getJson<T>(path: string, headers?: Record<string, string>): Promise<T>;
   // Like getJson but resolves null on a 404, for routes where 404 is a state
   // (GET /asset/:id only serves UPLOADED assets), not an error.
   getJsonOrNull<T>(path: string): Promise<T | null>;

@@ -44,6 +44,25 @@ export function refocusScrollDelta(viewportCentre, canvasStart, canvasSize, frac
   return canvasStart + fraction * canvasSize - viewportCentre;
 }
 
+// Safari can suspend a paused media decoder when the page is backgrounded. Reloading the
+// media resource re-arms it, which makes subsequent paused seeks paint the requested frame.
+// Do not do this in Chromium/Firefox: reloading a video is disruptive and their decoders do
+// not need the workaround.
+export function rearmDecoder(video, userAgent = globalThis.navigator?.userAgent ?? '') {
+  if (!/Safari/i.test(userAgent) || /Chrome|Chromium|CriOS|FxiOS|EdgiOS|OPiOS|Android/i.test(userAgent)) {
+    return false;
+  }
+  const currentTime = video.currentTime;
+  const restoreTime = () => {
+    if (Number.isFinite(currentTime)) {
+      video.currentTime = Math.min(currentTime, video.duration || currentTime);
+    }
+  };
+  video.addEventListener('loadedmetadata', restoreTime, { once: true });
+  video.load();
+  return true;
+}
+
 // Position of one cue's block on the timeline track, as percentages of the run duration.
 export function cueBlockGeometry(chunk, durationSec) {
   if (!durationSec || durationSec <= 0) return null;

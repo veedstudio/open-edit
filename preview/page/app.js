@@ -2,7 +2,7 @@
 // sync · timeline · player · transport + keyboard · plumbing/boot. The preview is read-only
 // in V1: watch the footage while the style cooks, follow the transcript, grab the render.
 // Pure logic lives in helpers.mjs (tested from node); everything here touches the DOM.
-import { chunkIndexAtTime, cueBlockGeometry, fitWidth, focalFraction, nextCueTime, prevCueTime, refocusScrollDelta } from './helpers.mjs';
+import { chunkIndexAtTime, cueBlockGeometry, fitWidth, focalFraction, nextCueTime, prevCueTime, rearmDecoder, refocusScrollDelta } from './helpers.mjs';
 
 // ---- elements + state ----
 const $ = (id) => document.getElementById(id);
@@ -404,6 +404,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowRight') { player.currentTime = Math.min(duration(), player.currentTime + 1); syncToTime(); }
   if (e.key === 'ArrowUp') { e.preventDefault(); gotoPrevCue(); }
   if (e.key === 'ArrowDown') { e.preventDefault(); gotoNextCue(); }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') rearmDecoder(player);
 });
 
 // ---- state plumbing + boot ----
