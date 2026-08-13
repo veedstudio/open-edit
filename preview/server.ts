@@ -70,14 +70,19 @@ async function streamMedia(res: ServerResponse, path: string, rangeHeader: strin
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
+    let aborted = false;
     req.on('data', (chunk) => {
+      if (aborted) return; // stop accumulating past the cap, but do not tear down the socket
       data += chunk;
       if (data.length > 65536) {
+        aborted = true;
+        // Drain the rest rather than destroy(): the handler still needs to send a 413 the client can read,
+        // and destroying the socket here reaches the client as a dropped connection, not a status.
+        req.resume();
         reject(new Error('request body too large'));
-        req.destroy();
       }
     });
-    req.on('end', () => resolve(data));
+    req.on('end', () => { if (!aborted) resolve(data); });
     req.on('error', reject);
   });
 }
@@ -94,6 +99,16 @@ export async function createPreviewServer(
     watch: (onEvent) => makeRunDirWatcher(runDir, onEvent),
   });
   await hub.start();
+
+  // /wcag/choice is a read-modify-write on one shared file; serialise the writes so two overlapping POSTs
+  // cannot both read the same base and clobber each other's group (last-write-wins would silently drop a
+  // choice). One tail promise per server is enough — this process is the only writer.
+  let choiceTail: Promise<unknown> = Promise.resolve();
+  const serialiseChoice = <T,>(fn: () => Promise<T>): Promise<T> => {
+    const done = choiceTail.then(fn, fn);
+    choiceTail = done.catch(() => {});
+    return done;
+  };
 
   const server: Server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -155,9 +170,18 @@ export async function createPreviewServer(
         return;
       }
       if (req.method === 'POST' && path === '/wcag/choice') {
+        let raw: string;
+        try {
+          raw = await readBody(req);
+        } catch (e) {
+          // readBody rejects an over-cap body specifically; report THAT, not a JSON error it never reached.
+          const tooLarge = e instanceof Error && e.message === 'request body too large';
+          json(res, tooLarge ? 413 : 400, { error: tooLarge ? 'request body too large' : 'could not read request body' });
+          return;
+        }
         let entry: unknown;
         try {
-          entry = JSON.parse(await readBody(req));
+          entry = JSON.parse(raw);
         } catch {
           json(res, 400, { error: 'invalid JSON body' });
           return;
@@ -167,15 +191,19 @@ export async function createPreviewServer(
           json(res, 400, { error: err }); // reject unknown kinds / malformed hex loudly
           return;
         }
-        // Read-modify-write, last-write-wins per group. A malformed existing file
-        // is replaced (the server owns this file); a valid one is preserved.
+        // Read-modify-write, last-write-wins per group. A malformed existing file is replaced (the server
+        // owns this file); a valid one is preserved. Serialised so a concurrent POST cannot read the same
+        // base and drop this group's write.
         const choicePath = join(runDir, 'final', 'wcag-choice.json');
-        let file: ChoiceFile = emptyChoiceFile();
-        try {
-          file = parseChoiceFile(JSON.parse(await readFile(choicePath, 'utf8')));
-        } catch { /* missing or corrupt -> start fresh */ }
-        const next = upsertChoice(file, entry as Parameters<typeof upsertChoice>[1]);
-        await writeFile(choicePath, JSON.stringify(next, null, 2) + '\n');
+        const next = await serialiseChoice(async () => {
+          let file: ChoiceFile = emptyChoiceFile();
+          try {
+            file = parseChoiceFile(JSON.parse(await readFile(choicePath, 'utf8')));
+          } catch { /* missing or corrupt -> start fresh */ }
+          const merged = upsertChoice(file, entry as Parameters<typeof upsertChoice>[1]);
+          await writeFile(choicePath, JSON.stringify(merged, null, 2) + '\n');
+          return merged;
+        });
         json(res, 200, next);
         return;
       }

@@ -30,6 +30,9 @@ or MCP server when it helps. Source video is optional: stills, slides, generated
 motion graphics are enough when the brief calls for it. Be creative and fluid — try new ideas
 rather than collapsing every ask onto captions.
 
+OpenEdit edits footage. Supply your own source files, or ask it to generate a talking-head clip with
+VEED Fabric when you have none — that spends credits, and never without your approval.
+
 <a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/OpenEdit-4x3-trim.mp4"><img src="docs/examples/openedit-launch.webp" alt="OpenEdit launch video" width="100%"></a>
 
 *This launch video was made in OpenEdit — click it to watch with sound.*
@@ -42,7 +45,8 @@ rather than collapsing every ask onto captions.
 | Intel Macs | Not supported — the renderer ships macOS-arm64 only |
 | Older macOS | Built and tested on Tahoe 26.0. Nothing checks the version, so earlier releases may work — untested |
 | Windows, Linux | Planned; prioritisation depends on demand |
-| Transcription | needed only to caption speech — OpenEdit asks once and remembers: VEED ([sign up](https://www.veed.io/signup) / [login](https://www.veed.io/login)), WhisperX locally, or your own service |
+| Transcription | needed only to caption speech — OpenEdit asks once and remembers: VEED ([sign up](https://www.veed.io/signup) / [login](https://www.veed.io/login)), WhisperX locally, or your own service. **VEED transcription consumes VEED credits**; WhisperX runs locally on your machine, and your own service is billed by whoever provides it |
+| Generation | optional — a veed.io account, only if you ask OpenEdit to generate footage you do not have |
 
 ## Installation
 Download this repo, or install via the command line with:

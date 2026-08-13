@@ -171,7 +171,8 @@ Run the isolated VEED tests without network access:
 
 ```sh
 node --import tsx --test \
-  tests/cli-entry.test.ts tests/login-page.test.ts tests/oauth.test.ts tests/orchestrate.test.ts \
-  tests/token-store.test.ts \
-  tests/transcript-mapper.test.ts tests/workspace.test.ts
+  tests/charge-records.test.ts tests/cli-entry.test.ts tests/fabric.test.ts \
+  tests/generate.test.ts tests/generate-charge.test.ts tests/generate-set.test.ts tests/generate-validation.test.ts tests/login-page.test.ts tests/oauth.test.ts tests/orchestrate.test.ts tests/sample-presenter.test.ts \
+  tests/go.test.ts tests/token-store.test.ts \
+  tests/transcript-mapper.test.ts tests/voice-rates.test.ts tests/workspace.test.ts
 ```

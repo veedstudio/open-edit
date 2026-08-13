@@ -38,6 +38,11 @@ add(
 // --- VEED-native transcription path ---
 add('VEED API base', true, VEED_API_BASE, false);
 
+// Fabric generation rides the same login and the same REST edge as transcription — surface it so a user
+// who wonders "can this thing make me a video?" gets an answer without reading the source. This file makes
+// no network calls, so this reports the CONFIGURED url only; reachability is proven by the first real run.
+add('Fabric generation endpoint', true, `${VEED_API_BASE} (configured; not contacted)`, false);
+
 const tokenPath = DEFAULT_TOKEN_PATH;
 const tokenEnv = (process.env.VEED_ACCESS_TOKEN ?? '').trim() !== '';
 // Optional, not blocking: only the VEED provider reads this token.

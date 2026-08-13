@@ -1,4 +1,5 @@
-// Strict flag parsing for every entry point in this repo that reads flags from a shell.
+// Strict flag parsing for every entry point in this repo that reads flags from a shell, plus the small
+// input guards the commands share: path-segment safety, and a describer for a value that failed a check.
 //
 // The parsing is node:util's parseArgs, which is strict by default: an unrecognised flag, a flag missing
 // its value, and a stray positional are each an error. That is the whole point — the hand-rolled
@@ -21,4 +22,35 @@ export function parseFlags<T extends ParseArgsConfig>(config: T & { strict?: nev
     const valid = flags.length > 0 ? `Valid flags: ${flags.join(' ')}` : 'This command takes no flags.';
     throw new Error(`${(cause as Error).message}\n${valid}`, { cause });
   }
+}
+
+// Named for what the value IS: "expected a number" without the value it found cannot be diagnosed from
+// the message alone, and this is the message a user reads instead of getting their result.
+export function describeValue(value: unknown): string {
+  if (value === undefined) return 'absent';
+  if (typeof value === 'string') return `the string ${JSON.stringify(value)}`;
+  if (typeof value === 'object') return value === null ? 'null' : JSON.stringify(value);
+  return String(value);
+}
+
+// --key and a session id each name a path segment under runs/, so both are fenced the same way: anything
+// that could climb out of the directory (a separator, a `..`, a leading dash) is refused rather than
+// normalised, because a silently relocated read or write is worse than an error.
+function assertSafeSegment(value: string, invalid: (v: string) => string): string {
+  if (!/^[A-Za-z0-9._-]+$/.test(value) || value === '.' || value === '..' || value.startsWith('-')) {
+    throw new Error(invalid(value));
+  }
+  return value;
+}
+
+export function assertSafeKey(key: string): string {
+  return assertSafeSegment(key, (k) =>
+    `invalid --key "${k}": use a single path segment of letters, digits, dot, dash or underscore (it names a directory under runs/)`,
+  );
+}
+
+export function assertSafeSessionId(sessionId: string): string {
+  return assertSafeSegment(sessionId, (id) =>
+    `invalid session id "${id}": use letters, digits, dot, dash or underscore (it names a charge record under runs/<key>/)`,
+  );
 }

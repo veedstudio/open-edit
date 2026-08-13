@@ -126,7 +126,7 @@ client discovering instructions inside the newly cloned runtime automatically.
 
 ## The flow
 
-Written for the footage case. PREFLIGHT, DESIGN + RENDER and PREVIEW hold for every run; **PREP**
+Written for the footage case. PREFLIGHT, FOOTAGE, DESIGN + RENDER and PREVIEW hold for every run; **PREP**
 (transcript, frames, meta), **SAMPLE ONE STYLE** (the style draw) and **MUX AUDIO** derive from a source
 file, so a run with no video simply has no subject for them — see INPUTS: authoring, lint, `--verify` and
 `--record` are unchanged.
@@ -135,6 +135,179 @@ file, so a run with no video simply has no subject for them — see INPUTS: auth
 Do not run a second dependency implementation. `pipeline/scripts/preflight.sh` is only a compatibility wrapper
 around the skill-bundled preflight. The provider choice — and any sign-in or install it implies —
 remains the interactive PREP step.
+
+### FOOTAGE — a video to work from, generate one, or none  · SCRIPT (only when the user brought none; runs before PREP)
+This step is about VIDEO only — stills, screenshots, slides, images and audio are inputs too, and a run can
+have them with no video at all. If the user supplied a video, continue to the PREP step unchanged. Otherwise do
+NOT assume a video is needed — read the ask first:
+- **They have a clip, or will record one** → take the path, waiting for the filename if it is still coming,
+  then continue to the PREP step unchanged.
+- **VEED Fabric** (recommend this when they want a talking head) → a talking-head clip from a script, billed to one of their VEED
+  workspaces. **Fabric REUSES VEED transcription's authentication** — the same veed.io account, the same
+  OAuth login, the same stored token. There is no Fabric connector and no second sign-in: if they are
+  already signed in for VEED transcription, they are signed in for this. Continue below.
+- **Another model** (Veo, Kling, Luma, anything on fal) → their auth and their bill, not ours; take the
+  finished file into the PREP step. Say this in the SAME BREATH as that option, every time: captions come from
+  TRANSCRIBING the clip's audio, so the clip must contain SPEECH. Veo 3 does. Veo 2, Kling, Luma and most of
+  fal's catalogue are SILENT, and a silent clip yields an empty transcript and no captions. This is a
+  warning, not a decision — say it, then let them proceed.
+- **No video — work with other sources** → raster graphics (stills, screenshots, photos), vector graphics
+  (logos, shapes, SVG), motion graphics (titles, kinetic type, animation), or generated imagery, in any
+  combination. Build the piece from those: go straight to the DESIGN + RENDER step, which reads no footage. If
+  they have AUDIO it can still be transcribed for captions; PREP, the style draw and MUX are skipped for want
+  of a video subject.
+
+Only when the ask is FOR a video of something but none is attached is there a real question — and even then
+"no video" sometimes just means they forgot to attach the file, so if it is ambiguous, ask which of these it
+is rather than guessing; a no-video answer is as good as any clip.
+
+On the Fabric path exactly three things stop and ask: this footage question, WHOSE credits, and the credit
+approval. Everything else — logging in, generating, reporting the charge — is a step: do it, say what
+happened, keep moving.
+
+**LOG IN BEFORE THE FIRST FABRIC COMMAND.** Every command below needs the VEED token — the SAME token VEED
+transcription uses, not a second one — so establish the login here rather than discovering it is missing
+mid-flow. If a command reports "No VEED login found", run the
+browser flow YOURSELF exactly as the PREP step's LOGIN block below describes — you launch it, the user never runs a
+command and never pastes a token. It is skipped when a token is already stored; one login covers generation
+AND transcription and lasts about a month.
+
+Draft the script yourself from their prompt and show it for edit. This is **two commands, and the script is
+typed only in the first one.**
+
+**WHOSE credits.** Generation spends the AI Playground credits of ONE
+workspace. With exactly one on the account there is nothing to decide, so it is used and NAMED with what it
+holds; with several and no prior answer the CLI stops and asks, and never picks. Run the confirm
+command with NO workspace flag first:
+`node --import tsx veed/generate.ts --script "<the script>" --key <key>`
+With no workspace chosen it stops having spent nothing (exit 1) and prints every workspace with its name and
+credit balance. Put that choice to the user in plain terms (the names and what each has left, not ids if you
+can avoid them), then re-run naming the one they picked — that re-run is the PREP step below. That choice is
+remembered at `veed/.veed-workspace.json`, but a remembered choice is never a settled one: a spend pass whose
+workspace was only remembered REFUSES until the command names it again. Put the remembered workspace and its
+balance to the user, get a yes, and carry `--workspace <id>` on the spend command — the same flag switches it
+whenever they want a different one.
+
+**WHAT IT COSTS.** Generating draws AI Playground credits TWICE: the speech is synthesized first, then
+handed to **Fabric One Lipsync** (`veed/fabric-one-lipsync`), and both debits land on the same credit
+allowance.
+- **Fabric One Lipsync** — ~4 credits per SECOND of finished video, measured.
+- **Speech synthesis** — 2 credits per minute of generated audio, rounded up to the whole minute, so any
+  read up to a minute costs 2.
+
+The quoted figure is the SUM of both. The script LENGTH is the lever, because it decides how long the
+read is — but how long is a property of the VOICE, and measured voices run from about 11 to 18 characters
+a second. So a 900-character script is a minute of video in one voice and a minute and a half in another,
+which is the difference between roughly 200 and 320 credits. The tool quotes at the rate it has measured
+for that voice, and quotes a RANGE when it has never heard it; repeat the range rather than flattening it
+to its low end, and never anchor the user on a small number. Too expensive → redraft a shorter script, or
+any of the other answers to the footage question; never a different workspace. The figure quoted before
+the spend is OUR estimate; VEED quotes no per-job price.
+
+**THE PRESENTER CAN BE THEIRS.** The 24 presets are a menu, not the boundary — the model takes an image,
+and it does not care where it came from. `--image <url|path>` uses the user's own still INSTEAD of a
+preset: a URL is fetched by VEED, a local file is uploaded from here. Reach for it whenever they brought
+a face, a logo, a character sheet or a frame they like. A preset carries a default voice and a user image
+does not, so `--voice` is required with `--image`.
+
+**A SET of images is ONE approval.** Several stills is one video made of several shots, so it is one
+question, not N. Write a shots file — `[{ id, script, image | character, voice }, …]` — and confirm the
+whole set at once:
+`node --import tsx veed/generate-set.ts --shots shots.json --key <key> --workspace <id>`
+It prints every shot with its own share of the cost and ONE total, then spends the lot on a single
+`--yes`. The approval is hashed over the whole set: edit a line, reorder two shots, swap an image or a
+voice, and it refuses rather than buying something nobody saw. Each shot still runs under its own key, so
+a failure halfway leaves the shots already paid for alone and `--resume` collects them. Then join:
+`node --import tsx pipeline/scripts/concat-videos.ts <out.mp4> <clip1.mp4> <clip2.mp4> [...]`
+It fits each clip into one canvas and pads the rest rather than cropping, because stills of different
+shapes produce clips of different sizes and nothing should lose its framing to a join. The result is an
+ordinary source file: transcribe it, caption it, render it like any other footage.
+
+**WHO presents it.** If the user has no opinion about the presenter, do not paste 24 thumbnails at them:
+`node --import tsx veed/sample-presenter.ts --key <key> [--gender male|female] [--locale <locale>] [--portrait|--landscape]`
+PROPOSES one character + voice, prints two or three alternates with thumbnail and audio-preview links, and
+ends with the ready-to-run confirm command carrying that pair. `--portrait`/`--landscape` is how FRAMING gets
+chosen (the character IS the framing — there is no aspect parameter), so pass the one the user's format needs.
+It proposes, it never decides — it costs 0 credits, writes nothing, and the user overrules it with `--seed N`
+or by editing the two ids. Show them the pick and the alternates and get a yes before you run the confirm
+command.
+
+1. CONFIRM (spends NOTHING):
+   `node --import tsx veed/generate.ts --script "<the script>" --key <key> --workspace <id>`
+   It prints the script, the character, voice, framing ("portrait 9:16"), the workspace being billed with its
+   balance, and the exact credit cost, records that approval at `runs/<key>/.fabric-pending.json`, and prints
+   the exact next command. Show the user the cost in plain terms and get an explicit yes.
+   NOT ENOUGH CREDITS is checked HERE too, before anything is written: if the workspace's balance is below the
+   quote this step refuses, names both figures, and records no approval — so it never hands you a "run exactly"
+   command for the ANALYSE step that is guaranteed to fail.
+2. SPEND (only after that yes) — copy the command it printed, **with no `--script`**:
+   `node --import tsx veed/generate.ts --key <key> --yes`
+   It re-confirms against the server and REFUSES to spend if the fresh quote is above the cost that was
+   approved, if the recorded script no longer matches its hash, if the approval is over an hour old, or if a
+   `--workspace` here disagrees with the one that was approved. In any of those cases nothing is charged:
+   re-run the PREP step and get a fresh yes for the new figure.
+   That yes binds the SCRIPT, the FIGURE (character, voice, framing, quoted cost) and the WORKSPACE together
+   for one hour; if any of the three drifts the run refuses rather than charging something the user never saw.
+   A quote that came in LOWER proceeds — only a rise refuses.
+   NOT ENOUGH CREDITS is checked again HERE, against the balance as it stands right now (it can have moved
+   since the PREP step) — the balance is what actually guards the money, and it refuses, names both figures, and
+   charges nothing. That goes back to the workspace question — top the workspace up, shorten the script, or
+   re-confirm against a workspace the user explicitly names. NEVER move the run to a richer workspace on their
+   behalf; a balance that simply cannot be read is not a refusal and proceeds, on either step.
+
+Passing `--script` together with `--yes` is an ERROR — re-typing the script is how the billed words drift
+away from the priced ones, so pass 2 reads them off disk instead. A spent approval is deleted: one yes buys
+one video.
+
+**Say what it cost — and how much to trust the figure.** The number the run stands behind is OUR ESTIMATE
+from the script's length — VEED quotes no per-job price and reports no per-job charge, so there is nothing
+to confirm it against. That figure, and which workspace it came out of, go to the user in plain terms once
+the video lands ("about 380 credits from <workspace>"), and never as a figure VEED confirmed. The run also
+reads the workspace balance either side of the create call and offers the movement as CORROBORATION —
+that balance is workspace-wide, so it moves for anything else billing the same workspace and can never be
+stated as "this run cost N". Pass it on the same way the run prints it:
+- The movement AGREES with the quote → give both, the quote as the figure and the movement as the check.
+- The movement is BIGGER than the quote → say so, and say the observed number. A concurrent run billing that
+  workspace is the likely cause; our estimate simply running low is the other, and neither can be ruled
+  out. Tell the user to check that workspace — never quietly report the quote as if nothing had happened.
+- The balance could not be read credibly → the run prints the ESTIMATE and labels it one; pass that
+  on as an estimate, never as the charge.
+A `--resume` reports on the same terms, and never re-decides a figure the spend pass already measured — a
+balance read an hour later says nothing about a charge that landed then. Every attempt leaves its own audit
+trail at `runs/<key>/.fabric-spend-<sessionId>.json`, so re-running a key never erases the earlier run's.
+Never let a run that spent credits end silently about cost.
+
+→ `runs/<key>/<key>.mp4`. Feed that path into the PREP step exactly like user-supplied footage. `<key>` names a
+directory under `runs/`, so it must match letters, digits, `.`, `-`, `_` only, and may not be `.`, `..`,
+or start with `-` (see `assertSafeKey` in `veed/generate.ts`).
+
+**AFTER THE MONEY IS GONE.** The charge lands the moment the job is created, so nothing past that point is
+ever retried automatically. Every attempt records itself at `runs/<key>/.fabric-charge-<sessionId>.json`
+BEFORE it calls VEED, so an attempt that never came back is still visible. Three outcomes, and they are NOT
+the same:
+- **Generation FAILED** (VEED reports the job failed) — report plainly what VEED said. Do NOT re-run `--yes`
+  to "retry": a retry is a SECOND charge for the same script. A fresh attempt needs a fresh confirm pass and
+  a fresh explicit yes from the user; the dead job blocks nothing.
+- **The run was interrupted** (transport blip, polling died, download stalled, closed laptop) — the video is
+  already PAID FOR and nothing needs approving. Collect it with
+  `node --import tsx veed/generate.ts --key <key> --resume`, which polls, downloads and spends NOTHING.
+  Polling gives up after 15 minutes, or after a run of consecutive status-check failures — the job may still
+  be finishing server-side, so always `--resume` before ever paying again.
+- **The attempt vanished mid-charge** (`--yes` refuses saying a charge MAY have landed) — no job id was ever
+  recorded, so nothing can collect it. Tell the user plainly that VEED may already have charged, and have
+  them check that workspace's balance and videos around the time the refusal named. To free the key, run
+  `node --import tsx veed/generate.ts --key <key> --abandon <sessionId>` with the id from the refusal; it
+  clears that one record and nothing else, and any credits that attempt spent are gone.
+`--yes` REFUSES while another run of the same key is charging, while a paid job is uncollected (it points at
+`--resume`), and while an abandoned attempt is unresolved. Runs of DIFFERENT keys never block each other, and
+running them at the same time is fine.
+
+Defaults produce a 9:16 talking head. `--character` picks the presenter (this is ALSO how framing is
+chosen — there is no aspect parameter) and `--voice` the accent; browse with the Fabric tools only if the
+user asks. Generation takes several MINUTES for a short clip — tell them it is running, then go quiet.
+The credit approval is the only gate here that SPENDS — never pass `--yes` without the user's explicit
+approval — but the footage question and the workspace question are stop-and-ask too: three gates, and nothing
+else in this step stops.
 
 ### PREP — transcript, then frames + meta  · SCRIPT
 The transcript comes from the provider the user chose, and either way lands at
@@ -383,7 +556,7 @@ index id; anything outside the index is not a runtime pick and the script reject
     "another style", "make 5 different versions" (that's N draws — run them as N `--seed`s through
     DESIGN + RENDER variant A, parallel when N>1). Re-roll serves the user who never had an idea in the first place;
     the moment the ask carries ANY creative direction it is a REMIX, never a re-roll.
-  - Defect repairs (typo, overlap, out-of-sync word) are neither — fix at the SOURCE, then re-run the
+  - Defect repairs (typo, overlap, out-of-sync word) are neither — fix at the source, then re-run the
     gates. Creative-run output (face-1/REMIX — agent-authored) → patch the run's template directly.
     Recipe-run output → NEVER hand-edit the generated .wv document (generate-recipe.ts owns it): a text/timing
     defect = fix transcript/word-timings and re-run the script; placement-vs-footage = the refine path

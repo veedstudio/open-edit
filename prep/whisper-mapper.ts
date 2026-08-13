@@ -182,10 +182,14 @@ function timeAll(
 /** The window must cover its own words: synth-word-timings discards a beat whose words fall outside. */
 function chunkOf(words: TranscriptWord[], start?: number, end?: number): TranscriptChunk | undefined {
   if (words.length === 0) return undefined;
-  const firstWord = words[0].timestamp[0];
-  const lastWord = words[words.length - 1].timestamp[1];
-  const from = Math.min(finite(start) ? start : firstWord, firstWord);
-  const to = Math.max(finite(end) ? end : lastWord, lastWord);
+  // The MIN start and MAX end across every word, not the first/last by start-order: overlaps are normal
+  // in ASR, so an interior word can start after the first yet end after the last, and a window bounded by
+  // the last word's end would leave that word's midpoint outside it — synth-word-timings then drops the beat.
+  // reduce, not Math.min(...spread): a pathologically long single cue would blow the argument/stack limit.
+  const earliest = words.reduce((min, w) => Math.min(min, w.timestamp[0]), Infinity);
+  const latest = words.reduce((max, w) => Math.max(max, w.timestamp[1]), -Infinity);
+  const from = Math.min(finite(start) ? start : earliest, earliest);
+  const to = Math.max(finite(end) ? end : latest, latest);
   return { text: words.map((w) => w.text).join(' '), timestamp: [from, to], words };
 }
 
