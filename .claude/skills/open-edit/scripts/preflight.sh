@@ -155,12 +155,6 @@ else
   REPOSITORY="${REPOSITORY_ARG:-$DEFAULT_REPOSITORY}"; REF="${REF_ARG:-$DEFAULT_REF}"
 fi
 
-brew_has() { have brew && brew list "$1" >/dev/null 2>&1; }
-jpeg_ready() {
-  brew_has jpeg-turbo || [ -f /opt/homebrew/opt/jpeg-turbo/lib/libjpeg.8.dylib ] ||
-    [ -f /usr/local/opt/jpeg-turbo/lib/libjpeg.8.dylib ]
-}
-
 install_brew_formula() {
   local formula="$1"
   have brew || { say "Homebrew is required to install $formula; install Homebrew first"; FAILED=1; return; }
@@ -168,25 +162,22 @@ install_brew_formula() {
 }
 
 handle_global_dependencies() {
-  local missing_git=0 missing_node=0 missing_pnpm=0 missing_ffmpeg=0 missing_jpeg=0
+  local missing_git=0 missing_node=0 missing_pnpm=0 missing_ffmpeg=0
   have git || missing_git=1
   have node || missing_node=1
   pnpm_ok || missing_pnpm=1
   { have "${VEED_ENGINE_FFMPEG:-ffmpeg}" && have "${VEED_ENGINE_FFPROBE:-ffprobe}"; } || missing_ffmpeg=1
-  jpeg_ready || missing_jpeg=1
 
   if [ "$missing_git" -eq 1 ]; then need_approval "install Git globally: brew install git"; fi
   if [ "$missing_node" -eq 1 ]; then need_approval "install Node globally: brew install node"; fi
   if [ "$missing_pnpm" -eq 1 ]; then need_approval "install pnpm ${MIN_PNPM} or newer globally: npm install --global pnpm@${MIN_PNPM}"; fi
   if [ "$missing_ffmpeg" -eq 1 ]; then need_approval "install FFmpeg globally: brew install ffmpeg"; fi
-  if [ "$missing_jpeg" -eq 1 ]; then need_approval "install jpeg-turbo globally: brew install jpeg-turbo"; fi
 
   [ "$MODE" = "auto" ] || return
   NEEDS_APPROVAL=0
   [ "$missing_git" -eq 0 ] || install_brew_formula git
   [ "$missing_node" -eq 0 ] || install_brew_formula node
   [ "$missing_ffmpeg" -eq 0 ] || install_brew_formula ffmpeg
-  [ "$missing_jpeg" -eq 0 ] || install_brew_formula jpeg-turbo
   if [ "$missing_pnpm" -eq 1 ]; then
     have npm || { say "npm is unavailable after installing Node"; FAILED=1; return; }
     npm install --global "pnpm@${MIN_PNPM}" || FAILED=1
@@ -195,7 +186,6 @@ handle_global_dependencies() {
   have node || FAILED=1
   pnpm_ok || FAILED=1
   { have "${VEED_ENGINE_FFMPEG:-ffmpeg}" && have "${VEED_ENGINE_FFPROBE:-ffprobe}"; } || FAILED=1
-  jpeg_ready || FAILED=1
 }
 
 handle_global_dependencies
@@ -276,7 +266,6 @@ handle_renderer() {
   [ "$ROOT_KIND" != "missing" ] || return
   engine="$(engine_path)"
   if [ ! -x "$engine" ]; then
-    if ! jpeg_ready; then say "renderer installation is waiting for approved jpeg-turbo installation"; return; fi
     if [ "$MODE" = "dry" ]; then say "WOULD APPLY LOCALLY — install the renderer in $ROOT/.veed-engine"; return; fi
     say "installing the renderer locally"
     bash "$ROOT/pipeline/scripts/install-veed-engine.sh" || die "renderer installation failed"

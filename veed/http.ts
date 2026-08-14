@@ -6,6 +6,19 @@ const JSON_TIMEOUT_MS = 30_000;
 // The GCS PUT carries the whole video; give it room.
 const UPLOAD_TIMEOUT_MS = 15 * 60_000;
 
+// A Fabric run polls for up to 15 minutes, which outlives an access token. This resolves the token
+// per REQUEST rather than closing over one, so a refresh mid-run is picked up automatically and a
+// paid job is never lost to an expiry between the charge and the download.
+export function refreshingHttp(getToken: () => Promise<string>): VeedHttp {
+  const at = <T,>(fn: (http: VeedHttp) => Promise<T>): Promise<T> => getToken().then((t) => fn(realHttp(t)));
+  return {
+    getJson: (path, headers) => at((h) => h.getJson(path, headers)),
+    getJsonOrNull: (path) => at((h) => h.getJsonOrNull(path)),
+    postJson: (path, body) => at((h) => h.postJson(path, body)),
+    putBytes: (url, bytes, contentType) => at((h) => h.putBytes(url, bytes, contentType)),
+  };
+}
+
 export function realHttp(token: string): VeedHttp {
   // Origin is hard-required by the upload-URL endpoint (it also
   // seeds the GCS resumable session); Node's fetch doesn't add one itself.

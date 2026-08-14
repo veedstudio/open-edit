@@ -11,12 +11,11 @@ import { type VeedHttp, unwrap } from './api.ts';
 // travels as a header rather than in the path.
 const BUCKETS = ['ALLOWANCE', 'FEATURE_BALANCE', 'OPEN_BALANCE', 'REVENUECAT_BALANCE'] as const;
 
-// A workspace holds TWO separate allowances, measured in different units, and a feature can draw on
-// either: TEXT_TO_SPEECH is billed in SECONDS, AI_PLAYGROUND_CREDITS in credits. They are never summed —
-// reporting one of them as "the balance" understates what a workspace can and cannot afford.
+// The one balance a generation draws on: AI_PLAYGROUND_CREDITS, summed across the buckets. Speech used
+// to bill a separate TEXT_TO_SPEECH seconds allowance and now bills these same credits, so there is a
+// single figure to check and observe.
 export interface Allowances {
   aiPlaygroundCredits: number;
-  textToSpeechSeconds: number;
 }
 
 export async function getAllowances(http: VeedHttp, workspaceId: string): Promise<Allowances> {
@@ -27,5 +26,5 @@ export async function getAllowances(http: VeedHttp, workspaceId: string): Promis
   const data = unwrap<Record<string, Record<string, { amount?: number }>>>(report);
   const sum = (meter: string): number =>
     BUCKETS.reduce((total, bucket) => total + (data[bucket]?.[meter]?.amount ?? 0), 0);
-  return { aiPlaygroundCredits: sum('AI_PLAYGROUND_CREDITS'), textToSpeechSeconds: sum('TEXT_TO_SPEECH') };
+  return { aiPlaygroundCredits: sum('AI_PLAYGROUND_CREDITS') };
 }

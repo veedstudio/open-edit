@@ -1,14 +1,15 @@
 // Which VEED workspace a run bills, resolved in ONE place.
 //
-// A workspace is an account-level billing decision, and more than one thing spends against it:
-// transcription draws VEED credits today, and anything else that bills will draw its own. So the question
-// is answered here, once, rather than by each caller in its own way — transcription used to silently take
-// the first workspace the listing returned, which is exactly how a user ends up billed somewhere they
-// never named.
+// This is deliberately not part of the Fabric client. A workspace is an account-level billing decision,
+// and more than one thing spends against it: transcription draws VEED credits, generation draws AI
+// Playground credits, and whatever comes next will draw something else. Two callers previously answered
+// this question differently — transcription silently took the first workspace it was handed, while
+// generation refused to take even a single one — which is exactly the kind of split that leaves a user
+// billed somewhere they never named.
 //
-// The rule: an explicit choice wins; otherwise, if the account holds exactly ONE workspace there is
-// nothing to decide, so take it and SAY which — informing is not the same as choosing for someone. Only a
-// genuine ambiguity, several workspaces and no answer, is a question.
+// The rule, once: an explicit choice wins; otherwise a remembered one; otherwise, if the account holds
+// exactly ONE workspace there is nothing to decide, so take it and SAY which — informing is not the same
+// as choosing for someone. Only a genuine ambiguity, several workspaces and no prior answer, is a question.
 import { type VeedHttp, listWorkspaces } from './api.ts';
 import { getAllowances } from './allowances.ts';
 
@@ -19,18 +20,17 @@ export interface WorkspaceCredits {
   // may want to spend from, so it is shown rather than hidden — and an unreadable balance is never read as
   // an empty one.
   credits: number | null;
-  ttsSeconds: number | null;
 }
 
-export type WorkspaceSource = 'flag' | 'only-one';
+export type WorkspaceSource = 'flag' | 'remembered' | 'only-one';
 
 export type Resolution =
   | { kind: 'resolved'; workspace: WorkspaceCredits; source: WorkspaceSource }
   // Several to choose between and nobody has chosen: the caller asks, this never guesses.
   | { kind: 'must-choose'; workspaces: WorkspaceCredits[] };
 
-// Every workspace with both allowances, for the one case that needs the comparison: asking the user to
-// choose. Balances are best-effort — an unreadable one is shown as unknown, never as zero, and never
+// Every workspace with its credit balance, for the one case that needs the comparison: asking the user
+// to choose. Balances are best-effort — an unreadable one is shown as unknown, never as zero, and never
 // blocks a run, because it is not evidence of an empty workspace.
 export async function listWorkspacesWithCredits(http: VeedHttp): Promise<WorkspaceCredits[]> {
   const workspaces = await listWorkspaces(http);
@@ -41,9 +41,9 @@ export async function listWorkspacesWithCredits(http: VeedHttp): Promise<Workspa
 async function priced(http: VeedHttp, id: string, name: string): Promise<WorkspaceCredits> {
   try {
     const a = await getAllowances(http, id);
-    return { id, name, credits: a.aiPlaygroundCredits, ttsSeconds: a.textToSpeechSeconds };
+    return { id, name, credits: a.aiPlaygroundCredits };
   } catch {
-    return { id, name, credits: null, ttsSeconds: null };
+    return { id, name, credits: null };
   }
 }
 
@@ -51,9 +51,11 @@ export async function resolveWorkspace(opts: {
   http: VeedHttp;
   // Named on the command line; wins over everything, and is not second-guessed against the listing.
   explicit?: string;
+  // The choice remembered from a previous run.
+  remembered?: string;
 }): Promise<Resolution> {
-  const named = opts.explicit;
-  const source: WorkspaceSource = 'flag';
+  const named = opts.explicit ?? opts.remembered;
+  const source: WorkspaceSource = opts.explicit ? 'flag' : 'remembered';
   const workspaces = await listWorkspaces(opts.http);
   if (workspaces.length === 0) throw new Error('no VEED workspaces on this account — nothing can be billed');
 
@@ -79,31 +81,46 @@ export function allUnpriced(workspaces: WorkspaceCredits[]): boolean {
   return workspaces.length > 0 && workspaces.every((w) => w.credits === null);
 }
 
-// What the user reads before naming the workspace they want billed. Both allowances, because a run can be
-// stopped by either of them.
+// What the user reads before naming the workspace they want billed: the AI Playground credit balance a
+// generation spends against.
 export function formatWorkspaceTable(workspaces: WorkspaceCredits[]): string {
   const w = (pick: (x: WorkspaceCredits) => string, min: number): number =>
     Math.max(min, ...workspaces.map((x) => pick(x).length));
   const credits = (x: WorkspaceCredits): string => (x.credits === null ? 'unknown' : String(x.credits));
-  const tts = (x: WorkspaceCredits): string => (x.ttsSeconds === null ? 'unknown' : `${x.ttsSeconds}s`);
   const idW = w((x) => x.id, 2);
   const nameW = w((x) => x.name, 4);
   const creditW = w(credits, 7);
-  const row = (a: string, b: string, c: string, d: string): string =>
-    `  ${a.padEnd(idW)}  ${b.padEnd(nameW)}  ${c.padStart(creditW)}  ${d}`;
+  const row = (a: string, b: string, c: string): string =>
+    `  ${a.padEnd(idW)}  ${b.padEnd(nameW)}  ${c.padStart(creditW)}`;
   return [
-    row('ID', 'NAME', 'CREDITS', 'TEXT-TO-SPEECH'),
-    ...workspaces.map((x) => row(x.id, x.name, credits(x), tts(x))),
+    row('ID', 'NAME', 'CREDITS'),
+    ...workspaces.map((x) => row(x.id, x.name, credits(x))),
   ].join('\n');
 }
 
-// The one-liner a run prints once it knows whose credits it is about to use. Says which workspace, what it
-// holds, and — when nobody chose it — why it did not ask.
+// Why this workspace was used, when nobody named it. Empty for an explicit choice — a flag needs no
+// justification back to the person who typed it.
+function whyChosen(source: WorkspaceSource): string {
+  return source === 'only-one'
+    ? ' — the only workspace on this account, so nothing was asked'
+    : source === 'remembered'
+      ? ' — remembered from a previous run'
+      : '';
+}
+
+// The one-liner the FABRIC generation path prints once it knows whose credits it is about to use. The
+// balance shown is the AI Playground pool, which is the one generation draws — do NOT reuse this for
+// transcription, whose spend is VEED transcription credits (a different allowance this resolver never
+// reads); use describeWorkspaceChoice there instead.
 export function describeChoice(workspace: WorkspaceCredits, source: WorkspaceSource): string {
   const held = workspace.credits === null
     ? 'balance unavailable'
-    : `${workspace.credits} AI Playground credits` +
-      (workspace.ttsSeconds === null ? '' : `, ${workspace.ttsSeconds}s text-to-speech`);
-  const why = source === 'only-one' ? ' — the only workspace on this account, so nothing was asked' : '';
-  return `billing workspace ${workspace.name} (${workspace.id}) — ${held}${why}`;
+    : `${workspace.credits} AI Playground credits`;
+  return `billing workspace ${workspace.name} (${workspace.id}) — ${held}${whyChosen(source)}`;
+}
+
+// The same line WITHOUT a balance, for a caller whose spend is not the AI Playground pool. Naming the AI
+// Playground figure next to a VEED-transcription run would show the wrong currency for the operation.
+export function describeWorkspaceChoice(workspace: WorkspaceCredits, source: WorkspaceSource): string {
+  return `billing workspace ${workspace.name} (${workspace.id})${whyChosen(source)}`;
 }

@@ -8,7 +8,7 @@ import {
   startTranscription,
   getSubtitle,
 } from './api.ts';
-import { describeChoice, formatWorkspaceTable, resolveWorkspace } from './workspace.ts';
+import { describeWorkspaceChoice, formatWorkspaceTable, resolveWorkspace } from './workspace.ts';
 import { mapVeedTranscript } from './transcript-mapper.ts';
 import type { Transcript } from './transcript-mapper.ts';
 
@@ -64,7 +64,8 @@ export async function transcribeWithVeed(deps: TranscribeDeps, opts: TranscribeO
       );
     }
     workspaceId = resolution.workspace.id;
-    log(describeChoice(resolution.workspace, resolution.source));
+    // Transcription bills VEED transcription credits, not the AI Playground balance describeChoice shows.
+    log(describeWorkspaceChoice(resolution.workspace, resolution.source));
   } else {
     log(`workspace ${workspaceId}`);
   }

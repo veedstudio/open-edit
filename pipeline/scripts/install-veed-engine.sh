@@ -69,10 +69,7 @@ mv "$DEST/$UPSTREAM_BIN" "$DEST/$LOCAL_BIN"
 [ -f "$WORK/feature-support.md" ] && mv "$WORK/feature-support.md" "$DEST/feature-support.md"
 [ -f "$WORK/LICENSE-binary.md" ] && mv "$WORK/LICENSE-binary.md" "$DEST/LICENSE-binary.md"
 
-# 5. Clear any quarantine flag so the ad-hoc-signed bundle runs without a Gatekeeper prompt
-xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
-
-# 6. Verify the binary actually runs (catches a wrong-arch download or an unexpected tarball layout)
+# 5. Verify the binary actually runs (catches a wrong-arch download or an unexpected tarball layout)
 if ! VER="$("$DEST/$LOCAL_BIN" --version 2>/dev/null)"; then
   echo "install-veed-engine: ERROR — installed $DEST/$LOCAL_BIN but it did not run (--version failed)." >&2
   exit 1

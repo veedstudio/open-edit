@@ -4,11 +4,14 @@ SCRIPT steps are deterministic; AGENT steps need an LLM. The default (recipe-bac
 end — the only agent is the opt-in analysis pass; creative face-1 (the user brought their own
 reference/brand/concept) and creative iteration on a delivered result are authored inline by the orchestrator.
 The whole thing is encoded executably in `.claude/skills/open-edit/SKILL.md` (the golden master) — this doc
-is the conceptual map. One video → ONE captioned MP4. No per-shot intermediates, no user-approval gate.
+is the conceptual map. One video → ONE captioned MP4. No per-shot intermediates, and no user-approval gate on
+the captioning itself — the only gates are the FOOTAGE step's three, and they exist only when the user brought no
+footage.
 
 | step | kind | what |
 |------|------|------|
 | preflight | SCRIPT | check `veed-engine-cli` vs the latest release; offer install if stale/missing |
+| footage | SCRIPT (the only step that STOPS to ask) | **only when the user supplied no footage** — generate one with VEED Fabric (`veed/generate.ts`, same VEED login as prep) → `runs/<key>/<key>.mp4`, which the PREP step then treats as ordinary footage. Three gates, in order: FOOTAGE (generate a video, take a clip they have/will record, use another model, or build from other sources instead — a non-Fabric model gets the speech caveat, since silent clips transcribe to nothing) → WORKSPACE (whose AI Playground credits; never picked for the user) → the CREDIT APPROVAL (script + presenter + voice + framing + quoted cost in ONE yes — the only gate that spends; cost tracks the finished DURATION at ~4 credits a second, and how long a script runs depends on the voice). Confirm and spend are two passes; a charged job is collected with `--resume`, never re-paid. Procedure: the FOOTAGE step of SKILL.md |
 | prep | SCRIPT | transcript from the chosen provider (VEED `veed/go.ts`, local WhisperX `prep/transcribe.ts`, or the user's own via `prep/whisper.ts`; chunks = beats, real per-word timings) → `word-timings.json` (per-word absolute-ms reveal delays, synthesized by `prep/prep.ts`) + base frames; auto-detect aspect → write `meta.json` (canvas + duration + paths) |
 | analyse | AGENT (vision) | **OPT-IN, skipped by default** — run only when the user asks to refine the style; then ONE nameless bg subagent reads the frames + transcript → `analysis.json` (per-beat shot/bboxes/neg-space/brightness in CANVAS px), and the DESIGN + RENDER step re-runs with it. The **only** vision pass. `analysis.json` existing IS the fast-path/refinement switch. |
 | sample ONE style | SCRIPT | `pipeline/scripts/sample-style.ts` — facet-scored seeded draw of one aspect-matched ref from `refs/tags.json` (v3 RUNTIME INDEX, recipes only; `fit` = aspect SOT; transcript energy weights the draw) → `style.json` (facets, energy, coverage, alternates). Zero tokens. The CREATIVE PASS routes here too: face-1 (user brought materials) → the DESIGN + RENDER step, from-scratch; face-2 REMIX (any creative iteration) / RE-ROLL (variants asks) / patch (defects). |
@@ -17,18 +20,22 @@ is the conceptual map. One video → ONE captioned MP4. No per-shot intermediate
 | preview | SCRIPT (parallel) | `preview/server.ts runs/<key>` — localhost preview opened for the user (read-only): watch and scrub the footage, follow the transcript, preview the subtitles; auto-swaps to the new `final/out.mp4` when an amend re-render lands. Launched in the background; the pipeline never waits on it |
 
 ## Where quality lives (do not let these drift)
-- **Prep (1)** transcribes with whichever provider the user chose — asked once, recorded in
+- **Footage** is the only step that spends the user's money, so it is the only one with gates: nothing
+  generates without the footage answer, no workspace is ever picked for the user, and ONE approval covers the
+  script, the presenter, the framing and the quoted cost. The charge is always reported, and a job already
+  paid for is resumed, never re-bought.
+- **Prep** transcribes with whichever provider the user chose — asked once, recorded in
   `.open-edit-prefs.json` at the runtime root (real per-word timings either way) — then extracts the base
   frames and fixes the canvas from the source aspect; every downstream step reads `runs/<key>/meta.json`
   (never re-derives dims).
-- **Analysis (2)** is opt-in — the default run derives vibe from the transcript and places by safe margins.
+- **Analysis** is opt-in — the default run derives vibe from the transcript and places by safe margins.
   When the user asks to refine the style it becomes the sole vision pass: structured per-beat facts in CANVAS px
   so the design pass composes from numbers, not pixels — the design pass never re-reads the frames.
-- **Style selection (3)** is a seeded SCRIPT — same run key → same ref, `--seed/--style` to override
+- **Style selection** is a seeded SCRIPT — same run key → same ref, `--seed/--style` to override
   (`--style` only takes index ids — the runtime pool is recipes-only); recipe coverage grows offline. On creative face-1 the USER'S
   materials are the design authority and the DIRECTION covers content/mood/placement only. Keep the
   engagement seed copy **verbatim** (wording changes output).
-- **Design (4)** commits ONE design system in a single pass (no aesthetic re-litigation). Recipes exist to
+- **Design** commits ONE design system in a single pass (no aesthetic re-litigation). Recipes exist to
   ELIMINATE per-run design analysis — and being compiled code, the per-run assembly is exact by construction
   (paging, sizing, gate/fade math, verbatim `word-timings.json` delays; the arithmetic-slip failure class is
   gone). Verification is engine-analytic (`--verify`) — the only fix is the mechanical ladder step-down; no

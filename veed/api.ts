@@ -8,8 +8,8 @@ export const VEED_ORIGIN = (process.env.VEED_ORIGIN ?? 'https://www.veed.io').re
 export const VEED_API_BASE = (process.env.VEED_API_BASE ?? `${VEED_ORIGIN}/api/v1`).replace(/\/$/, '');
 
 export interface VeedHttp {
-  // `headers` is for the few routes that take their scope out-of-band: the usage report reads the
-  // workspace from a header rather than from the path or the body.
+  // `headers` is for the few routes that take a scope out-of-band rather than in the path or body —
+  // the usage report reads the workspace from a header rather than the path or body.
   getJson<T>(path: string, headers?: Record<string, string>): Promise<T>;
   // Like getJson but resolves null on a 404, for routes where 404 is a state
   // (GET /asset/:id only serves UPLOADED assets), not an error.
@@ -42,6 +42,8 @@ export interface Asset {
   id: string;
   uploadState: 'UPLOADING' | 'UPLOADED' | 'FAILED';
   cdnUrl?: string | null;
+  // Set on generated assets (a Fabric render); the transcription path only ever reads cdnUrl.
+  sourceUrl?: string | null;
 }
 
 export interface StartedTranscription {
@@ -64,18 +66,34 @@ export async function listWorkspaces(http: VeedHttp): Promise<Workspace[]> {
 
 export async function createUploadableAsset(
   http: VeedHttp,
-  args: { mimeType: string; extension: string },
+  args: {
+    mimeType: string;
+    extension: string;
+    // Defaults reproduce the transcription upload; the Fabric TTS asset overrides them.
+    assetType?: string;
+    // Must be a real AssetGroup enum value; source uploads are 'srcVideo', TTS audio is 'TTS'.
+    group?: string;
+    assetSubType?: string;
+    storage?: string;
+    // Owner keys. Omitted entirely when absent — the schema rejects an explicit null, and a
+    // workspaceId-ONLY upload is refused by a permission check, so pass both or neither.
+    // Transcription uploads unscoped and lets the transcribe call carry the billing workspace;
+    // the Fabric TTS asset is scoped to the project it is synthesized into.
+    workspaceId?: string;
+    projectId?: string;
+  },
 ): Promise<UploadableAsset> {
-  // The upload carries NO owner keys. They must be omitted rather than sent as null (the schema
-  // rejects explicit null), and a workspaceId-only upload is refused by a permission check anyway.
-  // Unscoped upload + workspace-billed transcribe is the only shape this client uses.
   return unwrap<UploadableAsset>(
     await http.postJson('/asset', {
-      assetType: 'VIDEO',
+      assetType: args.assetType ?? 'VIDEO',
       mimeType: args.mimeType,
       extension: args.extension,
-      // Must be a real AssetGroup enum value; source uploads are 'srcVideo'.
-      group: 'srcVideo',
+      group: args.group ?? 'srcVideo',
+      ...(args.assetSubType ? { assetSubType: args.assetSubType } : {}),
+      ...(args.storage ? { storage: args.storage } : {}),
+      ...(args.workspaceId && args.projectId
+        ? { workspaceId: args.workspaceId, projectId: args.projectId }
+        : {}),
     }),
   );
 }

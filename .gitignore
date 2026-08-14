@@ -18,6 +18,11 @@ preview/transcribe-video.ts
 # VEED login token caches (owner-only, never committed)
 veed/.veed-token.json
 veed/.veed-client.json
+# The workspace the user chose to have billed (local state, names an account resource)
+veed/.veed-workspace.json
+# Speaking rates measured on THIS machine's paid runs. Local evidence, not shared state: the rates worth
+# committing are seeded in veed/voice-rates.ts.
+veed/.veed-voice-rates.json
 
 # Harness installs skills per-checkout; track ONLY the product skill so a stray skill can't be
 # committed (and then mirrored). The already-tracked SKILL.md stays tracked regardless.

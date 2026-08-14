@@ -23,6 +23,7 @@ import { FFMPEG, FFPROBE, REPO_ROOT, WHISPERX_BIN, WHISPERX_MODEL } from '../con
 import { resolveVideoArg, runKeyOf } from '../pipeline/scripts/resolve-video.ts';
 export { runKeyOf };
 import { mapWhisperTranscript, type Transcript, type WhisperJson } from './whisper-mapper.ts';
+import { parseFlags } from '../veed/args.ts';
 
 export const PREFS_PATH = join(REPO_ROOT, '.open-edit-prefs.json');
 export const PROVIDERS = ['veed', 'whisperx', 'custom'] as const;
@@ -234,35 +235,31 @@ export interface Args {
   record?: Provider;
 }
 
-// Both `--flag value` and `--flag=value`. An unknown flag is an ERROR: a misspelled --language would
-// otherwise leave English-only weights on non-English audio, transcribing it as confident nonsense.
+// Both `--flag value` and `--flag=value`, via the shared strict parser — one flag grammar for every entry
+// point in the repo, so a misspelled --language is refused the same way here as everywhere else (leaving
+// English-only weights on non-English audio would transcribe it as confident nonsense).
 export function parseArgs(argv: string[]): Args {
-  const known = ['--model', '--language', '--record'];
-  const videos: string[] = [];
-  const out: Record<string, string> = {};
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith('--')) {
-      videos.push(token);
-      continue;
-    }
-    const eq = token.indexOf('=');
-    const flag = eq === -1 ? token : token.slice(0, eq);
-    if (!known.includes(flag)) throw new Error(`unknown flag ${flag}\n${USAGE}`);
-    const value = eq === -1 ? argv[++i] : token.slice(eq + 1);
-    if (value === undefined || value === '') throw new Error(`${flag} needs a value\n${USAGE}`);
-    out[flag.slice(2)] = value;
+  const { values, positionals } = parseFlags({
+    args: argv,
+    options: { model: { type: 'string' }, language: { type: 'string' }, record: { type: 'string' } },
+    allowPositionals: true,
+  });
+  // parseFlags accepts `--model=` as an empty string; an empty value is a mistake, not a selection, so
+  // refuse it up front rather than letting '' flow into tier/language/provider selection as a silent blank.
+  for (const flag of ['model', 'language', 'record'] as const) {
+    if (values[flag] === '') throw new Error(`--${flag} needs a value\n${USAGE}`);
   }
-  if (out.record !== undefined && !(PROVIDERS as readonly string[]).includes(out.record)) {
-    throw new Error(`unknown provider "${out.record}" — expected one of ${PROVIDERS.join(', ')}\n${USAGE}`);
+  const record = values.record;
+  if (record !== undefined && !(PROVIDERS as readonly string[]).includes(record)) {
+    throw new Error(`unknown provider "${record}" — expected one of ${PROVIDERS.join(', ')}\n${USAGE}`);
   }
   // Recording a choice is not a transcription run, so it needs no video.
-  if (out.record === undefined && videos.length === 0) throw new Error(`no video given\n${USAGE}`);
+  if (record === undefined && positionals.length === 0) throw new Error(`no video given\n${USAGE}`);
   return {
-    videos,
-    ...(out.record === undefined ? {} : { record: out.record as Provider }),
-    ...(out.model === undefined ? {} : { model: out.model }),
-    ...(out.language === undefined ? {} : { language: out.language }),
+    videos: positionals,
+    ...(record === undefined ? {} : { record: record as Provider }),
+    ...(values.model === undefined ? {} : { model: values.model }),
+    ...(values.language === undefined ? {} : { language: values.language }),
   };
 }
 

@@ -19,15 +19,23 @@ Preflight has three modes: bare applies safe local setup, `--dry` reports withou
 
 ## Requirements
 1. **macOS arm64**, **Git**, **Node**, and the pnpm version declared in `package.json`.
-2. **jpeg-turbo** — `brew install jpeg-turbo`. It supplies `libjpeg.8.dylib`, which the renderer loads at launch.
-3. **ffmpeg/ffprobe** (frame extraction + audio mux). On PATH or set `VEED_ENGINE_FFMPEG ` / `VEED_ENGINE_FFPROBE`.
-4. **veed-engine-cli** — the render engine. Its first install is automatic and local; later updates require
+2. **ffmpeg/ffprobe** (frame extraction + audio mux). On PATH or set `VEED_ENGINE_FFMPEG ` / `VEED_ENGINE_FFPROBE`.
+3. **veed-engine-cli** — the render engine. Its first install is automatic and local; later updates require
    approval. `pipeline/scripts/install-veed-engine.sh` downloads and verifies the latest macOS-arm64 release into `.veed-engine/`.
    Set `VEED_ENGINE_BIN` to use an existing installation.
-5. **A transcription provider** — the skill asks once and remembers the answer. Either
+4. **A transcription provider** — the skill asks once and remembers the answer. Either
    **VEED** (`node --import tsx veed/login.ts`, one-time OAuth, ~30-day refreshable token; a free account
    covers about 10 minutes a month) or **WhisperX** locally (`bash pipeline/scripts/install-whisperx.sh`,
    free and offline). You can also point it at your own service. See `README.md`.
+5. **VEED credits.** **VEED transcription consumes VEED credits** (WhisperX runs locally on your
+   machine; your own service is billed by whoever provides it). Separately, with no source video the skill can GENERATE a talking-head clip
+   (`veed/generate.ts`), which spends a workspace's AI Playground credits. **Fabric reuses VEED
+   transcription's authentication** — same account, same login, same token; no connector, no second sign-in. Generating is TWO charges on two allowances: AI Playground
+   credits for Fabric One Lipsync (~4 a second of finished video) and text-to-speech SECONDS for the speech. The
+   script sets the duration at roughly 1,080 characters a minute, so a 60-second read is a couple of
+   hundred credits plus about a minute of TTS. It never picks the workspace for you and never spends
+   without your explicit approval of the estimate; what the balance moved by is reported and recorded
+   under `runs/<key>/`.
 6. **config.ts** — optional machine-path overrides. Videos live anywhere:
    invoke the skill with the video's path (absolute, or relative to your CWD).
 

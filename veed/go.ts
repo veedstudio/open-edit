@@ -12,10 +12,11 @@ import { parseFlags } from './args.ts';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { REPO_ROOT } from '../config.ts';
 import { resolveVideoArg, runKeyOf } from '../pipeline/scripts/resolve-video.ts';
-import { VEED_ORIGIN } from './api.ts';
-import { realHttp } from './http.ts';
+import { VEED_ORIGIN, type VeedHttp } from './api.ts';
+import { refreshingHttp } from './http.ts';
 import { transcribeWithVeed } from './orchestrate.ts';
 import { DEFAULT_TOKEN_PATH, resolveToken } from './token-store.ts';
 
@@ -25,6 +26,26 @@ async function readVideoBytes(videoPath: string): Promise<{ bytes: Uint8Array; m
   const ext = (extname(videoPath).slice(1) || 'mp4').toLowerCase();
   const mimeType = ext === 'mov' ? 'video/quicktime' : ext === 'webm' ? 'video/webm' : 'video/mp4';
   return { bytes, mimeType, extension: ext };
+}
+
+// The stored login, resolved FRESH each call so a token refresh is always picked up.
+function resolveVeedToken(): Promise<string | null> {
+  return resolveToken({
+    envToken: process.env.VEED_ACCESS_TOKEN,
+    tokenPath: DEFAULT_TOKEN_PATH,
+    expectedOrigin: VEED_ORIGIN,
+  });
+}
+
+// A VeedHttp that re-resolves the token per REQUEST. A batch can outlive a single access token, so closing
+// over one (realHttp) would 401 on a later video after earlier ones already spent credits; resolving per
+// request refreshes mid-run instead.
+export function connectRefreshing(resolve: () => Promise<string | null> = resolveVeedToken): VeedHttp {
+  return refreshingHttp(async () => {
+    const token = await resolve();
+    if (!token) throw new Error('VEED login expired mid-run — re-run: node --import tsx veed/login.ts');
+    return token;
+  });
 }
 
 function noTokenHelp(): void {
@@ -62,11 +83,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const token = await resolveToken({
-    envToken: process.env.VEED_ACCESS_TOKEN,
-    tokenPath: DEFAULT_TOKEN_PATH,
-    expectedOrigin: VEED_ORIGIN,
-  });
+  const token = await resolveVeedToken();
   if (!token) {
     noTokenHelp();
     process.exit(1);
@@ -80,7 +97,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const http = realHttp(token);
+  const http = connectRefreshing();
   for (const video of videos) {
     // The one run-key rule, shared with prep/ — never repeated inline.
     const key = runKeyOf(video);
@@ -98,7 +115,12 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e: unknown) => {
-  console.error(e instanceof Error ? e.message : e);
-  process.exit(1);
-});
+// Only when run as the entry point — importing go.ts (e.g. from a test of connectRefreshing) must not
+// kick off a transcription batch from the importer's argv. Compare the module URL rather than matching the
+// filename: an endsWith('go.ts') check also fires for any other script whose path happens to end that way.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e: unknown) => {
+    console.error(e instanceof Error ? e.message : e);
+    process.exit(1);
+  });
+}
