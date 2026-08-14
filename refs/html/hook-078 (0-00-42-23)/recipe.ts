@@ -178,7 +178,7 @@ ${divs.join('\n')}
 
   /* word reveal — keep position:relative + z-index:1 (the prefab's .w stacking trick).
      Word gap = 0.3em margin PLUS the trailing &#160; in the span text — italic caps can overhang
-     their advance and eat a bare gap. The vertical padding is shear headroom. Never shrink these. */
+     their advance and eat a bare gap. The vertical padding is descender headroom. Never shrink these. */
   .w  { display:inline-block; position:relative; z-index:1; opacity:0;
         margin-right:0.3em; padding-bottom:0.2em; padding-top:0.1em;
         animation:wordIn 0.3s cubic-bezier(.2,.7,.3,1) both; }

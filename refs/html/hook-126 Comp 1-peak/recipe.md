@@ -57,7 +57,7 @@ Paste this whole document as `runs/<key>/final/template.wv`, then add one `.cue`
          animation-name: cueWin; animation-timing-function: linear; animation-fill-mode: forwards; }
 
   /* a slot = one absolutely positioned nowrap line of the scatter; side offset / top / font-size
-     come inline per slot. line-height 1.35 is the prefab's own AND the shear headroom — never
+     come inline per slot. line-height 1.35 is the prefab's own AND the descender headroom — never
      tighten it. The yellow ink is fattened by an 8-way same-ink text-shadow (the engine has no text
      stroke) — that is what carries the letterforms' weight, so it stays at full strength. The two dark
      layers under it only GROUND the ink over light footage and are pulled well back: tight offset,
@@ -336,8 +336,8 @@ the beat's anchored side — the same `N` parity that placed the slot:
   28% is what makes it a sag. Amplitude does the rest: below ~10° the drop reads as a crooked baseline
   rather than a fall.
 - Word gaps: each unit's last span (except the slot-final unit's) takes `.wg` (`margin-right:0.3em`)
-  PLUS a trailing `&#160;` in its span text — serif ink overhangs its advance and the engine trims
-  bare trailing spaces. Glued spans inside a unit get neither. Spans stay `display:inline-block`.
+  PLUS a trailing `&#160;` in its span text — serif ink overhangs its advance, and a space
+  is narrower than that overhang. Glued spans inside a unit get neither. Spans stay `display:inline-block`.
 - Words accumulate — a landed word HOLDS until the cue gate cuts the beat. No fade-outs anywhere;
   no mid-beat turn-taking exists (every slot has its own anchor), so nothing ever double-prints.
 
@@ -406,12 +406,11 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
   (section 3) and re-tests. The safe area is not a variable.
 - Words keep verbatim case + punctuation — never uppercase, never strip, never reorder or drop
   tokens; never render the prefab's demo copy.
-- `line-height:1.35` and `display:inline-block` spans are shear headroom — never tighten either;
+- `line-height:1.35` and `display:inline-block` spans are descender headroom — never tighten either;
   the word gap is `.wg` + trailing `&#160;` — never a bare margin, never an empty spacer span.
 - Words accumulate and the gate cuts the beat — never add per-word or per-slot fade-outs, never
   page a beat (long beats shrink via the caps table and the multiplier ladder instead).
 - No invented timing: every `delayMs`/`cueDelayMs` comes verbatim from `word-timings.json`; derived
-  numbers ONLY via the closed forms in sections 3–4. No flex anywhere; no `text-align`; no `vw`
-  sizes; single-value `border-radius` only (none is used here).
+  numbers ONLY via the closed forms in sections 3–4. No flex anywhere; no `text-align`; single-value `border-radius` only (none is used here).
 - Never read the video frames; never re-derive layout; no redesign after a render or verify
   failure — only the section-6 mechanical fixes.

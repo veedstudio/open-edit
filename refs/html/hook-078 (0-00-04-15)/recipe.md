@@ -23,8 +23,9 @@ one by one like an under-powered neon tube, glowing yellow `#fff402` on their re
 Paste this whole document as `runs/<key>/final/template.wv`, then insert one `.cue` block per beat
 (section 3) after the chrome. Replace only `{videoPath}` (from `meta.json`). The chrome (#tagl … #logos)
 is FINAL — fixed dressing text with fixed delays; never edit it, never put spoken words in it. The
-prefab's `ignite` animated a `drop-shadow` surge together with sub-1 opacity — animated drop-shadow under
-partial opacity clips glyphs in this engine, so this sheet's `ignite` is opacity-ONLY and the glow lives
+prefab's `ignite` animated a `drop-shadow` surge together with sub-1 opacity — the one animated `filter`
+this engine was measured on, `blur`, holds its initial value and never ramps, and animated `drop-shadow`
+was never probed; this sheet's `ignite` is opacity-ONLY and the glow lives
 entirely in the static text-shadows (2 yellow neon layers + 1 dark grounding layer so yellow survives
 light footage). Do not re-add any `filter`.
 
@@ -99,7 +100,7 @@ light footage). Do not re-add any `filter`.
   .s40{font-size:40px} .s36{font-size:36px} .s32{font-size:32px} .s28{font-size:28px}
 
   /* per-char neon ignition — opacity gutters then holds lit. OPACITY ONLY (no filter).
-     The vertical padding is shear headroom for the animating span's raster box. */
+     The vertical padding is descender headroom for the animating span's raster box. */
   @keyframes ignite { 0%{opacity:0} 10%{opacity:.9} 20%{opacity:.08} 34%{opacity:.7}
                       46%{opacity:.2} 62%{opacity:1} 100%{opacity:1} }
   .ch { display: inline-block; opacity: 0; padding-top: 0.08em; padding-bottom: 0.16em;
@@ -248,7 +249,7 @@ Beat 5 (`10,000 hours saved.`, cueDelayMs 8240, winMs 1600, gateEnd 9840): 3 uni
   other chars use the skeleton's `ignite .55s linear both` with only `animation-delay` inline.
 - **WORD GAPS** (both parts required): the LAST char span of every unit EXCEPT the line-final one gets
   class `ch gp` AND a trailing `&#160;` appended to its text (`<span class="ch gp" …>O&#160;</span>`) —
-  bare margins alone can be eaten by ink overhang and the engine trims plain trailing spaces. No gaps
+  bare margins alone can be eaten by ink overhang, and a space is narrower than the overhang. No gaps
   between chars inside a unit; a glued `-` unit renders as one continuous char run across its spans.
 - Char span example (beat 1, `SO` delayMs 320, K 65): `<span class="ch" style="animation-delay:320ms">S</span><span class="ch gp" style="animation-delay:385ms">O&#160;</span>`.
   Beat 1's `THING.` (delayMs 1680, m=6, gateEnd 2080): 1680+5×65+550 = 2555 > 2080 → K=30 → delays
@@ -296,14 +297,14 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - No fonts, colors, shadows, sizes, or keyframes beyond this sheet — Staatliches + Oswald, `#fff402` on
   the footage, the 3-layer glow (2 yellow neon + 1 dark grounding, never edited or dropped), the 12-row
   ladder and the 3 keyframe blocks are the whole system.
-- No `filter` anywhere — the prefab's animated `drop-shadow` surge is REMOVED on purpose (animated
-  drop-shadow under sub-1 opacity clips glyphs in this engine); do not restore it, do not animate
-  `text-shadow` either.
+- No `filter` anywhere — the prefab's animated `drop-shadow` surge is REMOVED on purpose (an
+  animated filter holds its initial value in this engine, so the surge never happens); do not
+  restore it, do not animate `text-shadow` either.
 - Never change, translate, or transcript-derive the chrome text; never put a spoken word into a chrome
   slot — every spoken char is a `title-char` in a `.tl` line. Never move, re-time, or re-reveal chrome.
 - No invented timing: every char delay is `spanDelayMs + i×K` off a VERBATIM `word-timings.json` delay;
   cue delay/window only via the §3 subtraction.
-- No fade-outs on title lines (the gate cuts the held poster); no `var()` in transforms/keyframes; no
+- No fade-outs on title lines (the gate cuts the held poster); no
   descendant selectors — flat classes/ids exactly as in the skeleton; spans stay `display:inline-block`
   with their padding headroom.
 - No reading frames, no ffmpeg, no visual checks — `--verify` is the only self-check; no redesign after

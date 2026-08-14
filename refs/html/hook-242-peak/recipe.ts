@@ -148,8 +148,10 @@ export const splineFor = (N: number): ((t: number) => number) => UL_SPLINES[mod(
 // crosses the box's own left or right edge. Percent (never px) is what keeps one outline correct at
 // any word width and any SCALE.
 // The stroke is ONE element with this outline as a STATIC clip-path, grown by scaleX 0→1 from its
-// left edge (see `.ul`) — the only draw device the engine honours: a `width` keyframe, an animated
-// `clip-path` and an animated `inset()` all render the finished shape from frame one. One element is
+// left edge (see `.ul`) — the device this ref draws with, because one percent outline then stays
+// exact at any word width. A `width` keyframe and an animated `clip-path` both ramp on this engine
+// (probes: width-keyframes-static, animated-clip-path, both refuted); `inset()` was never probed,
+// so it is untested rather than broken. One element is
 // also the only clean shape: a chain of rotated boxes facets at every joint and a rotated wrapper
 // around a scaled child renders many times too thick (both proven on fixtures).
 export function underlinePolygon(spline: (t: number) => number, wPx: number, hPx: number, samples = 24): string {
@@ -463,8 +465,8 @@ ${divs.join('\n')}
 
   /* the accent's hand-drawn underline: ONE element statically clipped to the beat's spline outline
      (clip-path: polygon() in %, so one outline holds at any word width and any SCALE), swept
-     left→right by scaleX 0→1 from its left edge — the only draw device the engine honours (an
-     animated width, clip-path or inset() renders the finished stroke from frame one). The
+     left→right by scaleX 0→1 from its left edge — the sweep is what keeps that single percent
+     outline exact at every word width, not a repair for a ramp the engine refuses. The
      drop-shadow sits on the whole stroke at once. */
   .ul { position: absolute; background: #fdf7f4; transform: scaleX(0); transform-origin: 0 50%;
         filter: drop-shadow(0 ${p(1)}px ${p(4)}px rgba(0,0,0,0.55));

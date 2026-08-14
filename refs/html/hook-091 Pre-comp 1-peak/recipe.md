@@ -55,7 +55,7 @@ Paste this whole document as `runs/<key>/final/template.wv`, then add one `.cue`
   .row { position: absolute; left: 0; width: 1280px; text-align: center; line-height: 1; z-index: 2;
          font-family: 'Anton', sans-serif; font-weight: 400; }
 
-  /* word spans: the vertical padding is shear headroom (an animating span rasterizes at its
+  /* word spans: the vertical padding is descender headroom (an animating span rasterizes at its
      line-height:1 box and glyph edges clip without it); ink extents are calibrated WITH it.
      ONE ink for every word at every size — poster neon yellow: two yellow glow layers over a dark
      grounding layer that holds the type off bright footage. */
@@ -216,7 +216,7 @@ O .484 P .469 Q .491 R .474 S .459 T .395 U .471 V .469 W .710 X .484 Y .446 Z .
   `animation-duration:{inMs}ms` with `inMs = min(D0, max(220, cueEnd − delayMs − 80))`,
   cueEnd = cueDelayMs + cueDurMs, D0 = 500 for the BIG slab (`.b`) and 350 for every other word
   (`.w`) — the entrance compresses so a late word still lands before the gate.
-- Word gaps are the computed `margin-right` px — inter-span whitespace is dropped by the engine, the
+- Word gaps are the computed `margin-right` px — inter-span whitespace is not what sets the gap here, the
   margins ARE the gaps. Write spans adjacent with no whitespace between them.
 - Words accumulate — every landed word HOLDS at full opacity; the beat's gate cuts the whole poster
   at the window end. No fade-outs anywhere (nothing shares an anchor mid-beat).
@@ -293,7 +293,7 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - No invented timing: every `delayMs`/`cueDelayMs`/`cueDurMs` comes verbatim from
   `word-timings.json`; derived numbers ONLY via the closed forms in sections 3–4.
 - Words accumulate and the gate cuts the beat — never add fade-outs.
-- Never animate `color`; never put `var()` in transforms or keyframes; no `vw` font sizes; no
+- Never animate `color`; no
   `-webkit-text-stroke`; no `steps()` timing; single-value border-radius only (none is used here).
 - Never read the video frames; never re-derive layout; no redesign after a render or verify failure —
   only the mechanical fixes in section 6.

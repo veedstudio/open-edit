@@ -269,7 +269,7 @@ ${rows.join('\n')}
              white-space:nowrap; display:inline-block; transform-origin:center;
              text-shadow:0 0.02em 0.12em rgba(0,0,0,0.55); }
 
-  /* word spans: vertical padding is shear headroom — an animating span rasterizes at its
+  /* word spans: vertical padding is descender headroom — an animating span rasterizes at its
      line-height:1 box and glyph bottoms clip without it. Ink extents are calibrated WITH it. */
   @keyframes popIn { 0%{opacity:0} 100%{opacity:1} }
   @keyframes wordIn { 0%{opacity:0; transform:translateY(0.1em)} 100%{opacity:1; transform:translateY(0)} }

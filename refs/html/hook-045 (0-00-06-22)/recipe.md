@@ -58,7 +58,7 @@ FULL-BLEED at z0 — no chrome covers it.
          line-height: 0.72; letter-spacing: 0.004em; color: #f6f3f7; white-space: nowrap;
          text-shadow: 0 4px 28px rgba(0,0,0,0.40); }
 
-  /* glyph reveal — opacity only, then HOLD. The vertical padding is mid-reveal shear headroom
+  /* glyph reveal — opacity only, then HOLD. The vertical padding is descender clearance headroom
      for the 0.72 line-height box — never remove it. */
   .c { display: inline-block; opacity: 0; padding: 0.14em 0 0.14em;
        animation-name: cIn; animation-duration: 140ms;
@@ -110,7 +110,7 @@ FULL-BLEED at z0 — no chrome covers it.
   .s22 { font-size: 22px; }
 
   /* caption word reveal — rise + eased fade IN, then HOLD; the page-level pgOut is the only
-     fade-out. Word gap = the margin (never spacer spans); the vertical padding is shear headroom. */
+     fade-out. Word gap = the margin (never spacer spans); the vertical padding is descender headroom. */
   .w { display: inline-block; opacity: 0; margin-right: 0.26em; padding: 0.08em 0 0.15em;
        animation-name: wIn; animation-duration: 380ms;
        animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }
@@ -284,8 +284,7 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - Do not re-add the prefab's flex centering or `.sp` spacer spans; do not change line-height 0.72 or
   the letter-spacing. Do not re-add the prefab's scaleX(0.5) squeeze — `--verify` measures glyph ink
   PRE-transform, so parent-scaled monumental text false-fails (and shears at these sizes).
-- Never animate `color` or `filter:blur`; never put `var()` inside a transform or keyframes; no `vw`
-  font sizes; single-value `border-radius` only (none is used here).
+- Never animate `color` or `filter:blur`; single-value `border-radius` only (none is used here).
 - No text-transform reliance — uppercase the strings yourself.
 - Never read the video frames, never run ffmpeg checks — `--verify` is the only self-check.
 - No redesign after render or a verify failure — only the mechanical fixes in section 6.

@@ -4,9 +4,19 @@ SCRIPT steps are deterministic; AGENT steps need an LLM. The default (recipe-bac
 end — the only agent is the opt-in analysis pass; creative face-1 (the user brought their own
 reference/brand/concept) and creative iteration on a delivered result are authored inline by the orchestrator.
 The whole thing is encoded executably in `.claude/skills/open-edit/SKILL.md` (the golden master) — this doc
-is the conceptual map. One video → ONE captioned MP4. No per-shot intermediates, and no user-approval gate on
-the captioning itself — the only gates are the FOOTAGE step's three, and they exist only when the user brought no
-footage.
+is the conceptual map. No per-shot intermediates IN THE RENDER — a generated set produces one clip per shot and joins them
+before any of this — and no user-approval gate on the captioning itself —
+the only gates are the FOOTAGE step's three, and they exist only when the user brought no footage.
+
+**Inputs: any number of videos, INCLUDING NONE.** The captioned single-clip run is the shortest path
+through here, not the definition of a run: footage is a layer inside the document, and a run can be built
+from stills, slides, generated imagery, audio alone or pure motion graphics. A long piece has one
+document per chapter, gates them one at a time (`gates.sh --doc chapters/act-3`) and joins the
+gated chapters with `concat-chapters.ts`.
+
+An AUTHORED run — creative face-1, a remix, or a run with no footage — writes `runs/<key>/design/system.json`
+before it authors any document, and `pipeline/scripts/design-gate.ts` reads every document back against it.
+A compiled recipe needs none of that: the recipe IS the system.
 
 | step | kind | what |
 |------|------|------|
@@ -15,7 +25,9 @@ footage.
 | prep | SCRIPT | transcript from the chosen provider (VEED `veed/go.ts`, local WhisperX `prep/transcribe.ts`, or the user's own via `prep/whisper.ts`; chunks = beats, real per-word timings) → `word-timings.json` (per-word absolute-ms reveal delays, synthesized by `prep/prep.ts`) + base frames; auto-detect aspect → write `meta.json` (canvas + duration + paths) |
 | analyse | AGENT (vision) | **OPT-IN, skipped by default** — run only when the user asks to refine the style; then ONE nameless bg subagent reads the frames + transcript → `analysis.json` (per-beat shot/bboxes/neg-space/brightness in CANVAS px), and the DESIGN + RENDER step re-runs with it. The **only** vision pass. `analysis.json` existing IS the fast-path/refinement switch. |
 | sample ONE style | SCRIPT | `pipeline/scripts/sample-style.ts` — facet-scored seeded draw of one aspect-matched ref from `refs/tags.json` (v3 RUNTIME INDEX, recipes only; `fit` = aspect SOT; transcript energy weights the draw) → `style.json` (facets, energy, coverage, alternates). Zero tokens. The CREATIVE PASS routes here too: face-1 (user brought materials) → the DESIGN + RENDER step, from-scratch; face-2 REMIX (any creative iteration) / RE-ROLL (variants asks) / patch (defects). |
+| design system | INLINE (authored runs only) | `runs/<key>/design/system.json` — fonts, the type ladder with each rung's own optical tracking (`pipeline/recipes/type.ts`), palette, spacing, named easings and durations, the reveal unit, the devices in play, and `donors` (recipe ids, checked against the runtime index). Written FROM the run's content: `groundedIn` must name files that exist, so a system cannot be authored before the thing it is for. Compose the documents from `pipeline/recipes/devices.ts`, `pipeline/design/captions.ts` and `pipeline/recipes/geometry.ts` rather than typing each graphic at its point of use. |
 | design + render | SCRIPT (recipe) · INLINE (creative face-1 · remix) | default → **compiled recipe** (`pipeline/scripts/generate-recipe.ts`: the generator module emits `final/template.wv` + `manifest.json` deterministically — word delays from `word-timings.json` by construction, zero tokens — then drives the gate chain: lint → `--verify` with the mechanical ladder fix loop (≤2 cycles) → `--record` → probe-qa); **face-1** (INLINE, orchestrator-authored: one design system from the USER'S materials, 1-2 recipe sheets as craft substrate, per `director-brief.md`; lint + `--verify` to exit 0, then `--record` → probe-qa); **REMIX** (inline donor blend per the brief's REMIX MODE in `runs/<key>-remix`, same gates) |
+| gates | SCRIPT | `bash pipeline/scripts/gates.sh <run-dir> [--doc <subdir>] [--audio <file>]` — design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, stopping at the first failure and naming the gate. `generate-recipe.ts` drives the same chain for a compiled recipe; every other path calls this instead of retyping it. Runs OUTSIDE any sandbox. |
 | mux audio | SCRIPT | ffmpeg muxes the source audio onto the silent render → `final/out.mp4` (the deliverable) |
 | preview | SCRIPT (parallel) | `preview/server.ts runs/<key>` — localhost preview opened for the user (read-only): watch and scrub the footage, follow the transcript, preview the subtitles; auto-swaps to the new `final/out.mp4` when an amend re-render lands. Launched in the background; the pipeline never waits on it |
 

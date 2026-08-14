@@ -64,8 +64,8 @@ Paste this whole document as `runs/<key>/final/template.wv`, then add one `.cue`
   @keyframes wIn { 0% { transform: translateX(28px); } 100% { transform: translateX(0px); } }
   .w  { display: inline-block; position: relative; margin-right: 0.3em;
         animation-name: wIn; animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1); animation-fill-mode: both; }
-  /*  2. the two ghosts: STATICALLY blurred copies stacked over the ink (an ANIMATED blur renders its
-        end state from frame one on this engine, and filter ignores em — so the ramp is a relay of
+  /*  2. the two ghosts: STATICALLY blurred copies stacked over the ink (an ANIMATED blur holds the
+        keyframe's INITIAL value for the whole run, and filter ignores em — so the ramp is a relay of
         opacity across copies whose px radii are written inline per ladder row).
         The three stages OVERLAP rather than meet at a point — a ghost is still dissolving while the
         next stage is already coming up, so the pull reads as one continuous softening rather than as
@@ -197,7 +197,7 @@ earlier word 560. Accent = `£55` (digit rule) → its ink copy is `ia`, everyth
 - cueEnd = `cueDelayMs` + `{winMs}` (beat-level). Per word: avail = cueEnd − `delayMs`;
   `{inMs}` = min(560, max(260, avail − 80)). The reveal is longer than a pop — a focus pull needs room
   to resolve — but it still compresses so a late word lands before its gate cuts it.
-- Word spacing is the `.w` `margin-right: 0.3em` — inter-span whitespace is dropped by the engine;
+- Word spacing is the `.w` `margin-right: 0.3em` — inter-span whitespace is not what sets the gap here;
   write spans adjacent with no whitespace between them.
 - **Turn-taking:** a MID page gets `po` with `animation-delay` = max(nextStart − 120, its own last
   word's `delayMs`) and `animation-duration: 120ms`, nextStart = the successor page's first word
@@ -251,8 +251,8 @@ Then record (a SECOND invocation — `--verify` and `--record` are mutually excl
 ## 7. DO NOT
 
 - **ENGINE FACT A — never replace the stepped pull with a blur keyframe.** Measured on a fixture: an
-  ANIMATED `filter: blur()` renders its END state from frame one on this engine — exactly like animated
-  `clip-path`. Only a STATIC filter renders. `opacity` and `transform` in the SAME keyframes interpolate
+  ANIMATED `filter: blur()` holds its initial value on this engine and never ramps. Only a STATIC
+  filter renders. `opacity` and `transform` in the SAME keyframes interpolate
   normally, which is why the ramp is a RELAY of opacity across three statically-blurred copies. A
   `@keyframes` that interpolates `filter` would render as a permanently blurred word, not as a pull.
   This is not a simplification opportunity — it is the only way the effect exists.
@@ -277,9 +277,8 @@ Then record (a SECOND invocation — `--verify` and `--record` are mutually excl
 - No invented timing: every `delayMs`/`cueDelayMs` comes VERBATIM from `word-timings.json`; derived
   numbers ONLY via the closed forms in sections 3-5.
 - No flex anywhere (pages are absolute full-width `text-align:center` blocks); spans stay
-  `display:inline-block`; `line-height: 1.3` on `.pg` is the mid-reveal shear headroom — never tighten
+  `display:inline-block`; `line-height: 1.3` on `.pg` is the descender headroom — never tighten
   it. Every animated transform ENDS at identity.
-- No `var()` in transforms or keyframes; no `vw` font sizes; no descendant selectors — flat classes
-  only.
+- No descendant selectors — flat classes only.
 - Never read the video frames; never re-derive layout; no redesign after a render or verify failure —
   only the mechanical fixes in section 6.

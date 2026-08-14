@@ -60,7 +60,7 @@ fix loop · DO NOT → simply how the code behaves.
 4. **WORDS + TIMING** — the invariant rules: one span per word (or per glyph, if the ref is glyph-level),
    each span's `animation-delay` = that word's `delayMs` from `word-timings.json` **VERBATIM**; the beat's
    `.cue` gets `animation-delay:{cueDelayMs}ms; animation-duration:{cueDurMs}ms`. Word spacing per the
-   engine limits (spacer span or margin — inter-span whitespace is dropped; `display:inline-block`).
+   engine limits (spacer span or margin — inter-span whitespace is not what sets the gap here; `display:inline-block`).
 5. **EMPHASIS** — the ref's own device for hero words + a deterministic pick rule (e.g. "the longest
    content word of the beat; numbers win; last beat's last content word") so no judgment is needed.
 6. **VERIFY LOOP** — verbatim commands:
@@ -95,19 +95,22 @@ offline and to the creative pass at run time.
   only briefly). Prefer ONE page-level fade-out over per-word fade-outs — staggered per-word exits catch
   two pages alive at once. Exit bands narrower than the last ~30% of the duration hold full opacity too
   deep into the successor's rise.
-- **Never lay out animated children in shrink-to-fit flex** (hit independently by a compiled recipe
-  and by a from-scratch design pass on the same content): the engine mis-lays-out shrink-to-fit flex lines
-  whose children animate — fragments, stray offsets, ink clipped at the box edge. Use full-width
-  blocks + `text-align:center`.
-- **Animating spans rasterize at their line-height box** (hook-078 42-23): with `line-height:1`,
-  a span mid-reveal is sheared at the em-box bottom (hard horizontal cut) even for opacity-only
-  animations; steady state renders fine. Give word spans vertical `padding` headroom (~0.1em top /
-  0.15–0.2em bottom), or keep line-height ≥1.2 (refs that have it never shear).
+- **Prefer full-width blocks to shrink-to-fit flex for animated children.** Not because the engine
+  mis-lays them out — it does not (probe: flex-shrink-to-fit-animated), though this was carried for
+  months as fragments, stray offsets and ink clipped at the box edge. A shrink-to-fit line sizes itself
+  from its content, so one word changing width moves everything beside it; a full-width block plus
+  `text-align:center` holds its geometry while the content changes.
+- **Give word spans vertical headroom at tight line-heights.** An animating span at `line-height:1`
+  is NOT sheared at the em-box (probe: lineheight-shear) — that was asserted for months, and enforced
+  by a lint rule, on a claim nothing had rendered. What a tight line-height does do is bring a
+  descender within a pixel or two of the next line's caps, so ~0.1em top / 0.15-0.2em bottom padding,
+  or line-height >= 1.2, is a typographic margin rather than a repair.
 - **Word gaps must budget the font's ink overhang** (hook-078 42-23): italic display caps (Playfair T/G/Y)
   overhang their advance by up to ~0.5em — a nominal 0.3em margin or spacer renders as FUSED words.
-  Neither margins, paddings, nor spacer spans differ here (the ink paints over all of them); the engine
-  also trims plain trailing spaces inside spans. The validated pattern: `margin-right:0.45em` PLUS a
-  trailing `&#160;` in the span text. Validate gaps by patch-rendering the worst pairs, not from advance
+  Neither margins, paddings, nor spacer spans differ here (the ink paints over all of them). A plain
+  trailing space inside a span is NOT trimmed (probe: trailing-space-in-span) and does advance the next
+  word, but a space is narrower than a half-em overhang, so it does not solve this alone. The validated
+  pattern: `margin-right:0.45em` PLUS a trailing `&#160;` in the span text. Validate gaps by patch-rendering the worst pairs, not from advance
   tables.
 - **Light-on-light needs a grounding layer** (hook-224): a prefab's pure-white glow vanishes over light
   footage (a white mug) — bake one dark `text-shadow` layer into the sheet; the prefab's demo footage
@@ -129,7 +132,7 @@ offline and to the creative pass at run time.
   it done.
 - Every run validates the RECIPE: if it fails, fix the sheet AND its module together (they must not drift).
 - `--verify` is necessary, not sufficient: pile-ups, fused words, ghost stacking, light-on-light, and
-  mid-reveal shear are all invisible to it — a recipe is validated only after an offline frame-by-frame
+  descender clearance are all invisible to it — a recipe is validated only after an offline frame-by-frame
   eyeball (mid-beat AND ~120ms-before-beat-end probes per beat). Compilation removes the arithmetic-slip
   class (the module also gets unit tests against the sheet's worked example), but these VISUAL
   classes still need the eyeball on ≥2 contents.

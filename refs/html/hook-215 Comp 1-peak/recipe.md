@@ -48,9 +48,8 @@ and the two mat delays `{T2}` `{T3}` (formula below). Canvas: see RESOLUTION at 
 
   /* rounded window corners — the window is negative space (wherever no mat covers), so a corner is
      rounded by patching a mat-coloured 28×28 square over each of its 4 corners, clipped by an ALL-%
-     polygon that approximates a quarter-circle (border-radius fails Chrome parity in this engine —
-     renders a straight 45° chamfer, not a curve; clip-path polygon with %-only coords is the verified
-     substitute). The rounded-off area reveals the video beneath, faking a rounded cutout. Same cb/ob/rb
+     polygon that approximates a quarter-circle (a %-only clip-path polygon is used here so the corner
+     geometry is stated explicitly rather than inferred from a radius). The rounded-off area reveals the video beneath, faking a rounded cutout. Same cb/ob/rb
      colour+animation classes as the straight mats keep the corners in the colour-flip narrative. */
   .ctl { left: 26px;  top: 195px; width: 28px; height: 28px;
          clip-path: polygon(0% 0%, 100% 0%, 69.1% 4.9%, 41.2% 19.1%, 19.1% 41.2%, 4.9% 69.1%, 0% 100%); }
@@ -232,14 +231,13 @@ Then record (a SECOND invocation — `--verify` and `--record` are mutually excl
 - No fonts, colors, shadows, sizes, or keyframes beyond this sheet — Bricolage Grotesque 700/800, the four hexes
   (`#f4f1ea` `#2b419b` `#c0281c` `#fbf9f7`), `capIO`/`capHold`/`cueWin`/`matIn` and the s-ladder are
   the whole system. No text-shadow (the ink always sits on a flat mat).
-- Never use `border-radius` for the window corners (Chrome-parity failure in this engine — renders a
-  straight 45° chamfer, not a curve); the four `.ctl`/`.ctr`/`.cbl`/`.cbr` clip-path polygons ARE the
+- Never use `border-radius` for the window corners in this recipe; the four
+  `.ctl`/`.ctr`/`.cbl`/`.cbr` clip-path polygons ARE the
   corner radius — keep every coordinate a `%` (px/unitless coords get silently dropped by the engine).
 - No invented timing: every delay comes VERBATIM from `word-timings.json`; durations only via the
   section-4 formulas; the mat flips only at `{T2}`/`{T3}` from the K2/K3 rule.
 - Do not animate `background-color` with keyframed percentages (the prefab's `bgshift` is replaced
   by the delayed `.ob`/`.rb` overlay fades — use those); never animate `color` or `filter:blur`.
 - No per-word spans, no uppercasing, no reordering or dropping words; punctuation stays.
-- Never read the video frames; never move the `.cue` anchor or the window geometry; no `var()` in
-  transforms or keyframes; no `vw` font sizes; no descendant selectors — flat classes only.
+- Never read the video frames; never move the `.cue` anchor or the window geometry; no descendant selectors — flat classes only.
 - No redesign after a render or verify failure — only the mechanical fixes in section 6.

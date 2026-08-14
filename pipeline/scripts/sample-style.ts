@@ -15,6 +15,9 @@
 // `coverage.filtered:false` and the SKILL asks the user instead of deciding for them.
 // Overrides:
 //   --seed <n>       draw with an explicit seed (browse alternatives deterministically)
+//   --exclude <id>   remove an id from the pool; repeatable. Use it when a SET is being made and two
+//                    pieces must not land on the same style — say the taken ids once rather than
+//                    reseeding until a collision stops happening.
 //   --style <id>     force a specific ref id (bypasses the draw AND the hard filter, still validated
 //                    against the index — an id outside it is rejected)
 //   --recipes-only   restrict the pool to compiled refs (kept for compatibility; a no-op while the
@@ -176,7 +179,7 @@ function weightedDraw(pool: Candidate[], wanted: string[], seed: number): Candid
   return pool[pool.length - 1];
 }
 
-export function sampleStyle(runDir: string, opts: { seed?: number; style?: string; recipesOnly?: boolean } = {}): StylePick {
+export function sampleStyle(runDir: string, opts: { seed?: number; style?: string; recipesOnly?: boolean; exclude?: string[] } = {}): StylePick {
   const repoRoot = REPO_ROOT;
   const meta = JSON.parse(readFileSync(join(runDir, 'meta.json'), 'utf8')) as { key?: string; width: number; height: number };
   const aspect: '9:16' | '16:9' = meta.height >= meta.width ? '9:16' : '16:9';
@@ -202,6 +205,20 @@ export function sampleStyle(runDir: string, opts: { seed?: number; style?: strin
   if (!pool.length) throw new Error(`no ${aspect} refs available with a recipe`);
   const coverage: Coverage = { aspect, sheets: sheets.length, threshold: SHEET_THRESHOLD, filtered };
 
+  // EXCLUSIONS. A set of videos made together must not land on one style, and the launch session had
+  // no way to say so: its briefs told each agent to "retry with another seed until you get a fresh
+  // id", which put the divergence rule in prose, made it the agent's job to notice a collision, and
+  // lost the whole list to the next compaction. Naming the taken ids removes them from the pool once.
+  const exclude = new Set(opts.exclude ?? []);
+  const unknown = [...exclude].filter((id) => !cands.some((c) => c.id === id));
+  if (unknown.length) {
+    throw new Error(`--exclude names ${unknown.length} id(s) outside the ${aspect} runtime index: ${unknown.join(', ')}`);
+  }
+  const drawPool = exclude.size ? pool.filter((c) => !exclude.has(c.id)) : pool;
+  if (!drawPool.length) {
+    throw new Error(`every ${aspect} style is excluded (${exclude.size} of ${pool.length}) — widen the set or drop an exclusion`);
+  }
+
   const seed = opts.seed ?? seedFromKey(key);
   let pick: Candidate;
   if (opts.style) {
@@ -212,13 +229,13 @@ export function sampleStyle(runDir: string, opts: { seed?: number; style?: strin
     if (!forced) throw new Error(`--style "${opts.style}" is not a valid ${aspect} candidate (recipes-only index; ${cands.length} available: ${cands.map((c) => c.id).slice(0, 8).join(', ')}…)`);
     pick = forced;
   } else {
-    pick = weightedDraw(pool, wanted, seed);
+    pick = weightedDraw(drawPool, wanted, seed);
   }
 
   // Next-best RECIPE'D aspect-matched ids by weight (stable tie-break by id), pick excluded — the
   // creative-pass mixing pool is validated recipes only (raw prefabs never surface at runtime).
   const alternates = cands
-    .filter((c) => c.id !== pick.id && c.hasRecipe)
+    .filter((c) => c.id !== pick.id && c.hasRecipe && !exclude.has(c.id))
     .map((c) => ({ id: c.id, w: 1 + scoreOf(c, wanted) * 2 }))
     .sort((a, b) => b.w - a.w || a.id.localeCompare(b.id))
     .slice(0, 4)
@@ -264,16 +281,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       seed: { type: 'string' },
       style: { type: 'string' },
       'recipes-only': { type: 'boolean' },
+      exclude: { type: 'string', multiple: true },
     },
   });
   const run = values.run;
-  if (!run) { console.error('usage: node --import tsx pipeline/scripts/sample-style.ts --run <runDir> [--seed N] [--style <id>] [--recipes-only]'); process.exit(2); }
+  if (!run) { console.error('usage: node --import tsx pipeline/scripts/sample-style.ts --run <runDir> [--seed N] [--style <id>] [--exclude <id>]... [--recipes-only]'); process.exit(2); }
   let seed: number | undefined;
   if (values.seed !== undefined) {
     seed = Number(values.seed);
     if (!Number.isFinite(seed)) { console.error(`--seed must be a number, got "${values.seed}"`); process.exit(2); }
   }
-  const s = sampleStyle(run, { seed, style: values.style, recipesOnly: values['recipes-only'] ?? false });
+  const s = sampleStyle(run, { seed, style: values.style, recipesOnly: values['recipes-only'] ?? false, exclude: values.exclude as string[] | undefined });
   const cov = s.coverage.filtered ? 'recipes-only pool' : `COVERAGE MODE (${s.coverage.sheets}/${s.coverage.threshold} sheets)`;
   console.log(`[sample-style] ${s.refId} seed=${s.seed} recipe=${s.hasRecipe ? 'yes' : 'no'} energy=${s.energy} ${cov}`);
   console.log(`  alternates: ${s.alternates.join(', ')}`);

@@ -78,8 +78,8 @@ the `<video>` element (section 3). Replace only `{videoPath}` (from `meta.json`)
 
   /* the accent's hand-drawn underline: ONE element statically clipped to the beat's spline outline
      (clip-path: polygon() in %, so one outline holds at any word width and any SCALE), swept
-     left→right by scaleX 0→1 from its left edge — the only draw device the engine honours (an
-     animated width, clip-path or inset() renders the finished stroke from frame one). The
+     left→right by scaleX 0→1 from its left edge — the sweep is what keeps that single percent
+     outline exact at every word width, not a repair for a ramp the engine refuses. The
      drop-shadow sits on the whole stroke at once. */
   .ul { position: absolute; background: #fdf7f4; transform: scaleX(0); transform-origin: 0 50%;
         filter: drop-shadow(0 1px 4px rgba(0,0,0,0.55));
@@ -277,9 +277,13 @@ in percent tracing the centreline of one of four splines (cycled by beat: a risi
 bow, a shallow S, a near-straight drop), and it grows by `transform: scaleX(0 → 1)` from
 `transform-origin: 0 50%`.
 
-ENGINE LAW behind those three choices — each proven on a fixture, never "simplify" them back:
-- `width` in a keyframe renders STATIC (the finished width from frame one). Growth is scaleX, only.
-- An animated `clip-path` (polygon or inset) is ignored the same way. A static clip-path is fine.
+WHY those three choices, and never "simplify" them back:
+- Growth is scaleX because ONE percent outline then stays exact at every word width. A `width`
+  keyframe animates on this engine (probe: width-keyframes-static, refuted) — it is simply not this
+  ref's device.
+- An animated `clip-path` also interpolates (probe: animated-clip-path, refuted, measured on
+  `polygon()`; `inset()` was never probed). The static clip-path here carries the spline outline, so
+  animating it would fight the geometry, not the engine.
 - A rotated wrapper around a sized child renders many times too thick, and a chain of rotated boxes
   facets at every joint. One element, one clipped outline.
 
@@ -324,8 +328,9 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - The underline belongs to the accent alone — exactly one `.ul` per beat, exactly the §5 geometry
   (1.02 / 0.42 / 0.1 em of the accent size, 0.115 of the box height, four cycled splines). Never a
   second stroke, never a rule under an ordinary word, never a highlighter plate behind one.
-- Never grow that stroke with `width`, an animated `clip-path` or an animated `inset()` — all three
-  render it finished from frame one. It is `scaleX(0 → 1)` from `transform-origin: 0 50%` with BOTH
+- Never grow that stroke with `width`, an animated `clip-path` or an animated `inset()` — this is the
+  sheet's rule, not an engine limit (the first two ramp fine: probes width-keyframes-static and
+  animated-clip-path, both refuted). It is `scaleX(0 → 1)` from `transform-origin: 0 50%` with BOTH
   keyframe ends authored, on ONE element carrying a STATIC percent `clip-path` — never a chain of
   rotated segments (it facets at every joint) and never a rotated wrapper around a scaled child (it
   renders many times too thick).
@@ -337,7 +342,6 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
   scatter early.
 - Keep the spoken case; never `text-transform`; never drop the `padding-bottom:0.2em` or thin the
   text-shadow.
-- Never animate `color`; never put `var()` in transforms/keyframes; no `vw` sizes; no flex anywhere;
-  flat classes/ids exactly as in the skeleton.
+- Never animate `color`; no flex anywhere; flat classes/ids exactly as in the skeleton.
 - Never read the video frames; never re-derive layout; no redesign after a render or verify failure —
   only the mechanical fixes in section 6.

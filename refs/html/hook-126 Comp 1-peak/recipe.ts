@@ -268,7 +268,7 @@ ${lns.join('\n')}
          animation-name: cueWin; animation-timing-function: linear; animation-fill-mode: forwards; }
 
   /* a slot = one absolutely positioned nowrap line of the scatter; side offset / top / font-size
-     come inline per slot. line-height 1.35 is the prefab's own AND the shear headroom — never
+     come inline per slot. line-height 1.35 is the prefab's own AND the descender headroom — never
      tighten it. The yellow ink is fattened by an 8-way same-ink text-shadow (the engine has no text
      stroke) — that is what carries the letterforms' weight, so it stays at full strength. The two dark
      layers under it only GROUND the ink over light footage and are pulled well back: tight offset,

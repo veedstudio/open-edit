@@ -1,8 +1,9 @@
 // Compiled recipe — hook-224-peak (9:16, authored at 736×1312 @25fps). Source sheet: ./recipe.md (v2).
 // Neon-filament lockup in the lower-middle band: white glowing Schibsted Grotesk on the footage —
 // a 600 kicker line, a monumental 800 hero word striking on per-CHAR like bulb filaments, a centered
-// 700 closer line. Ignite is opacity-ONLY (animated filter/drop-shadow under sub-1 opacity clips
-// glyphs in this engine); the glow lives in the static .txt text-shadow, whose 4th DARK layer grounds
+// 700 closer line. Ignite is opacity-ONLY: animated blur holds its initial value (probe:
+// animated-blur-holds) and an animated drop-shadow was never probed, so nothing here rides a filter;
+// the glow lives in the static .txt text-shadow, whose 4th DARK layer grounds
 // white type on light footage. Emphasis is STRUCTURAL (the hero lands alone in line2). Bounded variety:
 // even beats add `arrB` to line2 (align-self/text-align only — no transform; translate(-50%) mis-centers
 // in this engine, flex centering is the safe construct).
@@ -187,7 +188,8 @@ ${lines.join('\n')}
   .k26 { font-size: ${p(26)}px; }
   .t39 { font-size: ${p(39)}px; }  .t31 { font-size: ${p(31)}px; }  .t25 { font-size: ${p(25)}px; }
 
-  /* filament strike-on: opacity gutters then holds lit. OPACITY ONLY — no filter (glyph-clip bug). */
+  /* filament strike-on: opacity gutters then holds lit. OPACITY ONLY — no filter, because an
+     animated blur holds its initial value here and an animated drop-shadow was never measured. */
   @keyframes ignite { 0%{opacity:0} 10%{opacity:.9} 20%{opacity:.08} 34%{opacity:.7}
                       46%{opacity:.2} 62%{opacity:1} 100%{opacity:1} }
   .w  { display: inline-block; opacity: 0; margin-right: 0.28em; padding: 0.1em 0 0.15em 0;

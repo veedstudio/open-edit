@@ -224,7 +224,7 @@ Ceff = max(12×0.8272, 6) = 9.93 → `s66`. Tops 453 · 526; note-b top = 453+73
   `animation-duration:{max(gateEnd − clDelayMs, 200)}ms`.
 - **WORD GAPS** (both parts required): the LAST cluster of every unit EXCEPT the line-final one gets
   class `g big gp` AND a trailing `&#160;` appended to its text — bare margins alone can be eaten by ink
-  overhang and the engine trims plain trailing spaces. No gaps between clusters inside a unit; a glued
+  overhang, and a space is narrower than the overhang. No gaps between clusters inside a unit; a glued
   `-` unit renders as one continuous cluster run across its spans.
 - **Asides:** fixed text in 3-char clusters (`AN ORIGINAL` → `AN `,`ORI`,`GIN`,`AL` · `IN REAL TIME` →
   `IN `,`REA`,`L T`,`IME`), `clDelayMs = base + j×60` with base = `cueDelayMs + 240` (note-a) /
@@ -282,8 +282,7 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - No invented timing: every title cluster delay is `spanDelayMs + j×K` off a VERBATIM
   `word-timings.json` delay; aside bases are `cueDelayMs + 240/480`; cue delay/window only via the §3
   subtraction.
-- No fade-outs on title lines or asides (the gate cuts the held poster); no `var()` in
-  transforms/keyframes; clusters stay `display:inline-block; white-space:pre`; the apple pictogram's
+- No fade-outs on title lines or asides (the gate cuts the held poster); clusters stay `display:inline-block; white-space:pre`; the apple pictogram's
   clip-path polygons are copied verbatim, never redrawn.
 - No reading frames, no ffmpeg, no visual checks — `--verify` is the only self-check; no redesign after
   a failure, only the mechanical fixes in section 6.

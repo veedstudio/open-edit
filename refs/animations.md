@@ -40,12 +40,16 @@ Words reveal one at a time in reading order (rise + fade), unless noted.
 
 ---
 
-## engine limits worked around
-These are the constraints that shaped the first-batch animations, and only the ones this catalogue's
+## engine behaviour these animations were built around
+These are the findings that shaped the first-batch animations, and only the ones this catalogue's
 refs hit. The current support matrix ships with the release as `.veed-engine/feature-support.md`.
+Each line below is settled by a control render — a document, a control drawing what the claim
+predicts, and a pixel diff between them — and names the probe that settled it; the batch's own
+workarounds are kept where they are the ref's idiom, not where the engine forces them.
 
-- **No `repeating-linear-gradient`** and **no stacked `background-image` gradient layers** (they collapse / break the background) — use one gradient or a solid fill.
-- **No `vw` font sizes**, **no CSS grid / `mix-blend-mode` / `outline`**, **no SVG `<text>`**, **`<br>` ignored** (use block lines).
-- **No animated `filter: blur`** — the engine holds the keyframe's initial value, so the ramp never plays (slides are fade-only). Static blur renders.
-- **Don't rely on `-webkit-text-stroke`** — it is construct-dependent (renders on a static caption, drops on animated or tilted spans). Ground with an 8-way `text-shadow` instead.
-- **`border-radius` draws a straight 45° chamfer, not a curve** — use %-only clip-path polygons for real corners.
+- **`repeating-linear-gradient` paints** (probe: repeating-linear-gradient), so a striped fill is available. Stacked `background-image` gradient layers were never probed — the batch saw them break the background, so treat them as unverified, not proven broken.
+- **No CSS grid** (probe: css-grid) — use flex. `vw` font sizes, `mix-blend-mode` and CSS `outline` all render (probes: vw-font-size, mix-blend-mode, css-outline), and so do inline `<svg>` and SVG `<text>` (probes: svg-inline, svg-text).
+- **`<br>` breaks a line of ordinary inline text** (probe: br-ignored) but is inert between `display:inline-block` spans (probe: br-between-inline-blocks) — a per-word caption line still needs its own block element.
+- **No animated `filter: blur`** — the engine holds the keyframe's initial value, so the ramp never plays (probe: animated-blur-holds); slides are fade-only. Static blur renders.
+- **`-webkit-text-stroke` never paints**, on any construct (probe: webkit-text-stroke-never-paints). Ground with an 8-way `text-shadow` instead.
+- **`border-radius` renders a true curve** (probes: border-radius-chamfer, border-radius-chamfer-clipped); only the slash form and per-corner values are ignored (probes: radius-slash-square, per-corner-radius). The %-only clip-path polygons in these refs state their corner geometry explicitly — that is the ref's idiom, not a repair.

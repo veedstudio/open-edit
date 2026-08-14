@@ -1,8 +1,9 @@
 // Compiled recipe — hook-078 (0-00-04-15) · neon movie-poster credits (9:16, authored at 736×1312 @25fps).
 // Source sheet: ./recipe.md. Fixed Oswald credits chrome (kickers, laurel badges, subtitle, credit rows,
 // logos) revealed once at clip start; the spoken beat is a monumental Staatliches title whose chars
-// strike on per-CHAR like a neon tube on their real word timings. Ignite is opacity-ONLY (the prefab's
-// animated drop-shadow surge clips glyphs under sub-1 opacity in this engine); the glow lives in the
+// strike on per-CHAR like a neon tube on their real word timings. Ignite is opacity-ONLY: the one
+// animated filter measured on this engine, blur, holds its initial value (probe: animated-blur-holds)
+// and an animated drop-shadow was never probed, so the glow lives in the
 // static 3-layer text-shadow (2 yellow neon + 1 dark grounding for light footage). The 12-role system:
 // 11 chrome roles are fixed dressing on a one-time 150ms-cadence reveal wave; role 7 (title-char) is the
 // only transcript-driven role — every spoken char, no exceptions. Emphasis is STRUCTURAL (the beat IS
@@ -257,7 +258,7 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
   .s40{font-size:${p(40)}px} .s36{font-size:${p(36)}px} .s32{font-size:${p(32)}px} .s28{font-size:${p(28)}px}
 
   /* per-char neon ignition — opacity gutters then holds lit. OPACITY ONLY (no filter).
-     The vertical padding is shear headroom for the animating span's raster box. */
+     The vertical padding is descender headroom for the animating span's raster box. */
   @keyframes ignite { 0%{opacity:0} 10%{opacity:.9} 20%{opacity:.08} 34%{opacity:.7}
                       46%{opacity:.2} 62%{opacity:1} 100%{opacity:1} }
   .ch { display: inline-block; opacity: 0; padding-top: 0.08em; padding-bottom: 0.16em;

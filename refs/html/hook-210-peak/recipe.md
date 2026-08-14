@@ -175,8 +175,8 @@ last beat, winMs = round(12.051×1000) − 9840 = 2211):
 ## 4. WORDS + TIMING
 
 - One `<span class="w">` per token from `word-timings.json` `words[]` (line1 verbatim case, line2
-  UPPERCASED — §3). Between two words in the same line: `<span class="sp"></span>` (inter-span whitespace
-  is dropped by the engine — the spacer IS the space).
+  UPPERCASED — §3). Between two words in the same line: `<span class="sp"></span>` (the spacer IS the
+  space, so its width is exact rather than inherited from the font).
 - Each word span gets, inline: `animation-delay:{delayMs}ms` — that word's `delayMs` VERBATIM, never
   recomputed — and `animation-duration:{enterMs}ms` where
   `{enterMs}` = clamp(`nextStart` − `delayMs`, 200, 600):
@@ -251,6 +251,6 @@ Then record (separate invocation, only after exit 0):
 - No invented sizes or timing: the accent `font-size` comes ONLY from the §3 FIT LAW; every
   `animation-delay` is VERBATIM from `word-timings.json`; durations only via the §4 clamps.
 - No reading frames, no ffmpeg, no visual checks — `--verify` is the only self-check.
-- No `var()` in transforms or keyframes, no animated `filter:blur`, no `text-transform` reliance —
-  set line1 verbatim case and line2 uppercase in the strings yourself.
+- No animated `filter:blur`, no `text-transform` reliance — set line1 verbatim case and line2
+  uppercase in the strings yourself.
 - No redesign after render; fix only elements `--verify` names, only by the §6 rules.

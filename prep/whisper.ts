@@ -3,7 +3,11 @@
 // service or MCP plugs into — no transcription is run here, and no credential is handled here.
 // For the built-in local provider use prep/transcribe.ts, which drives WhisperX itself.
 //
-//   node --import tsx prep/whisper.ts <whisper.json> <video.mp4> [<whisper.json> <video.mp4> ...]
+//   node --import tsx prep/whisper.ts <whisper.json> <media> [<whisper.json> <media> ...]
+//
+// `<media>` is a video OR an audio file. Nothing here probes it — it names the run and has to
+// exist — so a film's GENERATED narration reaches `transcript.json` the same way a source clip's
+// speech does, which is the only route a run with no footage yet has to per-word times.
 //
 // Producing the input, word timings included (they are required):
 //   whisperx     video.mp4 --output_format json --output_dir .        # emits word times by default
@@ -22,7 +26,7 @@ import { resolveVideoArg, runKeyOf } from '../pipeline/scripts/resolve-video.ts'
 import { validateTranscript } from './transcribe.ts';
 import { mapWhisperTranscript, type WhisperJson } from './whisper-mapper.ts';
 
-const USAGE = 'usage: node --import tsx prep/whisper.ts <whisper.json> <video.mp4> [<whisper.json> <video.mp4> ...]';
+const USAGE = 'usage: node --import tsx prep/whisper.ts <whisper.json> <media> [<whisper.json> <media> ...]  (media = a video or an audio file)';
 
 async function mapOne(jsonArg: string, videoArg: string): Promise<void> {
   if (!existsSync(jsonArg)) {

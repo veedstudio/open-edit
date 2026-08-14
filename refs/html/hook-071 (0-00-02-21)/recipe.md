@@ -52,7 +52,7 @@ Paste this whole document as `runs/<key>/final/template.wv`, then add one `.cue`
   /* window gate — the one safe reveal recipe; delay+duration+z come inline per cue.
      The cue is the CENTERING FRAME: full-frame, so every row is a full-width block with
      text-align:center and all three registers center on x=640 (a full-width block + text-align:center
-     is the ONLY engine-safe way to center animated children — shrink-to-fit flex mis-lays-out
+     centres animated children without letting the line resize with them — shrink-to-fit reflows
      animating lines). NOTHING overflows: the hero's ink budget (section 3) keeps the widest glyph
      box inside the frame at every size, so --verify judges real glyph bounds with room to spare. */
   @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
@@ -229,7 +229,7 @@ shrinking the word to 241 and shoving `the bad ones` down to 669. Zero size spre
 - Hero: `heroMs = min(700, max(250, avail − 120))` — delay/duration go on the `.hero` DIV (the letters
   never animate individually).
 - Words accumulate — every landed word HOLDS until the cue gate cuts the beat. No fade-outs anywhere.
-- Word spacing is the `.w` `margin-right: 0.35em` — inter-span whitespace is dropped by the engine,
+- Word spacing is the `.w` `margin-right: 0.35em` — inter-span whitespace is not what sets the gap here,
   the margins ARE the gaps. Write word spans adjacent with no whitespace between them. The LAST span
   of each row adds `;margin-right:0` (a trailing margin would drag the centered line off the x=640
   axis). Hero letters are adjacent `.hl` spans with no margins (the script connects them).
@@ -321,6 +321,6 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - Words accumulate and the gate cuts the beat — never add per-word, per-row, or page fade-outs.
 - No `text-align` other than the `center` baked into `.row` (rows are centered, never left-flush);
   letter-spacing stays 0.02em on sans and 0 on the hero; no descendant selectors — flat classes only.
-- Never animate `color`; never put `var()` in transforms or keyframes; no `vw` font sizes.
+- Never animate `color`.
 - Never read the video frames; never re-derive layout; no redesign after a render or verify failure —
   only the mechanical fixes in section 7.

@@ -205,7 +205,7 @@ ${pgs}
          line-height: 0.72; letter-spacing: 0.004em; color: #f6f3f7; white-space: nowrap;
          text-shadow: 0 ${p(4)}px ${p(28)}px rgba(0,0,0,0.40); }
 
-  /* glyph reveal — opacity only, then HOLD. The vertical padding is mid-reveal shear headroom for
+  /* glyph reveal — opacity only, then HOLD. The vertical padding is descender clearance headroom for
      the 0.72 line-height box — never remove it. */
   .c { display: inline-block; opacity: 0; padding: 0.14em 0 0.14em;
        animation-name: cIn; animation-duration: ${CHAR_MS}ms;
@@ -233,7 +233,7 @@ ${bigRows}
 ${capRows}
 
   /* caption word reveal — rise + eased fade IN, then HOLD; the page-level pgOut is the only
-     fade-out. Word gap = the margin (never spacer spans); the vertical padding is shear headroom. */
+     fade-out. Word gap = the margin (never spacer spans); the vertical padding is descender headroom. */
   .w { display: inline-block; opacity: 0; margin-right: 0.26em; padding: 0.08em 0 0.15em;
        animation-name: wIn; animation-duration: ${CAP_ENTR_MS}ms;
        animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }

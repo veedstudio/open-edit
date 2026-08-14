@@ -133,9 +133,9 @@ ${lines.join('\n')}
   .rb { background: #c0281c; z-index: 3; opacity: 0; animation: matIn 350ms ease ${T3}ms both; }
   @keyframes matIn { from { opacity: 0; } to { opacity: 1; } }
 
-  /* rounded window corners — mat-coloured 28×28 patches clipped to a quarter-circle. border-radius
-     renders a straight 45° chamfer in this engine; the ALL-% clip-path polygon is the verified
-     substitute (% coords stay verbatim at any SCALE). */
+  /* rounded window corners — mat-coloured 28×28 patches clipped to a quarter-circle. The ALL-%
+     polygon states the corner geometry explicitly rather than inferring it from a radius, and its
+     % coords stay verbatim at any SCALE. */
   .ctl { left: ${p(26)}px;  top: ${p(195)}px; width: ${p(28)}px; height: ${p(28)}px;
          clip-path: polygon(0% 0%, 100% 0%, 69.1% 4.9%, 41.2% 19.1%, 19.1% 41.2%, 4.9% 69.1%, 0% 100%); }
   .ctr { left: ${p(676)}px; top: ${p(195)}px; width: ${p(28)}px; height: ${p(28)}px;

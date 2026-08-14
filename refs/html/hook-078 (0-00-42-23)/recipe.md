@@ -86,7 +86,7 @@ words in them.
   /* word reveal — keep position:relative + z-index:1 (the prefab's .w stacking trick).
      Word gap = 0.3em margin PLUS a trailing &#160; in the span text (section 4) — italic caps can
      overhang their advance and eat a bare gap; the &#160; is the guaranteed glyph-level space.
-     The vertical padding is shear headroom: an animating span is rasterized at its line-height:1
+     The vertical padding is descender headroom: an animating span is rasterized at its line-height:1
      box and glyph bottoms clip without it. Never shrink these numbers. */
   .w  { display:inline-block; position:relative; z-index:1; opacity:0;
         margin-right:0.3em; padding-bottom:0.2em; padding-top:0.1em;
@@ -282,7 +282,6 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
   subtraction); chrome delays stay exactly as in the skeleton.
 - Never set `line-height` on `.tl` or re-create the prefab's 0.92 leading any other way — the table
   tops ARE the leading. Never use `<br>`; lines exist only as the absolute `.tl` divs you computed.
-- No `var()` in transforms/keyframes, no animated `filter:blur`, no `vw` sizes, no descendant
-  selectors — flat classes/ids exactly as in the skeleton.
+- No animated `filter:blur`, no descendant selectors — flat classes/ids exactly as in the skeleton.
 - No reading video frames, no ffmpeg, no visual self-checks — `--verify` is the only check; no
   redesign after a failure, only the mechanical fixes in section 6.

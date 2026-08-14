@@ -28,7 +28,7 @@ const FR_H2 = 150; // frame height when a page has a two-line frame
 const FR_H1 = 108; // …when every frame is single-line
 const BAND_CHROME = 62; // lab above + marks below
 export const ANGLES_097: Array<[number, number]> = [[-3, 5.5], [4, -2.5], [-5, 2.5]];
-const LINE_EM = 1.24; // span box: line-height 1 + 0.06/0.18em shear padding
+const LINE_EM = 1.24; // span box: line-height 1 + 0.06/0.18em descender padding
 const STACK2_EM = 2.14; // two stacked lines (.ln2 pulls -0.34em)
 const POP_MS = 160;
 const POP_MIN_MS = 100;
@@ -267,7 +267,7 @@ ${sizeRows}
   .ln2 { margin-top: -0.34em; }
 
   /* word reveal — scale pop + fade IN, then HOLD; the page-level pgOut is the only fade-out.
-     The vertical padding is mid-reveal shear headroom — never remove it. */
+     The vertical padding is descender clearance headroom — never remove it. */
   .wp  { display: inline-block; opacity: 0; padding: 0.06em 0 0.18em;
          animation-name: wordPop; animation-duration: ${POP_MS}ms;
          animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }

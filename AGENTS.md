@@ -60,7 +60,37 @@ fast-path/refinement switch.
   built on `pipeline/recipes/lib.ts` (the shared assembly rules); turns `meta.json` + `word-timings.json`
   into the final .wv document deterministically. Authored + validated offline (derived from the sheet);
   `hasRecipe` keys on the module existing.
-- `pipeline/scripts/` — `sample-style.ts` (facet-scored seeded style pick) · `generate-recipe.ts` (runs the compiled recipe: generate → lint → `--verify` fix loop → `--record` → probe) · `lint-template.ts` (mechanical engine-limit gate) · `probe-qa.ts` (frame QA vs the source) · `resolve-video.ts` (the video-arg resolution rule shared by both entry points) · `synth-word-timings.ts` (imported by prep) · `extract-beat-frames.ts` (imported by prep) · `mux-audio.sh`, `preflight.sh`, `install-veed-engine.sh` (deterministic).
+- `pipeline/scripts/` — `sample-style.ts` (facet-scored seeded style pick) · `generate-recipe.ts` (runs the compiled recipe: generate → lint → `--verify` fix loop → `--record` → probe) · `lint-template.ts` (mechanical engine-limit gate) · `design-gate.ts` (a run's documents read back against its own design system) · `probe-qa.ts` (frame QA vs the source) · `resolve-video.ts` (the video-arg resolution rule shared by both entry points) · `synth-word-timings.ts` (imported by prep) · `extract-beat-frames.ts` (imported by prep) · `gates.sh` (THE chain: design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, one
+  command, `--doc` to gate one chapter of a longer piece) · `wcag-pass.ts` · `expect-windows.ts` ·
+  `scoped-edit.ts` · `brand.ts` · `creative-log.ts` · `mix-audio.ts` · `cut-frames.ts` (frames at every
+  shot boundary, where a uniform grid never looks) · `scene-frames.ts` (stills for a clip with no beats) ·
+  `concat-chapters.ts` (stream-copies the chapters of one film, refusing parts that disagree) ·
+  `concat-videos.ts` (re-encodes generated clips that DO disagree onto one canvas) ·
+  `mux-audio.sh`, `preflight.sh`, `install-veed-engine.sh` (deterministic). Run `gates.sh` rather
+  than retyping the gates it drives.
+- `pipeline/design/` — the authored path's substrate. `system.ts` is the per-run design system
+  (`runs/<key>/design/system.json`): fonts, the type ladder with tracking per rung, palette, spacing,
+  named easings and durations, the reveal unit, the devices in play, and `donors` — the recipe ids it
+  was seeded from, checked against the runtime index. `captions.ts` builds a caption block from the
+  real per-word times: glyphs at each word's own delay, every page of a long cue rendered, a cursor
+  whose windows meet so one bar travels the line, and lines as BLOCK elements.
+- `pipeline/recipes/type.ts` · `devices.ts` · `geometry.ts` — the craft, given away as arithmetic
+  rather than frozen into a look. `opticalTracking(px)` is the measured tracking curve; `devices.ts`
+  carries the compositional vocabulary read off the delivered corpus — the BEST instances, not the
+  average ones: a divider is a hairline under 50% alpha with a shadow and an opaque stub at its origin,
+  drawn with `scaleX`, where a plain bar is what a default draws; contrast over footage is a two-layer
+  ground shadow in the document's own colour, not a scrim box. `geometry.ts` is arcs,
+  lattices, springs and clip polygons.
+- `pipeline/providers/` — the asset seam. `assets.ts` (`runs/<key>/assets/manifest.json`: records
+  APPEND, so a regenerated plate never erases the call that was already billed) · `fal.ts` (the user's
+  own key; `submitOnce` refuses to buy an identical request twice) · `queue-ledger.ts` (what was
+  accepted, so a lost poll resumes instead of re-submitting) · `stills.ts` (a real picture with its
+  licence and credit; a file whose terms are absent reads as `unknown`, never as permissive — it has a
+  CLI: `stills.ts search <query>` · `show <File:…>` · `save <File:…|url> --run <dir> --id <id>`).
+- `pipeline/scripts/mix-audio.ts` — one soundtrack out of many pieces, for a run whose audio is not
+  simply the source clip's. Each track states where it starts and how loud it sits; a bed marked
+  `duck` is ducked by the `voice` tracks themselves rather than by a guessed gain. `mux-audio.sh`
+  still restores a single source track; this is what a film needs instead.
 - `veed/` — VEED-native transcription + login (one writer of `transcript.json`; real per-word timings). `prep/prep.ts` — `meta.json` + `word-timings.json` + base frames (needs a transcript from any provider). `refs/` — `html/` refs + `tags.json` (v3, the RUNTIME INDEX — recipes only, facet taxonomy, `fit` = aspect SOT) + per-ref `recipe.md` (the prose recipe sheet a compiled recipe is derived from — the fast path runs the compiled module, never the sheet; the creative pass reads sheets as craft substrate and REMIX donors).
 - `config.ts` — all machine paths (ffmpeg / ffprobe / veed-engine). `docs/` — FLOW (orchestration) · recipe-format (the recipe law). Engine support matrix = the `feature-support.md` asset downloaded with the engine release into `.veed-engine/` (not vendored here).
 
@@ -74,6 +104,14 @@ fast-path/refinement switch.
 - **The runtime style pool is RECIPES-ONLY — architecturally.** `refs/tags.json` (v3) contains nothing
   but recipe-backed refs (`sample-style` fail-louds on an entry missing its sheet or module); Selection is by
   FACETS — never by image.
+- **An authored run writes its design system down before it authors a document, and the gate enforces
+  it.** Not because anyone forgets the contract — a 12-minute film was delivered with 23 font sizes, one
+  easing curve used 934 times and display tracking on its body text while the skill and the brief were
+  both still in context — but because the design was authored early, from a blank page, as fill-in work
+  while other steps ran. `assertGrounded` refuses a system whose `groundedIn` files do not exist, which
+  is what makes the early version impossible rather than merely discouraged. Compose from
+  `pipeline/recipes/devices.ts` and `pipeline/design/captions.ts`; a value the system does not declare
+  is a finding, not a judgement call.
 - On creative face-1 the **user's materials are the design authority** — they must reach the design pass
   and be looked at; recipe sheets contribute mechanics only; DIRECTION never names fonts/palette/device,
   and on any collision the user's materials win.
@@ -120,7 +158,7 @@ listed first because it transcribes best, not because it wins ties.
 | --- | --- | --- |
 | `veed` | Premium quality, hosted. One-time browser sign-in; limits are the VEED account's. | `veed/go.ts` |
 | `whisperx` | Free, local, offline. Two tiers: `medium` (slower, better) and `small.en` (fastest, weaker on names). CPU-bound here — CTranslate2 has no GPU path on Apple Silicon. | `prep/transcribe.ts` |
-| `custom` | The user's own service or MCP. **We provide no support code**: you obtain a Whisper-family JSON however their tool works, then map it. No credential ever passes through OpenEdit. | `prep/whisper.ts <json> <video>` |
+| `custom` | The user's own service or MCP, and the route for GENERATED narration — the media argument may be an audio file, so a film's own voice track reaches `transcript.json` before any picture exists. **We provide no support code**: you obtain a Whisper-family JSON however their tool works, then map it. No credential ever passes through OpenEdit. | `prep/whisper.ts <json> <media>` |
 
 The choice is recorded in `$OPEN_EDIT_ROOT/.open-edit-prefs.json` — the runtime root, which is not the
 user's project root when the runtime is a managed clone — as `{ transcription: { provider, model? } }`, and is not
@@ -140,7 +178,7 @@ bash pipeline/scripts/install-whisperx.sh                       # uv/pipx, pinne
 node --import tsx prep/transcribe.ts <video.mp4> [...] [--model medium] [--language de]
 
 # custom: any Whisper-family JSON the user's service produced, one json per video
-node --import tsx prep/whisper.ts transcription.json <video.mp4> [<json> <video.mp4> ...]
+node --import tsx prep/whisper.ts transcription.json <media> [<json> <media> ...]   # media = video OR audio
 ```
 
 `prep/whisper-mapper.ts` accepts the Python Whisper family (WhisperX, openai-whisper,

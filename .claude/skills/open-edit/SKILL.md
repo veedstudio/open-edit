@@ -223,6 +223,13 @@ It fits each clip into one canvas and pads the rest rather than cropping, becaus
 shapes produce clips of different sizes and nothing should lose its framing to a join. The result is an
 ordinary source file: transcribe it, caption it, render it like any other footage.
 
+**That joiner is for SOURCE clips that disagree, and only those.** It re-encodes and normalises the
+frame rate, which is right for generated clips of different shapes and wrong for anything else. The
+finished chapters of a long piece are joined by `pipeline/scripts/concat-chapters.ts`, which
+stream-copies and refuses parts whose format differs rather than transcoding a whole film — see the
+DESIGN + RENDER step. Reaching for the wrong one costs a re-encode and silently resamples a 24 or 25
+fps film to 30.
+
 **WHO presents it.** If the user has no opinion about the presenter, do not paste 24 thumbnails at them:
 `node --import tsx veed/sample-presenter.ts --key <key> [--gender male|female] [--locale <locale>] [--portrait|--landscape]`
 PROPOSES one character + voice, prints two or three alternates with thumbnail and audio-preview links, and
@@ -309,6 +316,71 @@ The credit approval is the only gate here that SPENDS — never pass `--yes` wit
 approval — but the footage question and the workspace question are stop-and-ask too: three gates, and nothing
 else in this step stops.
 
+**On the "another model" path the bill and the craft are both yours.** Everything below applies to a
+clip this repo did not commission — a generator on the user's own key, or footage the user brought.
+
+**READ THE MODEL'S OWN DOCUMENTATION BEFORE THE FIRST CALL. Do not infer it from this file.** The
+endpoint ids in `FAL_MODELS` are DEFAULTS, not a catalogue: `--model` reaches any endpoint on the
+queue, and there are more of them than the defaults name — text-to-video as well as image-to-video,
+reference-driven variants, background removal, upscales. What the model accepts, what it returns,
+what its ceilings are on duration and resolution, and what it costs are stated on its own page and
+nowhere in this repository. Guessing those costs a generation you pay for and throw away, and it is
+how a run ends up building a whole step it did not need.
+
+**Captions need words with times on them, and where those come from depends on the generator.** Some
+video models return synced speech in the clip; some return picture only. CHECK THE MODEL rather than
+assuming either — its own endpoint documentation says which, and a clip already on disk answers it in
+one `ffprobe`. If the clip carries speech, transcribe it like any other footage. If it does not, the
+words come from somewhere else: generate the voice track and map its times through
+`prep/whisper.ts <json> <media>`, or author the caption windows directly from the script. Only the
+second case is worth warning the user about, and only once you have established it is the case.
+
+**A TAKE'S OWN AUDIO MUST NOT OWN THE CUT.** Laying a generated take's dialogue down as the soundtrack
+pins the picture to that take's timecode: every pause it contains is now in the film, and no shot can
+be shortened, reordered or dropped without breaking sync. One run made that choice in a single line and
+then could not cut — 21 of its 24 "shots" were contiguous slices of one take, and its pace came out a
+third slower than the reference it was copying. If the cut matters, carry the speech separately: keep
+the take for its picture, generate or re-voice the line, and let the edit be free of it. Measure what
+you kept — speech seconds against running time — before deciding the pauses are the performance.
+
+**AGREE THE SUBJECT BEFORE YOU PAY FOR IT.** The first generation is a charge, and everything after it
+is built on whatever concept that charge embodied. When the ask leaves the subject open, say what you
+intend to make in one line and let the user answer before the first call, not after seventeen. That is
+ONE question about spend — not a loop. A run that asked seven times in half an hour was not being
+careful; it was handing back the work. Write the best thing you can, say what it costs, and go.
+
+**A SOUNDTRACK IS NOT A STATISTIC.** Measuring a reference tells you what it does, not what to make. A
+run measured its reference honestly — a bed 19 dB under the speech, a riser before a cut and an impact
+after it on 51 of 62 cuts — then generated ONE riser and ONE impact and fired the same two samples at
+every cut, sixteen events out of two files. The statistic was reproduced exactly and the result was
+unlistenable, because a sample the ear hears eight times in thirty seconds stops being an accent and
+becomes a tic. The delivered film that did work went the other way: six music cues, each with its own
+mood written for its own passage, and eleven distinct effects; the short piece before it carried four
+events in thirty seconds from three samples. So: **a sample used more than twice is a defect**, an
+effect on every cut is a defect, and every generated cue gets a prompt written for ITS moment rather
+than one generic description reused. And listen to what came back before you build on it — no gate in
+this repo has ears, which makes the audition yours and not optional.
+
+**ONE SCRIPT, RESEARCHED, AND THE INTERRUPTIONS ARE NOT PRINTED.** When the ask needs words, go and
+find out what is actually being argued about in that field right now — the repository tells you what
+the product is, not what makes a subject live. A script written only from a README comes out
+plausible and inert. Then commit to one and write it well; offering versions is not collaboration
+here, it is asking the user to do the writing.
+
+And mind the punctuation, because the script is display text: a run marked its interruptions with an
+em dash, the dash went into the generation prompt and then into the caption, and the delivered film
+reads `for a living—` on screen. Where a line breaks off, break it off — the cut and the next speaker
+carry the interruption. Nothing that exists to instruct the reader of the script belongs in the words
+the viewer sees.
+
+**Every generated asset lands in the manifest with its provenance**
+(`pipeline/providers/assets.ts`): what made it, from what prompt, derived from what, and what it cost.
+Report the spend unprompted when the run delivers, with `spendLine` — it says plainly when a figure is
+a lower bound and when the RESPONSE carried no price. That is a statement about the inference response
+and about this client, which does not ask for a price; it is not a statement that the endpoint has no
+published price. If the user wants a real figure, its pricing is on the model's page — go and read it
+rather than telling them the number cannot be had.
+
 ### PREP — transcript, then frames + meta  · SCRIPT
 The transcript comes from the provider the user chose, and either way lands at
 `runs/<key>/transcript.json` (**each chunk = one beat**; chunks carry REAL per-word timings in
@@ -325,8 +397,14 @@ Otherwise read `$OPEN_EDIT_ROOT/.open-edit-prefs.json` first (**the runtime root
 printed, not the user's project root** — under a managed clone those differ, and looking in the wrong
 one re-asks on every run). **If it records a provider, use it and ask
 nothing.** Only on a cold start (no file, or nothing usable in it) ask ONCE, offering exactly these four.
-**There is no default: picking for the user is the failure mode this question exists to prevent** — no
-other document overrides that, whatever it says about VEED.
+**There is no default: picking for the user is the failure mode this question exists to prevent.**
+
+Not choosing for them is not the same as having no opinion, and collapsing the two is its own defect.
+**The order below is a statement about quality — VEED transcribes best, and it is first and named as
+best for that reason.** Keep the order and the wording when you put the question, whichever way you put
+it; two runs read the no-default rule as a ban on saying so, flattened the four into equals, and then
+led with the free local one because free and local is what reads as sensible in the absence of a view.
+Say which is best, then let them choose.
 
 > Before I can add captions I need a transcript. Four ways to get one:
 >
@@ -434,7 +512,27 @@ Auto-detects aspect from the source and writes, under `runs/<key>/`:
   timing is never re-derived.
 - `frames/beat-N.png` — one clean still per beat at the chunk MID time, emitted at HALF canvas (×2 → canvas).
 
-### ANALYSE — frames + transcript → analysis.json  · AGENT (vision) — OPT-IN, refine only
+### ANALYSE — frames → analysis.json  · AGENT (vision) — OPT-IN
+
+**A clip with no speech has no beats, and still has a composition.** `prep` samples one still per
+transcript chunk, which is the right unit for a captioned run and no unit at all for a silent clip, a
+card with no audio, or a piece of stock footage. Those runs get time-sampled stills instead:
+`node --import tsx pipeline/scripts/scene-frames.ts <video.mp4> <runs/key/frames> [--count 8]`
+It writes the stills plus `scene-plan.json` — canvas, fps, and for each sample its second and its frame
+index — so facts are written against sample indices rather than against beats that do not exist. No
+transcript is read on this path.
+
+The analysis pass on this path is the SAME opt-in vision subagent described below, with two words
+changed: it reads `scene-N.png` and keys its facts to the `i` of each sample in `scene-plan.json`,
+where a captioned run reads `beat-N.png` and keys to beats. Everything else — nameless, background,
+CANVAS px, writes `analysis.json`, the only agent that opens a frame — is identical. Sampling follows
+the PICTURE stream, so a file whose audio outlasts its video still gets a still for every sample.
+
+Without it, the composition ends up in the brief as prose — "her head sits roughly y430-900; the
+ceiling band y0-420 is empty" — retyped per agent and per round, and checkable by nobody. That is how
+52 briefs in one session carried the same three paragraphs.
+
+### ANALYSE (captioned runs) — frames + transcript → analysis.json  · AGENT (vision) — OPT-IN, refine only
 **SKIP this step by default.** Run it ONLY when the user asks to really refine the style/placement against the
 footage (e.g. "refine the style", "tuck the captions into the negative space"). On such a request: run this
 step, then re-run DESIGN + RENDER as the FROM-SCRATCH inline pass (variant B — compiled recipes are deterministic and
@@ -477,7 +575,12 @@ The script's `recipe=yes|no` OUTPUT is the routing decision for the DESIGN + REN
 The drawn ref id and everything in `style.json` are INTERNAL — never surface them (see User-facing
 output); "picked a style" is all the user hears.
 Overrides: `--seed N` (browse alternatives), `--style <id>` (the user asked for a look — must be an
-index id; anything outside the index is not a runtime pick and the script rejects it).
+index id; anything outside the index is not a runtime pick and the script rejects it), `--exclude <id>`
+(repeatable).
+**A SET MUST NOT LAND TWICE ON ONE STYLE.** When several pieces are being made together — variants,
+languages, a campaign — pass every id already taken as `--exclude`. Say the taken ids once; never
+reseed until a collision stops happening, and never carry the list in your head, where the next
+compaction loses it.
 - **THE INDEX IS THE RUNTIME UNIVERSE**: every entry ships a validated sheet (`refs/html/<id>/recipe.md`)
   + its compiled module (`recipe.ts`) — the script fail-louds on any entry missing either, or missing
   its prefab.
@@ -561,6 +664,26 @@ index id; anything outside the index is not a runtime pick and the script reject
     Recipe-run output → NEVER hand-edit the generated .wv document (generate-recipe.ts owns it): a text/timing
     defect = fix transcript/word-timings and re-run the script; placement-vs-footage = the refine path
     (ANALYSE); a deliberate one-run tweak = the CUSTOMISING `--module` copy (DESIGN + RENDER variant A).
+  - **A BRAND OR A SET GETS A FILE, NOT A PARAGRAPH.** When the user supplies a brand, or several
+    pieces are being made together, write `brand.json` beside the run (palette BY ROLE, colour law,
+    type pair, the mark's file path and placement, and for a set the bone every piece keeps). Validate
+    it with `node --import tsx pipeline/scripts/brand.ts --file <brand.json> --check` — it fails when a
+    named mark is not on disk, which is what makes a design pass draw its own — and paste
+    `--brief` into the design pass. Retyping the law per piece is how four cards drifted apart.
+  - **RECORD WHAT WAS REJECTED, AND WHY.** Before starting another round on the same footage:
+    `node --import tsx pipeline/scripts/creative-log.ts --for <video> --reject "<what it was>" --why "<their reason>"`
+    and when something lands, `--accept "<the aesthetic>" --why "<why it landed>"`. Then start the next
+    round by reading it back with `--brief` and putting that text in the design pass. It is keyed by
+    the FOOTAGE, so rounds two, three and four inherit it, and it survives a compaction — which the
+    same list carried in your head does not. Parallel attempts that converge on one idea are the
+    complaint this exists to prevent.
+  - **A SCOPED EDIT MUST PROVE ITS SCOPE.** When the user asks for one thing and says to leave the rest
+    alone, copy the accepted document first, then check the result against it:
+    `node --import tsx pipeline/scripts/scoped-edit.ts <accepted.wv> <new.wv> --allow <selector-or-id>…`
+    It names every difference outside what you were allowed to touch, with both values. Run it before
+    you say the change is done — "you moved something I told you not to move" is the correction this
+    pipeline earns most often, and neither `--verify` nor probe-qa can see it: both documents render
+    perfectly, one of them is just not what was asked for.
 
 Then, for FACE-1 runs only, set:
 - **ENGAGEMENT mode** — pass the seed copy VERBATIM to DESIGN + RENDER (see below; wording changes output).
@@ -570,6 +693,39 @@ Then, for FACE-1 runs only, set:
 needs neither: its look comes from the donor sheets per the brief's REMIX MODE.)
 
 ### DESIGN + RENDER — SCRIPT (recipe) / INLINE (creative face-1 · remix)
+
+**ON THE AUTHORED VARIANTS BELOW (B · REMIX · NO VIDEO), RELOAD THIS SKILL BEFORE YOU AUTHOR ANYTHING,
+AND AGAIN BEFORE EVERY AUTHORING TOUCH AFTER IT.** Invoke `open-edit` again — the whole skill, not a
+section of it — and read the design rules fresh. It binds by what you are DOING, not by which variant
+you routed to: a compiled recipe run that reaches CUSTOMISING or a classic PARAMETER AMEND is
+hand-editing design values, and that is an authoring touch like any other. Only a recipe run that
+touches nothing reloads nothing.
+
+Authoring is the LAST thing that happens, and it has to be: nothing about it can be decided before the
+material exists, because where the subject sits, what the frame leaves empty and how bright it is are
+all facts about footage that does not exist until the end. So it is always the work with the most
+behind it and the least attention left, and a rule read an hour ago is a rule competing with several
+hundred tool results. Reloading puts it back on top at the moment it binds. It costs tokens and buys
+the only thing on screen the viewer actually looks at.
+
+**Reloading is not permission to redesign.** The system is committed ONCE and is not re-litigated; what
+reloads is the contract you author WITHIN. A later touch places, sizes and times things the system
+already decided — it does not reopen the aesthetic. **A mechanical fix to the element a gate flagged
+is not an authoring touch**: step the rung down, close the window, and move on without reloading
+anything. What makes a touch an authoring touch is that YOU chose to change how something reads.
+
+This is not a suggestion to re-read if you feel unsure. Reload at each of these, every time:
+
+- before writing `design/system.json`;
+- before authoring any `.wv` document, and before each chapter of a longer piece;
+- before adding or RESTYLING any caption, graphic, plate, chart, mark, title, end card or motion — a
+  touch on one of those is an authoring touch however small it looks.
+
+**A reload replays no step this run has already finished.** Reading the flow again is not doing it
+again: a recorded transcription provider is used and nothing is asked, the style draw is deterministic
+on the run key, preflight is idempotent, and — the one that would cost money — **if `runs/<key>` already
+holds the footage, the FOOTAGE step is done and none of its gates are re-entered.**
+
 Route by the SHAPE of the run (the SAMPLE ONE STYLE script's output + the creative-pass routing own this decision):
 - variant A (`recipe=yes` — every default run): **SCRIPT — no agent, no model, zero tokens.** The recipe
   is compiled code. (Rerun the SAMPLE ONE STYLE script if you no longer have its output — same run key → same result.)
@@ -581,9 +737,16 @@ Route by the SHAPE of the run (the SAMPLE ONE STYLE script's output + the creati
 - REMIX (face-2 creative iteration): INLINE — you author the donor blend yourself per
   `director-brief.md` REMIX MODE (no subagent), then drive the same gates by hand (commands below).
 - NO VIDEO (see INPUTS): INLINE — neither PREP nor SAMPLE ONE STYLE ran, so there is no recipe to route to and nothing
-  to route on. Author per `director-brief.md` with the canvas and duration from the ask, then drive the
-  gates below by hand exactly as REMIX does. A footage-free run is as supported as any other; what it
-  lacks is a source file to derive from, not a path through this step.
+  to route on. Write `runs/<key>/design/system.json` first (this path authors from scratch, so it needs
+  a system as much as face-1 — `groundedIn` names whatever the run's own facts are: the brief, a script,
+  a shot list), author per `director-brief.md` with the canvas and duration from the ask, then run
+  `bash pipeline/scripts/gates.sh runs/<key> --no-probe --no-mux` — no source footage to diff frames
+  against, and no source track to restore. If the run HAS a built soundtrack, pass
+  `--audio runs/<key>/audio/mix.m4a` instead of `--no-mux`. A footage-free run is as supported as any
+  other; what it lacks is a source file to derive from, not a path through this step. Place pictures
+  with `<img src="asset.png">` — a file BESIDE the document renders, `object-fit` included (probe:
+  img-file-src). A `data:` URI does NOT (probe: img-data-uri-blank), so write the bytes to the run and
+  reference them by name rather than inlining them.
 
 **A. COMPILED RECIPE (`hasRecipe:true`)** — the recipe did the design thinking offline; code does the
 assembly. Run (OUTSIDE any sandbox — the engine needs the window-server):
@@ -650,18 +813,78 @@ CRAFT SUBSTRATE (recipe sheets, engine-proven; nearest by facets):
 DIRECTION = {the aesthetic lane: content angle + mood + placement intent; NO fonts/palette/device}.
 ENGAGEMENT MODE = {seed copy — verbatim}.
 ANIMATION LEVEL = {word | cue | none}.
-TASK: LOCK ONE system (2-3 Google @import fonts + limited palette + ONE recurring device, pulled FROM the
-user's materials — craft-substrate sheets supply the engine-safe mechanics);
-hold it across all beats; vary scale/composition per beat; escalate hook → close. Author ONE
+TASK: WRITE THE SYSTEM DOWN FIRST, then author against it.
+  node --import tsx {repo}/pipeline/scripts/design-gate.ts {repo}/runs/{key}
+  fails until {repo}/runs/{key}/design/system.json exists and every document obeys it. Author that file
+  before any .wv: 2-3 Google @import fonts, a type LADDER (each rung a role + size + its own optical
+  tracking — `opticalTracking(px)` in {repo}/pipeline/recipes/type.ts gives the measured curve), a named
+  palette, spacing, NAMED easings and durations, the reveal unit, the devices in play, and `donors` =
+  the recipe ids you took mechanics from (they are checked against the runtime index). `groundedIn` must
+  name the run's own content files, and the gate refuses a system whose files do not exist — a design
+  authored before the content is a design authored from nothing, which is exactly how a delivered film
+  ended up with 23 font sizes and one easing curve used 934 times.
+LEARN THE REPERTOIRE BEFORE YOU DESIGN ANYTHING. Open two or three ref folders under {repo}/refs/html/
+  — the sheet AND the document beside it — and read what the engine is SHOWN doing: how a word is set
+  at a different size from the words around it (a beat is a column of separate text blocks, not one
+  styled line), how an underline is drawn, what arrows, brackets, corner marks, rules and badges look
+  like when they are made well, which faces are already proven to render. Write down what you found and
+  what you intend to use. This is a bank of what is POSSIBLE, not a template: look at how something is
+  done, then do it better for the piece in hand. An agent that skips this designs from its own defaults,
+  and its own defaults are a centred line of one size — which is the single most common reason a
+  delivered piece reads as machine-made.
+COMPOSE, don't type: {repo}/pipeline/recipes/devices.ts (dividers, ground shadow and the rest of the
+  delivered vocabulary — a rule is a hairline + shadow + stub that DRAWS, never a lone grey line),
+  {repo}/pipeline/design/captions.ts (per-word reveal off the real timings, travelling cursor, lines as
+  blocks), {repo}/pipeline/recipes/geometry.ts (arcs, lattices, springs, clip polygons),
+  {repo}/pipeline/recipes/type.ts (the ladder and the tracking curve).
+  Contrast over footage comes from the two-layer ground shadow, NOT a scrim box.
+PLACEMENT IS A DECISION, MADE PER BEAT AND WRITTEN DOWN. For every beat say where the block sits, WHY
+  there — what is behind it, which way the subject faces, where the frame is empty — and what changed
+  since the last one. A block that holds one position for a whole piece is the defect, not the default:
+  two delivered runs shipped it, one with 217 cues in one box and one with six of eight cues on the
+  same left edge, and in both the author's own reference notes said the block moves every beat.
+  Emphasis is carried by the WORD that takes the beat, not by a phrase set in bolder type.
+  With footage, the system's `placement.measuredIn` must name a file holding one entry per cue,
+  measured off this run's own picture — the gate refuses the system otherwise, because grounding in
+  the transcript and the cue times is grounding in the WORDS, and a run that did exactly that put six
+  of eight blocks on one edge while believing it had measured everything.
+NOT ACROSS THE FACE. Type passing BEHIND a person is the technique; type across their eyes is a
+  mistake no amount of measurement excuses. One run scored its own coverage at 0.65 and 0.71, reasoned
+  that nothing fit behind the speaker, and put the block in front — over his face in the opening shot
+  and over his eyes in the last. When the clean ground runs out the answer is a smaller rung, a
+  re-broken line, a different anchor or a later window, never the face. Read the face box off the
+  subject's own silhouette (the head is the top of its bounding box) and keep it clear.
+GRAPHICS GO WHERE THE CONTENT ASKS FOR THEM — not everywhere, and never as decoration. A number
+  spoken in the script is the clearest invitation there is: a figure that arrives as type alone spends
+  a beat saying what a count, a bar, a scale or a comparison would land. So is anything the speech
+  describes that a picture states faster than a sentence. Whether to reach for them at all is settled
+  by the material: if the reference carries graphics between the talking, that is both the permission
+  and the measure of how much; if the user's ask implies them, the same. Where neither does, don't.
+A DEVICE THAT APPEARS TWICE NEEDS A LOGIC. One run put two chapter marks in a thirty-second piece,
+  both in its second half and none in its first. Each was fine alone; together they read as an
+  accident, because nothing said when the thing appears. Either it follows a rule the piece keeps —
+  every subject turn, every figure, every change of speaker — or it does not appear at all. And a
+  device that recurs varies: same logic, different corner, different scale, so the second one is a
+  system rather than a repeat.
+LINES ARE SEPARATE BLOCKS, SO GIVE THEM DIFFERENT EDGES. A three-line beat whose lines all start at
+  the same x is a paragraph, not a composition — one run printed `safeX` as the left edge of eight
+  blocks in a row. The lines are already separate elements, which is what makes an indent, a hang or a
+  step free; use it, and let the size change inside the block so one word carries the beat.
+Hold the system across all beats; vary scale/composition per beat; escalate hook → close. Author ONE
 {repo}/runs/{key}/final/template.wv (z0 base video FIRST; EVERY text layer position:absolute + explicit
 z-index>=1 + a UNIQUE `id` e.g. id="cap3" — see the opacity trap; the id makes --verify name the element in
 its failure lines; each caption visible only in its cue window) +
 {repo}/runs/{key}/final/manifest.json {"render":{"width":W,"height":H,"fps":FPS,"duration":durationSec}}.
 RENDER + VERIFY (OUTSIDE any sandbox — needs the window-server; binary = {repo}/.veed-engine/veed-engine-cli, NOT on PATH):
-  0. LINT (mechanical, no engine): node --import tsx {repo}/pipeline/scripts/lint-template.ts {repo}/runs/{key}/final/template.wv
-     — engine-limit anti-patterns (var-in-keyframes, animated blur, the stacking trap, missing cue ids).
+  DESIGN GATE (mechanical, no engine): node --import tsx {repo}/pipeline/scripts/design-gate.ts {repo}/runs/{key}
+     — reads every .wv in the run back against design/system.json: a font, size, tracking, colour or
+     easing the system does not declare is an error, as is a donor id that is not a real ref. Exit 1 →
+     fix the document, or amend the system deliberately. Run it FIRST: every finding is a string in a
+     file, and learning it after a record costs minutes of encode to discover what a regex knew instantly.
+  LINT (mechanical, no engine): node --import tsx {repo}/pipeline/scripts/lint-template.ts {repo}/runs/{key}/final/template.wv
+     — engine-limit anti-patterns (animated blur, the stacking trap, missing cue ids, per-corner radius).
      Exit 1 → fix the flagged rule, re-lint before verifying.
-  1. VERIFY (analytic, fast, no video, reads manifest render block):
+  VERIFY (analytic, fast, no video, reads manifest render block):
        {repo}/.veed-engine/veed-engine-cli {repo}/runs/{key}/final --verify
      It replays the whole timeline offscreen and checks the REAL draw list. Exit 0 = clean. Exit 1 = it prints ONE
      stdout line per problem, naming the element id, e.g.:
@@ -672,11 +895,11 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs the window-server; binary = {repo
      clipped away in EVERY frame — e.g. stuck behind a mask/box), occluded (type fully hidden under a later opaque
      layer — the z-order/opacity trap). Fix ONLY the flagged element (nudge inside the safe zone / fix z-order or the
      mask) and re-run --verify until exit 0. (exit 2 = engine render failure = a real authoring error, not a nit.)
-  2. (OPTIONAL) word-reveal TIMING: to assert a caption is shown/hidden in a time window, add a "verify" block to
+  EXPECT WINDOWS (optional) — word-reveal TIMING: to assert a caption is shown/hidden in a time window, add a "verify" block to
      manifest.json alongside "render": {"verify":{"expect":[{"element":"cap3","visible":true,"from":2.1,"to":3.4}]}}.
      --verify then FAILs[expect-visible]/[expect-hidden] if a word isn't on-screen when it should be. Use when a
      beat's reveal timing is subtle; ids only (a word with no id can't be targeted).
-  3. WCAG PASS (DEFAULT on creative runs; level AA) — after --verify is clean, before recording. It
+  WCAG PASS (DEFAULT on creative runs; level AA) — after --verify is clean, before recording. It
      DETECTS and REPORTS; it NEVER silently changes colours — the human chooses.
        node --import tsx {repo}/pipeline/scripts/wcag-pass.ts --run {repo}/runs/{key}
      It samples the REAL rendered background behind every caption, checks WCAG AA contrast, writes
@@ -716,7 +939,7 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs the window-server; binary = {repo
              --verify on final/ itself, and prints `status: pass|remediated|not-improved|residual` + the
              same EXHAUSTIVE `review:` lines.
          (c) LEAVE AS-IS — record the original unchanged.
-  4. RECORD the deliverable — ONLY after --verify is clean, always FROM runs/{key}/final (whatever the
+  RECORD the deliverable — ONLY after --verify is clean, always FROM runs/{key}/final (whatever the
      user chose in the WCAG PASS already lives in final/template.wv — the untouched original, or an
      --apply promotion). --verify and --record are mutually exclusive, so this is a
      SECOND invocation:
@@ -746,36 +969,46 @@ SAMPLE ONE STYLE (A = current pick's sheet as skeleton, same aspect; B = differe
 different `device` facet — B and C may be off-aspect, geometry re-derived at this canvas; sheets at
 `refs/html/<id>/recipe.md`; donors come from the RUNTIME INDEX only — classic-pool refs are never
 donors and ship no sheet), author
-`runs/<key>-remix/final/{template.wv, manifest.json}` per `director-brief.md` REMIX MODE, then drive
-the gates yourself (verify/record OUTSIDE any sandbox):
-  1. `node --import tsx pipeline/scripts/lint-template.ts runs/<key>-remix/final/template.wv` — exit 1 →
-     fix the flagged rule, re-lint.
-  2. `.veed-engine/veed-engine-cli runs/<key>-remix/final --verify` — fix ONLY flagged elements, re-run to
-     exit 0 (≤2 fix cycles, then stop and report honestly).
-  3. `node --import tsx pipeline/scripts/wcag-pass.ts --run runs/<key>-remix` — the SAME default WCAG AA
-     gate as the main flow's WCAG PASS (a remix is a creative run): it DETECTS and REPORTS only, never
-     silently changing colours. `status: pass` → note and proceed. `status: attention` → tell the user in
-     plain product terms (how many text elements fail, worst offenders from the `review:` lines) and ASK
-     which to do — (a) open the clickable recommendation studio: if the preview server is running open
-     `http://127.0.0.1:<port>/wcag/` for them, else `node --import tsx pipeline/scripts/wcag/recommend.ts
-     --run runs/<key>-remix` (writes final/wcag-recommendations.html; open it). A click writes
-     runs/<key>-remix/final/wcag-choice.json — read it and run apply (b). Chat is an EQUAL path: if the user
-     asks in words, write the same wcag-choice.json shape yourself, then apply. (b) apply
-     (`… wcag-pass.ts --run runs/<key>-remix --apply` — with a wcag-choice.json it applies that explicit
-     choice and always runs; with none it falls back to the automatic colour set; promotes a remediated
-     final/template.wv on measured improvement, draft preserved as template.draft.wv, re-verifies
-     after promoting), or (c) leave as-is. Never pick for them; report the status + review lines honestly.
-  4. `.veed-engine/veed-engine-cli runs/<key>-remix/final --progress-output --record runs/<key>-remix/final/out.silent.mp4`
-     — the `progress:` lines confirm it's alive; don't narrate them.
-  5. `node --import tsx pipeline/scripts/probe-qa.ts runs/<key>-remix` — FAIL → report honestly in plain
-     terms, never redesign; warns → proceed.
-Then MUX AUDIO on `runs/<key>-remix`. The deliverable lives next to the original — the user compares.
+write `runs/<key>-remix/design/system.json` FIRST (a remix authors a document from scratch, so it needs
+its own system exactly as face-1 does — copy the original's and change what the brief asks to change,
+naming the donors in `donors`), then author
+`runs/<key>-remix/final/{template.wv, manifest.json}` per `director-brief.md` REMIX MODE, then run the
+whole chain with one command (OUTSIDE any sandbox — verify and record need the window-server):
+  `bash pipeline/scripts/gates.sh runs/<key>-remix`
+It runs design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, stops at the first failure and names
+the gate. A `--verify` failure: fix ONLY the flagged element and re-run, at most twice, then stop and
+report honestly. A probe-qa failure: report it in plain terms and pick the fix WITH the user — never
+redesign. The deliverable lands next to the original, and the user compares.
+The WCAG AA pass runs INSIDE that chain, before the record — do not run it again afterwards. It DETECTS
+and REPORTS only; the chain does not pause and does not apply anything. On `status: attention` the
+route is exactly the main flow's WCAG PASS, and a remix gets the whole of it: tell the user in plain
+product terms how many text elements fail and the worst offenders, then ASK — the recommendation studio
+(the preview server's `/wcag/` route, or `wcag/recommend.ts` when no server is up), a choice written to
+`final/wcag-choice.json` either by a click or by you from what they said in words, `wcag-pass.ts --apply`
+to act on it, or leave it as-is. Never pick for them. After an apply, re-run the chain so the record is
+made from the promoted template.
 
 ### MUX AUDIO — restore the soundtrack  · SCRIPT
-the engine renders video only. `bash pipeline/scripts/mux-audio.sh runs/<key>` muxes the original audio onto
+the engine renders video only. When the run's audio IS the source clip's, `bash pipeline/scripts/mux-audio.sh runs/<key>` muxes it onto
 `final/out.silent.mp4` → **`runs/<key>/final/out.mp4`** (the deliverable). `-map 1:a:0?` tolerates a source with
-no audio track; `-shortest` trims to video length. Deliver `out.mp4` to the user — this is the FIRST
+no audio track, and the deliverable takes the PICTURE's length, so a built mix shorter than the render cannot truncate it. Deliver `out.mp4` to the user — this is the FIRST
 moment the run is presented as done (never announce the silent render or muxing separately).
+When the audio is BUILT rather than restored — narration, music, effects, anything with more than one
+piece — write `runs/<key>/audio/mix.json`, build the track, and mux THAT:
+```json
+{ "durationSec": 726.8, "tracks": [
+  { "path": "assets/vo-01.mp3",  "atSec": 0,    "role": "voice" },
+  { "path": "assets/music-1.mp3","atSec": 12.4, "gainDb": -14, "fadeOutSec": 3, "role": "music", "duck": true },
+  { "path": "assets/sfx-3.mp3",  "atSec": 88.2, "gainDb": -6,  "role": "sfx" } ] }
+```
+```
+node --import tsx pipeline/scripts/mix-audio.ts runs/<key>          # → runs/<key>/audio/mix.m4a
+bash pipeline/scripts/mux-audio.sh runs/<key> --audio runs/<key>/audio/mix.m4a
+```
+`durationSec` is required and is the FILM's length — anything past it is trimmed, so one long cue
+cannot lengthen the deliverable. A bed marked `duck` is opened by the voice itself rather than by a
+gain you guessed at; a fade-out is measured from the end of the film, because a cue's own length is not
+in the spec. `--print-graph` shows the filtergraph without running ffmpeg.
 With NO source video there is no soundtrack to restore and no source for the script to read: copy
 `final/out.silent.mp4` to `final/out.mp4` and deliver that, so the deliverable path is the same for
 every run. A silent deliverable is a complete one here, not a failed mux.
