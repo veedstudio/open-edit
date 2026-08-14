@@ -39,7 +39,7 @@ Paste this whole document, then fill: `{videoPath}` (from `meta.json`), the per-
          animation:cueWin linear forwards; }
 
   /* ---- SLOTS (self-contained single classes; rotation is baked into each slot's own
-          keyframes — NEVER var() in a transform). Set A = odd beats, Set B = even beats. ---- */
+          keyframes). Set A = odd beats, Set B = even beats. ---- */
   .sA1 { position:absolute; z-index:2; left:70px;  top:250px; display:inline-block; white-space:nowrap;
          color:#1c1a22; background:#ece6d6; font-weight:600; line-height:1; padding:4px 12px 8px;
          box-shadow:0 2px 6px rgba(0,0,0,.35); transform-origin:center; opacity:0;
@@ -285,7 +285,7 @@ Then record (a SECOND invocation — verify and record are mutually exclusive):
 - No invented or rebased timing — every delay/duration comes verbatim from `word-timings.json`.
 - Never read frames, never eyeball renders, never run ffmpeg checks — `--verify` is the only check.
 - Never drop, reorder or paraphrase a spoken word; every word appears in exactly one phrase.
-- No `var()` anywhere in a transform or keyframe; rotations stay baked in the given keyframes.
+- Rotations stay baked in the given keyframes.
 - No scrim/box behind slot 5; no background on `.sA5`/`.sB5` (the bare aside is intentional).
 - Do not move slot anchors or arrow positions except via the exact fixes in section 6.
 - Do not redesign, re-balance layout aesthetically, or add legibility passes.

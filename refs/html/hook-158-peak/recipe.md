@@ -290,10 +290,9 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
   rule, and then always with SEP between them.
 - No invented timing: every `delayMs`/`cueDelayMs` comes VERBATIM from `word-timings.json`;
   derived numbers ONLY via the closed forms in sections 3-4.
-- Never animate `color` or `filter:blur`; never put `var()` inside a transform or keyframes; no
-  `vw` font sizes; no `-webkit-text-stroke`; no text-transform reliance — uppercase the strings
+- Never animate `color` or `filter:blur`; no `-webkit-text-stroke`; no text-transform reliance — uppercase the strings
   yourself.
 - No flex anywhere — the prefab's space-between column is replaced by absolutely positioned rows
-  (the engine mis-lays-out shrink-to-fit flex around animated children).
+  (a shrink-to-fit line reflows as its children reveal around animated children).
 - Never read the video frames, never run ffmpeg checks — `--verify` is the only self-check.
 - No redesign after a render or a verify failure — only the mechanical fixes in section 6.

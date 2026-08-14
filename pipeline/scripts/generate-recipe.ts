@@ -112,7 +112,9 @@ async function main(): Promise<number> {
 
   // Gate 1 — LINT (pure, no engine; runs on every generate): a generated document violating engine
   // limits is a generator bug — fix the recipe module (or lib), never the output.
-  const lint = () => lintTemplate(readFileSync(tplPath, 'utf8'));
+  // The manifest is written seven lines up, and three rules are decidable only with it — a run that
+  // lints without it is running a strictly weaker gate than the shell path, silently.
+  const lint = () => lintTemplate(readFileSync(tplPath, 'utf8'), JSON.parse(readFileSync(manifestPath, 'utf8')).render);
   const findings = lint();
   for (const x of findings) console.log(`${x.severity.toUpperCase()}[${x.rule}] ${x.message}`);
   if (findings.some((x) => x.severity === 'error')) {

@@ -127,9 +127,9 @@ function grayFrame(video: string, tSec: number, w: number, h: number): Uint8Arra
   ], { maxBuffer: 1 << 24 }));
 }
 
-export function probeRun(runDir: string): ProbeResult[] {
+export function probeRun(runDir: string, doc = 'final'): ProbeResult[] {
   const meta = JSON.parse(readFileSync(join(runDir, 'meta.json'), 'utf8')) as { videoPath: string; width: number; height: number; durationSec: number };
-  const render = join(runDir, 'final', 'out.silent.mp4');
+  const render = join(runDir, doc, 'out.silent.mp4');
   if (!existsSync(render)) throw new Error(`no ${render} — record first`);
   const portrait = meta.height >= meta.width;
   const [w, h] = portrait ? [GRID_W, GRID_H] : [GRID_H, GRID_W];
@@ -164,9 +164,16 @@ export function probeRun(runDir: string): ProbeResult[] {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const argv = process.argv.slice(2);
-  const runDir = argv.find((a) => !a.startsWith('--'));
-  if (!runDir) { console.error('usage: node --import tsx pipeline/scripts/probe-qa.ts <runDir> [--json]'); process.exit(2); }
-  const results = probeRun(runDir);
+  // The value of a flag is not a positional. `--doc chapters/act-1 runs/f` took the chapter as the run.
+  const skip = new Set<number>();
+  argv.forEach((a, i) => { if (a === '--doc') skip.add(i + 1); });
+  const runDir = argv.find((a, i) => !a.startsWith('--') && !skip.has(i));
+  if (!runDir) { console.error('usage: node --import tsx pipeline/scripts/probe-qa.ts <runDir> [--doc final] [--json]'); process.exit(2); }
+  // A film gates one chapter at a time, so the document is not always `final`.
+  const at = argv.indexOf('--doc');
+  const doc = at >= 0 ? argv[at + 1] : 'final';
+  if (at >= 0 && !doc) { console.error('--doc needs a subdirectory'); process.exit(2); }
+  const results = probeRun(runDir, doc);
   if (argv.includes('--json')) console.log(JSON.stringify(results, null, 2));
   else for (const r of results) {
     console.log(`beat ${r.beat} ${r.probe}@${r.tSec}s ink=${r.inkPct}% contrast=${r.contrast ?? '-'} ${r.verdict.toUpperCase()}${r.notes.length ? ' — ' + r.notes.join('; ') : ''}`);

@@ -125,7 +125,8 @@ export function glyphWordHtml(w: WordTiming, cueEndMs: number, cls = 'g'): strin
   return glyphs.map((g, k) => `<span class="${cls}" style="animation-delay:${w.delayMs + k * st}ms">${escapeHtml(g)}</span>`).join('');
 }
 
-// the spacer IS the space (inter-span whitespace is dropped); {d} = the NEXT word's delayMs
+// the spacer IS the space, so the gap is a stated width rather than inter-span whitespace (which the
+// engine does keep — probe: inter-span-whitespace); {d} = the NEXT word's delayMs
 const spacerHtml = (nextDelayMs: number) => `<span class="g" style="width:0.3em;animation-delay:${nextDelayMs}ms">&nbsp;</span>`;
 
 function bigSpanHtml(w: WordTiming, bPx: number, cueEndMs: number): string {

@@ -241,7 +241,7 @@ ${parts.join('\n')}
   .row { position: absolute; left: 0; width: ${p(1280)}px; text-align: center; line-height: 1; z-index: 2;
          font-family: 'Anton', sans-serif; font-weight: 400; }
 
-  /* word spans: the vertical padding is shear headroom (an animating span rasterizes at its
+  /* word spans: the vertical padding is descender headroom (an animating span rasterizes at its
      line-height:1 box and glyph edges clip without it); ink extents are calibrated WITH it.
      ONE ink for every word at every size — poster neon yellow: two yellow glow layers over a dark
      grounding layer that holds the type off bright footage. */

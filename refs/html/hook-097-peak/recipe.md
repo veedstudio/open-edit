@@ -107,7 +107,7 @@ remove or fade `.bg`.
   .ln2 { margin-top: -0.34em; }
 
   /* word reveal — the prefab's scale pop + fade IN, then HOLD; the page-level pgOut is the only
-     fade-out. The vertical padding is mid-reveal shear headroom — never remove it. */
+     fade-out. The vertical padding is descender clearance headroom — never remove it. */
   .wp  { display: inline-block; opacity: 0; padding: 0.06em 0 0.18em;
          animation-name: wordPop; animation-duration: 160ms;
          animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }
@@ -161,7 +161,7 @@ page, one `.fr`+`.word` per frame, one `.ln` line per unit, one `.wp` span per t
 **Word prep:** UPPERCASE every token yourself (no text-transform in the CSS); keep ALL punctuation
 exactly as in `word-timings.json`. GLUE: a token starting with `-` (e.g. `-DO` after `TO`) merges with
 the previous word into ONE unit for paging and counting (`TO-DO` = 5 chars); it renders as two adjacent
-`.wp` spans inside the unit's `.ln` (inter-span whitespace is dropped, so the pair reads flush), each
+`.wp` spans inside the unit's `.ln` (inter-span whitespace is not what sets the gap here, so the pair reads flush), each
 keeping its OWN verbatim `delayMs`.
 
 **Paging rule** — walk the beat's units left to right (ORDER PRESERVED, every unit used once): a page
@@ -281,7 +281,6 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - Do not re-add the prefab's dot-texture `background-image`, its `::before` arrow marks, its flex
   `.frames` row, or `text-transform`; do not change the rotate angles, the transform-origin, or the
   slide distance; no perspective/rotate3d.
-- Never animate `color` or `filter:blur`; never put `var()` inside a transform or keyframes; no `vw`
-  font sizes; single-value `border-radius` only.
+- Never animate `color` or `filter:blur`; single-value `border-radius` only.
 - Never read the video frames, never run ffmpeg checks — `--verify` is the only self-check.
 - No redesign after render or a verify failure — only the mechanical fixes in section 6.

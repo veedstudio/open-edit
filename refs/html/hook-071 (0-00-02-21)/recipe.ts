@@ -333,7 +333,7 @@ ${rows.join('\n')}
   /* window gate — the one safe reveal recipe; delay+duration+z come inline per cue.
      The cue is the CENTERING FRAME: full-frame, so every row is a full-width block with
      text-align:center (the ONLY engine-safe way to center animated children — shrink-to-fit flex
-     mis-lays-out animating lines) and the whole lockup shares the frame's center axis. Nothing
+     reflows as its lines reveal) and the whole lockup shares the frame's center axis. Nothing
      overflows: the hero's ink budget keeps it inside the frame at every size. */
   @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
   .cue { position: absolute; left: 0; top: 0; width: ${p(1280)}px; height: ${p(720)}px; opacity: 0; z-index: 11;

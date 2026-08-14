@@ -180,10 +180,10 @@ max(250, 400 − 100) = 300 (section 4).
   `popMs = 400` if avail ≥ 500, else `max(250, avail − 100)` (a message spoken just before the gate
   closes must still finish popping). Always write `animation-duration:{popMs}ms` inline.
 - Bubbles accumulate — a popped message HOLDS until the cue gate cuts the beat. No fade-outs anywhere.
-- Word spacing is the `.wd` `margin-right: 0.28em` — inter-span whitespace is dropped by the engine,
+- Word spacing is the `.wd` `margin-right: 0.28em` — inter-span whitespace is not what sets the gap here,
   the margins ARE the gaps. Spans stay `display:inline-block`; never `display:block`.
 - Inside a bubble the words are STATIC (the bubble is the animated unit) — never give word spans their
-  own reveal animation (animated children inside a shrink-to-fit box mis-lay-out).
+  own reveal animation (a shrink-to-fit box resizes as its children reveal).
 
 ## 5. EMPHASIS
 
@@ -252,7 +252,7 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
   derived numbers ONLY via the closed forms in sections 3-4.
 - Bubbles accumulate and the gate cuts the beat — never add fade-outs, and never animate word spans.
 - No `text-align: center/right`; letter-spacing stays 0; no descendant selectors — flat classes only.
-- Never animate `color`; never put `var()` in transforms or keyframes; no `vw` font sizes; keep the
+- Never animate `color`; keep the
   tail `clip-path` polygons percentage-based (px/unitless coords get dropped by the engine).
 - The double tick is the skeleton's inline SVG verbatim — literal-hex `stroke`, `fill="none"`, px-only
   coords, no percentage transforms; never rebuild it from `clip-path`/borders (mangles at final scale).

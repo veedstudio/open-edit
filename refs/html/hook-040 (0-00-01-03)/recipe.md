@@ -339,8 +339,7 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - Never buy body size back by shrinking the LEAD — the f-ladder tops out at 36 *because* 2.8× has to
   clear the bottom slot row (§3); contrast outranks body size.
 - Never re-add the prefab's entrance blur (see the skeleton's why-clause) and never animate `color` or
-  `filter`; never put `var()` in transforms or keyframes; no `vw` font sizes; no
-  `-webkit-text-stroke`; single-value `border-radius` only (none is used here).
+  `filter`; no `-webkit-text-stroke`; single-value `border-radius` only (none is used here).
 - Never uppercase — the spoken case is the design.
 - No flex anywhere; every word is its own absolutely positioned div; no `text-align`; the even-beat
   mirror is the `right:` property with the section-3 numbers, never a re-derived layout.

@@ -63,7 +63,7 @@ Paste this whole document as `runs/<key>/final/template.wv`, then insert one `.c
   .aL { left: 64px; right: auto; text-align: left; }
   .aR { left: auto; right: 100px; text-align: right; }
 
-  /* a line = one full-width row (NEVER shrink-to-fit — the engine mis-lays-out animated flex children);
+  /* a line = one full-width row (NEVER shrink-to-fit — a shrink-to-fit line resizes with its content, so one word moves everything beside it);
      words flow from the anchor's side. line-height cut well under 1 for a tight poster stack — this
      drops the ≥1.2 shear guard, so .ink's padding below now carries shear-safety alone. */
   .line { width: 100%; line-height: .82; white-space: nowrap; text-transform: uppercase;
@@ -87,7 +87,7 @@ Paste this whole document as `runs/<key>/final/template.wv`, then insert one `.c
            animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }
   .fromL { animation-name: slL; }              /* the line enters from the LEFT  */
   .fromR { animation-name: slR; }              /* the line enters from the RIGHT */
-  .ink   { display: inline-block; padding: .1em 0 .18em; opacity: 0;    /* padding = shear headroom (sole guard now that line-height < 1) */
+  .ink   { display: inline-block; padding: .1em 0 .18em; opacity: 0;    /* padding = descender headroom (sole guard now that line-height < 1) */
            animation-name: rise; animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }
   @keyframes slL  { 0% { transform: translateX(-48px); } 100% { transform: translateX(0); } }
   @keyframes slR  { 0% { transform: translateX(48px); }  100% { transform: translateX(0); } }
@@ -291,5 +291,4 @@ fade) → mention and proceed to mux.
   `.line` blocks in the flex column, ONE `.slide` inside each); no descendant selectors — flat classes
   exactly as in the skeleton.
 - Never read the video frames; never move the `.cue` beyond the two section-6 anchors (`aL`/`aR` by beat
-  parity — no other placement improvisation, `top`/`height` never move); no `var()` in keyframes; no `vw`
-  font sizes; no `<br>`. No redesign after a verify/probe failure — only the section-7 mechanical fixes.
+  parity — no other placement improvisation, `top`/`height` never move); no `<br>`. No redesign after a verify/probe failure — only the section-7 mechanical fixes.

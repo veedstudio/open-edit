@@ -134,7 +134,7 @@ cueDelayMs 320, next beat 2080 → winMs 1760, gateEnd 2080):
   `animation-duration:{durMs}ms` where `{durMs} = min(350, max(250, gateEnd − delayMs))` — the
   entrance compresses when the gate would close before a full 350ms reveal.
 - Word gap INSIDE a group: a single `&#160;` text node between unit spans (the prefab's own device;
-  inter-span plain whitespace is dropped by the engine). Glued-unit spans are adjacent with no
+  inter-span plain whitespace is not what sets the gap here). Glued-unit spans are adjacent with no
   separator. Spans stay `display:inline-block`; groups stay `white-space:nowrap`.
 - Each beat's `.cue` gets inline `z-index:{10+N}; animation-delay:{cueDelayMs}ms;
   animation-duration:{winMs}ms`. Rows never fade mid-beat — the stack accumulates and HOLDS; the
@@ -186,7 +186,7 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - Do not move the slot tops or the 44/81 x-anchors; do not center, re-balance, or swap which side a
   group lands on; the split rule in section B is the only layout authority.
 - No flex anywhere; groups stay `position:absolute` + `inline-block`; words stay `inline-block`.
-- Never animate `color` or `filter`; no `var()` in transforms/keyframes; no `vw`; no text-transform
+- Never animate `color` or `filter`; no text-transform
   reliance — uppercase the strings yourself.
 - Never read the video frames, never run ffmpeg checks — `--verify` is the only self-check.
 - No redesign after render or a verify failure — only the mechanical fixes in section 6.

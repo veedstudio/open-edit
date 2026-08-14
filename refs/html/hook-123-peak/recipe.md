@@ -160,7 +160,7 @@ take base+1 consecutive words, the rest take base.
 
 **Placement:** fixed by the `.cue` class — `left:77px; top:140px; width:520px`, every beat (anchor B
 of section 6 is the ONLY sanctioned alternative). Title and script lines are left-flush BLOCK divs in
-normal flow (no flex, no text-align — the engine mis-lays-out shrink-to-fit flex and centered text
+normal flow (no flex, no text-align — a shrink-to-fit line reflows as its children reveal and centered text
 around animated inline-blocks). Anchor varies ONLY per BOUNDED VARIETY axis 1 (section 6, alternating
 A/B by beat parity) — every beat's title AND all of its script lines share that ONE beat's anchor;
 never split anchors within a single beat, never invent a third `left` value.
@@ -188,8 +188,8 @@ avail − 80 ≥ 1300).
   with `inMs = min(320, max(150, avail − 80))`.
 - Words accumulate — every word HOLDS at full opacity until the cue gate cuts the beat. No fade-outs
   anywhere.
-- Word spacing is the `.tw`/`.w` `margin-right` (0.30em title / 0.45em script) — inter-span whitespace
-  is dropped by the engine, the margins ARE the gaps. Write word spans adjacent with no whitespace
+- Word spacing is the `.tw`/`.w` `margin-right` (0.30em title / 0.45em script): the margin IS the gap,
+  so it is exact at every size. Write word spans adjacent with no whitespace
   between them. Spans stay `display:inline-block`; never `display:block`.
 
 ## 5. EMPHASIS
@@ -269,10 +269,11 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
   unrevealed words).
 - No transform on ANY ancestor of a word span — the engine can composite an animating span WITHOUT an
   ancestor's static transform (video runs), so all width budgets here are natural, untransformed px.
-- No `filter:drop-shadow` anywhere — the flicker holds spans at partial opacity, which glyph-clips
-  under drop-shadow; legibility is the baked `text-shadow` layers only.
+- No `filter:drop-shadow` anywhere — that is this sheet's look. It is also the safe side of a real
+  limit: on 0.8.0 drop-shadow under partial opacity DOES clip glyphs (probe: drop-shadow-opacity-clip),
+  where on 0.7.3 it did not. Legibility here is the baked `text-shadow` layers only.
 - No flex inside `.cue` and no `text-align` anywhere: title/script lines are left-flush BLOCK divs
-  (the prefab's justify-between script row is deliberately NOT carried over — the engine mis-lays-out
+  (the prefab's justify-between script row is deliberately NOT carried over — the engine reflows
   shrink-to-fit flex around animated children).
 - Never move the column off its anchor (77px, or 763px under variety B) and never anchor at the right
   edge — a natural-width line must stay viewport-safe on its own.
@@ -281,7 +282,6 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - No invented timing: every `delayMs`/`cueDelayMs`/`cueDurMs` comes verbatim from
   `word-timings.json`; derived numbers ONLY via the closed forms in sections 3-4.
 - Words accumulate and the gate cuts the beat — never add per-word or per-line fade-outs.
-- No descendant selectors — flat classes only; never `var()` in transforms or keyframes; no `vw`
-  font sizes.
+- No descendant selectors — flat classes only.
 - Never read the video frames; never re-derive layout; no redesign after a render or verify failure —
   only the mechanical fixes in section 7.

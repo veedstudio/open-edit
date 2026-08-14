@@ -205,8 +205,8 @@ cueDelayMs 1720, cueDurMs 2880 → cueEnd 4600; next beat starts 4600 → winMs 
   moment in the beat; that is the invariant the drop rule protects.
 - Glyphs accumulate — every typed glyph HOLDS at full opacity until the cue gate cuts the beat. The
   beat's LAST structure holds and the gate cuts it: no fade-outs anywhere.
-- Word spacing is the `.hw`/`.w` `margin-right` (0.26em on both tiers); inter-span whitespace is
-  dropped by the engine, the margins ARE the gaps. Write spans adjacent with no whitespace between
+- Word spacing is the `.hw`/`.w` `margin-right` (0.26em on both tiers): the margin IS the gap, so it is
+  exact at every size. Write spans adjacent with no whitespace between
   them. Spans stay `display:inline-block`.
 
 ## 5. EMPHASIS
@@ -275,7 +275,6 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
   numbers ONLY via the closed forms in sections 3–4. No per-glyph or per-line fade-outs — the gate
   cuts each beat.
 - No text-transform reliance — uppercase the head-line strings yourself; question words keep their case.
-- Never animate `color` or `filter`; never put `var()` inside a transform or keyframes; no `vw`
-  font sizes; no `-webkit-text-stroke`.
+- Never animate `color` or `filter`; no `-webkit-text-stroke`.
 - Never read the video frames; never re-derive layout; no redesign after a render or verify
   failure — only the mechanical fixes in section 6.

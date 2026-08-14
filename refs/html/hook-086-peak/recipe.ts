@@ -4,9 +4,10 @@
 // falls). The reveal is an Apple-style FOCUS PULL: each word slides in from the RIGHT on a cubic
 // ease-out while a softly defocused copy of it resolves into the sharp one. Nothing else is on screen —
 // no plate, no panel, no backdrop; plain white type over the footage from first beat to last.
-//   ENGINE FACT A (measured on a fixture): an ANIMATED `filter: blur()` renders its END state from
-//   frame one — exactly like animated `clip-path`; opacity and transform in the SAME keyframes
-//   interpolate normally. Only a STATIC filter renders, so a real blur ramp is impossible.
+//   ENGINE FACT A (probe: animated-blur-holds): an ANIMATED `filter: blur()` holds the keyframe's
+//   INITIAL value and never ramps; opacity and transform in the SAME keyframes interpolate normally.
+//   Only a STATIC filter renders, so a real blur ramp is impossible. An animated `clip-path` is NOT
+//   the same case — it does interpolate (probe: animated-clip-path, refuted).
 //   ENGINE FACT B (measured on the same fixture): `filter: blur()` ignores `em` — `blur(0.2em)`
 //   renders perfectly SHARP while an equivalent `blur(23.6px)` renders. Filter lengths must be px,
 //   which means the defocus cannot ride the font-size cascade — it is computed per ladder row from
@@ -189,8 +190,8 @@ ${rows.join('\n')}
   @keyframes wIn { 0% { transform: translateX(${p(SLIDE_PX)}px); } 100% { transform: translateX(0px); } }
   .w  { display: inline-block; position: relative; margin-right: 0.3em;
         animation-name: wIn; animation-timing-function: ${EASE_OUT_CUBIC}; animation-fill-mode: both; }
-  /*  2. the two ghosts: STATICALLY blurred copies stacked over the ink (an ANIMATED blur renders its
-        end state from frame one on this engine, and filter ignores em — so the ramp is a relay of
+  /*  2. the two ghosts: STATICALLY blurred copies stacked over the ink (an ANIMATED blur holds the
+        keyframe's INITIAL value for the whole run, and filter ignores em — so the ramp is a relay of
         opacity across copies whose px radii are written inline per ladder row).
         The three stages OVERLAP rather than meet at a point — a ghost is still dissolving while the
         next stage is already coming up, so the pull reads as one continuous softening rather than as

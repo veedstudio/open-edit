@@ -163,7 +163,7 @@ emphasis word, there is no separate hero line — the 86px accent is the hero.
 ## 4. WORDS + TIMING
 
 Glyph-level ref → one `.ch` span PER CHARACTER; between words insert exactly one
-`<span class="sp"></span>` (inter-span whitespace is dropped by the engine — the spacer is the
+`<span class="sp"></span>` (inter-span whitespace is not what sets the gap here — the spacer is the
 space).
 
 Each glyph's `animation-delay` is derived from its WORD's `delayMs` in `word-timings.json`

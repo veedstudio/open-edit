@@ -154,7 +154,7 @@ shape exists. (fresh-test: beat 1 → 2251ms, beat 6 → 11431ms.)
   - glyph: `<span class="g" style="animation-delay:{d}ms">x</span>`
   - word spacer (between two words INSIDE the same line, never at line edges):
     `<span class="g" style="width:0.3em;animation-delay:{d}ms">&nbsp;</span>` — its `{d}` = the NEXT
-    word's `delayMs`. Inter-span whitespace is dropped; the spacer IS the space.
+    word's `delayMs`. Inter-span whitespace is not what sets the gap here; the spacer IS the space.
   - accent: `<span class="big" style="font-size:{B}px;animation-delay:{E.delayMs}ms">{E.w}</span>`
 - Per-word glyph delays: word with `delayMs = d` and `g` glyphs → glyph k (k = 0…g−1) gets
   `d + k×st`. Default stagger `st = 45`. The word's `delayMs` is used VERBATIM as glyph 0's delay.
@@ -214,5 +214,5 @@ Manifest (must already exist, verbatim from section 2):
   the only arithmetic allowed is the +45ms glyph stagger and the two clamps in section 4.
 - Do not read frames, run ffmpeg, or eyeball renders; `--verify` is the only self-check.
 - Do not change slot tops, `left:46px`, `width:608px`, or place two beats at the same coordinates.
-- Do not add scrim boxes, do not animate `color`, no `var()` anywhere in transforms or keyframes.
+- Do not add scrim boxes, do not animate `color`.
 - Do not regroup words across the PUNCH/SETUP boundary or reorder words — ever.

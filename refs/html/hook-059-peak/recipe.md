@@ -57,7 +57,7 @@ RESOLUTION at the top of this sheet.
              white-space:nowrap; display:inline-block; transform-origin:center;
              text-shadow:0 0.02em 0.12em rgba(0,0,0,0.55); }
 
-  /* word spans: vertical padding is shear headroom — an animating span rasterizes at its
+  /* word spans: vertical padding is descender headroom — an animating span rasterizes at its
      line-height:1 box and glyph bottoms clip without it. Ink extents are calibrated WITH it. */
   @keyframes popIn { 0%{opacity:0} 100%{opacity:1} }
   @keyframes wordIn { 0%{opacity:0; transform:translateY(0.1em)} 100%{opacity:1; transform:translateY(0)} }
@@ -243,7 +243,7 @@ STATION → f 206, Σadv 2.935, slackEm = 1088/206 − 2.935 = 2.347 → ls = 2.
 - CREDITS: `crDelayMs = max(cueDelayMs, min(headlineDelayMs + 750, durEndMs − 700))` (prefab: the
   block lands 750ms after the headline word), fixed 600ms fade, then holds — the gate cuts it at
   video end.
-- Word gaps are the computed `margin-right` px — inter-span whitespace is dropped by the engine, the
+- Word gaps are the computed `margin-right` px — inter-span whitespace is not what sets the gap here, the
   margins ARE the gaps. Write spans adjacent with no whitespace between them. A glued `-` token keeps
   its OWN span and delay, placed immediately after its partner span with the partner's
   `margin-right:0` inline, so the pair renders joined.
@@ -306,7 +306,7 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - No invented timing: every `delayMs`/`cueDelayMs` comes verbatim from `word-timings.json`; derived
   numbers ONLY via the closed forms in sections 3-4. Words never fade out; the gate cuts the beat.
 - Uppercase the Anton rows yourself; the peak counter line is typed lowercase.
-- No descendant selectors, no `var()` in transforms/keyframes, no animated `filter:blur`, no `vw`
-  sizes, no flex around animated shrink-to-fit lines beyond the skeleton's full-width `.col`s.
+- No descendant selectors, no animated `filter:blur`, no flex around animated shrink-to-fit lines
+  beyond the skeleton's full-width `.col`s.
 - Never read the video frames; never re-derive layout; no redesign after a render or verify failure —
   only the mechanical fixes in section 6.

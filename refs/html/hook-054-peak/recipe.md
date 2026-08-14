@@ -57,7 +57,7 @@ RESOLUTION at the top of this sheet. All px below are at SCALE = 1; multiply by 
   .arc-char.big  { font-size: 1.32em; }  /* number-hero accent only (section 5) */
 
   /* arc word reveal — carried on an INNER span so each glyph's static arc transform is untouched (the
-     two-span unit; never animate the .arc-char itself). padding = shear headroom at line-height 1. */
+     two-span unit; never animate the .arc-char itself). padding = descender headroom at line-height 1. */
   .w { display: inline-block; opacity: 0; padding: 0.1em 0 0.18em;
        animation: wordIn .42s cubic-bezier(.2,.7,.3,1) both; }
   @keyframes wordIn { 0% { opacity: 0; transform: translateY(0.28em); } 100% { opacity: 1; transform: translateY(0); } }
@@ -67,7 +67,7 @@ RESOLUTION at the top of this sheet. All px below are at SCALE = 1; multiply by 
   .payline { display: block; width: 600px; text-align: center; white-space: nowrap; line-height: 1.0;
              font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.5px; color: #f7f5f3;
              text-shadow: 0 2px 7px rgba(0,0,0,.6), 0 0 3px rgba(0,0,0,.55); }   /* soft dark ground for light footage */
-  .pw { display: inline-block; opacity: 0; margin-right: 0.24em;   /* word gap (inter-span whitespace is dropped) */
+  .pw { display: inline-block; opacity: 0; margin-right: 0.24em;   /* word gap (inter-span whitespace is not what sets the gap here) */
         animation: payIn .42s cubic-bezier(.2,.7,.3,1) both; }
   @keyframes payIn { 0% { opacity: 0; transform: translateY(0.28em); } 100% { opacity: 1; transform: translateY(0); } }
   .pw.hero { color: #ffffff; font-weight: 800; }   /* body hero word only (section 5) */
@@ -323,12 +323,12 @@ seed the font cache first). `manifest.json` shape is in section 2.
 - Never animate the `.arc-char` itself — the rise lives on the inner `.w` ONLY (an ancestor transform over
   an animating word is the two-span unit; a single animated span there is nondeterministic on the engine).
   The `.cue`/`.arc` ancestors carry opacity/position only, NEVER a transform.
-- Never animate `color`; no `var()` in transforms/keyframes; no `vw` font sizes; no CSS grid/outline; no
+- Never animate `color`; no CSS grid; no
   `<br>`; no descendant selectors — flat classes only (arc font-size is set INLINE on the `.arc` div and
   inherited, never via a descendant size class).
 - No per-word spacer spans; body gaps are the `.pw` `margin-right`, arc gaps are the space slots; no
   reordering/dropping words; keep original case + punctuation; no uppercasing. Never lay body words out in
-  shrink-to-fit flex (the engine mis-lays-out animated flex children) — plain block `.payline`s.
+  shrink-to-fit flex (a shrink-to-fit line resizes with its content, so one word moves everything beside it) — plain block `.payline`s.
 - Never read the video frames; never move the crown centre/radius or the `.pay` anchor; the accent/body
   split and both registers holding together through the cue are the design — do not turn the arc back into
   a per-page turn-taking stream.

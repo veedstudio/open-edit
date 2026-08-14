@@ -21,9 +21,10 @@ alive on its own real timing inside a soft layered white glow.
 
 Paste this whole document as `runs/<key>/final/template.wv`, then insert one `.cue` block per beat
 (section 3) after the `<video>`. Replace only `{W} {H} {FPS} {DUR}` from `meta.json` (expect 736 / 1312 /
-25) and `{videoPath}`. NOTE: the prefab's `ignite` animated `filter: drop-shadow` together with sub-1
-opacity — that is the engine's glyph-clip danger zone, so this sheet's `ignite` is opacity-ONLY and the
-glow lives entirely in the static `.txt` text-shadow (engine-safe under fades). Do not re-add any `filter`.
+25) and `{videoPath}`. NOTE: the prefab's `ignite` animated `filter: drop-shadow`; the one animated
+`filter` this engine was measured on, `blur`, holds its initial value and never ramps, and animated
+`drop-shadow` was never probed, so this sheet's `ignite` is opacity-ONLY and the glow lives entirely in
+the static `.txt` text-shadow (engine-safe under fades). Do not re-add any `filter`.
 
 ```html
 <!DOCTYPE html>
@@ -63,7 +64,8 @@ glow lives entirely in the static `.txt` text-shadow (engine-safe under fades). 
   .k26 { font-size: 26px; }
   .t39 { font-size: 39px; }  .t31 { font-size: 31px; }  .t25 { font-size: 25px; }
 
-  /* filament strike-on: opacity gutters then holds lit. OPACITY ONLY — no filter (glyph-clip bug). */
+  /* filament strike-on: opacity gutters then holds lit. OPACITY ONLY — no filter, because an
+     animated blur holds its initial value here and an animated drop-shadow was never measured. */
   @keyframes ignite { 0%{opacity:0} 10%{opacity:.9} 20%{opacity:.08} 34%{opacity:.7}
                       46%{opacity:.2} 62%{opacity:1} 100%{opacity:1} }
   .w  { display: inline-block; opacity: 0; margin-right: 0.28em; padding: 0.1em 0 0.15em 0;
@@ -160,7 +162,7 @@ perfect(1270) little(1610) morning(1830) routine.(2130)`, cueDelayMs 31, cueDurM
   beats never coexist at the shared anchor).
 - **line1 / line3**: one `<span class="w">` per token, text VERBATIM (keep case, punctuation, leading
   hyphens like `-do`). Each span's `animation-delay` = that word's `delayMs`, VERBATIM, never recomputed.
-  Word gaps are the `.w { margin-right: 0.28em }` — inter-span whitespace is dropped by the engine, the
+  Word gaps are the `.w { margin-right: 0.28em }` — inter-span whitespace is not what sets the gap here, the
   margin IS the space. Spans stay `display:inline-block`; never `display:block`.
 - **line2 (hero, per-char)**: split the hero word into single characters IN ORDER (punctuation is a char;
   the hero is one word, so no spaces). One `<span class="ch">` per char, written CONTIGUOUS in the markup
@@ -243,12 +245,13 @@ Then record (a SECOND invocation — `--verify` and `--record` are mutually excl
 - No fonts, colors, shadows, sizes, or keyframes beyond this sheet — Schibsted Grotesk, `#fbf9f7` on `#101010`, the
   four-layer text-shadow (3 white glow layers + 1 dark grounding layer, copied verbatim, never edited
   or brightened) and the size ladders are the whole system.
-- No `filter` anywhere — the prefab's animated `drop-shadow` is REMOVED on purpose (drop-shadow under
-  sub-1 opacity clips glyphs in this engine); do not restore it and do not animate `text-shadow` either.
+- No `filter` anywhere — the prefab's animated `drop-shadow` is REMOVED on purpose (animated `blur` is
+  measured to hold its initial value, animated `drop-shadow` is unmeasured); do not restore it, do not
+  animate `text-shadow`.
 - No invented timing: every `animation-delay` is a `word-timings.json` `delayMs` verbatim, or
   `heroDelayMs + i×K` with K from section 4; cue delay/duration verbatim from the beat.
 - No uppercasing, no reordering, no dropping tokens — words render exactly as transcribed.
 - No reading frames, no ffmpeg, no visual checks — `--verify` is the only self-check.
-- No `var()` in transforms or keyframes; no descendant selectors (`.line2 .ch`) — flat classes only,
-  exactly as in the skeleton; spans stay `display:inline-block`.
+- No descendant selectors (`.line2 .ch`) — flat classes only, exactly as in the skeleton; spans stay
+  `display:inline-block`.
 - No redesign after render; fix only elements `--verify` names, only by the mechanical rules in section 7.

@@ -212,7 +212,8 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
 ${SLOTS.map((s, i) => `  .p${i + 1} { ${s.anchor.replace(/(\d+)px/g, (_, n) => `${p(Number(n))}px`)} }`).join('\n')}
 
   /* word reveal — the prefab's fade+rise; gap = margin + the &#160; each non-final span carries
-     (inter-span whitespace is dropped; italic Playfair caps overhang, hence the wider .wi margin) */
+     (inter-span whitespace is not what sets the gap here; italic Playfair caps overhang, hence the
+     wider .wi margin) */
   .w  { display:inline-block; opacity:0; margin-right:0.32em;
         animation-name:wIn; animation-timing-function:cubic-bezier(.2,.7,.3,1); animation-fill-mode:both; }
   .wi { display:inline-block; opacity:0; margin-right:0.45em;

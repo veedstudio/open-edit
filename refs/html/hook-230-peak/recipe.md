@@ -58,21 +58,21 @@ see RESOLUTION at the top of this sheet. All px below are at SCALE = 1.
                  0 0 31px rgba(255,255,255,0.45), 0 1px 6px rgba(0,0,0,0.55); }
 
   /* arc glyph reveal — carried on an INNER span so each glyph's static arc transform is untouched
-     (the two-span unit; never animate the .ch itself). Symmetric padding = shear headroom at
+     (the two-span unit; never animate the .ch itself). Symmetric padding = descender headroom at
      line-height 1 that keeps the glyph optically centred on its circle point. */
   .g { display: inline-block; opacity: 0; padding: 0.2em 0;
        animation: chIn .5s cubic-bezier(.2,.7,.3,1) both; }
   @keyframes chIn { 0% { opacity: 0; transform: translateY(0.5em); } 100% { opacity: 1; transform: translateY(0); } }
 
   /* ---- HEADLINE: straight bold Archivo block, left-aligned, right-of-centre ---- */
-  /* PLAIN BLOCK lines on purpose (the prefab's flex column mis-lays-out animated children). */
+  /* PLAIN BLOCK lines on purpose (the prefab's flex column reflows as its animated children reveal). */
   .head { position: absolute; left: 248px; top: 722px; }
   .hl { display: block; white-space: nowrap; line-height: 1; text-align: left;
         font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.5px;
         color: #f7f5f3;
         text-shadow: 0 1px 5px rgba(0,0,0,0.55), 0 0 2px rgba(0,0,0,0.4); }
   .hg { margin-top: -0.17em; }   /* lines 2+: restores the prefab's 1.06 leading under the .hw padding */
-  .hw { display: inline-block; opacity: 0; margin-right: 0.26em;   /* word gap (inter-span whitespace is dropped) */
+  .hw { display: inline-block; opacity: 0; margin-right: 0.26em;   /* word gap (inter-span whitespace is not what sets the gap here) */
         padding: 0.08em 0 0.15em;
         animation: wIn .42s cubic-bezier(.2,.7,.3,1) both; }
   @keyframes wIn { 0% { opacity: 0; transform: translateY(0.28em); } 100% { opacity: 1; transform: translateY(0); } }
@@ -329,9 +329,8 @@ math — seed the font cache first). `manifest.json` shape is in section 2.
   from the section-3 table / closed form.
 - Never animate the `.ch` itself — the rise lives on the inner `.g` ONLY. The `.cue`/`.arc`/`.head`
   ancestors carry opacity/position only, NEVER a transform.
-- Never lay headline words out in flex (the prefab's flex column mis-lays-out animated children) —
-  plain block `.hl` lines. Never animate `color`; no `var()` in transforms/keyframes; no `vw` font
-  sizes; no CSS grid/outline; no `<br>`; no descendant selectors — flat classes only (arc font-size is
+- Never lay headline words out in flex (the prefab's flex column reflows as its animated children reveal) —
+  plain block `.hl` lines. Never animate `color`; no CSS grid; no `<br>`; no descendant selectors — flat classes only (arc font-size is
   INLINE on the `.arc` div and inherited).
 - No per-word spacer spans (the prefab's `.sp` spacers are replaced by the `.hw` margin — spacer spans
   collapse unpredictably); arc gaps are the space slots. No reordering/dropping words; keep original

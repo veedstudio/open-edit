@@ -59,7 +59,7 @@ Canvas: see RESOLUTION at the top of this sheet. The footage is FULL-BLEED at z0
   .p6 { right:81px;  top:1000px; }
 
   /* word reveal — the prefab's fade+rise; gap = margin + the &#160; each non-final span carries
-     (inter-span whitespace is dropped; italic Playfair caps overhang, hence the wider .wi margin) */
+     (inter-span whitespace is not what sets the gap here; italic Playfair caps overhang, hence the wider .wi margin) */
   .w  { display:inline-block; opacity:0; margin-right:0.32em;
         animation-name:wIn; animation-timing-function:cubic-bezier(.2,.7,.3,1); animation-fill-mode:both; }
   .wi { display:inline-block; opacity:0; margin-right:0.45em;
@@ -199,7 +199,7 @@ the sticker (C=5 → 57px; avail = 2080−1680 = 400 → popMs 320). m=8 → k=6
   each keeping its own verbatim delay.
 - Words accumulate — every structure HOLDS at full opacity until the cue gate cuts the beat. No
   fade-outs anywhere; each phrase owns its slot, nothing turn-takes.
-- Spans stay `display:inline-block`; slot line-height stays 1.3 (shear headroom for the animating spans).
+- Spans stay `display:inline-block`; slot line-height stays 1.3 (descender headroom for the animating spans).
 
 ## 5. EMPHASIS
 
@@ -250,7 +250,6 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
   rotate; capacity lives in the sizing tables, not the geometry.
 - The sticker pop is scale-only on the INNER paper/word — never animate the `.stkr` box, never add
   opacity to `pop`, never put a transform animation on an ancestor of the word spans.
-- No `var()` in transforms/keyframes; no `vw` font sizes; no flex anywhere; no animated color or blur;
-  single-value `border-radius` only (none is used here).
+- No flex anywhere; no animated color or blur; single-value `border-radius` only (none is used here).
 - Never read the video frames, never run ffmpeg checks — `--verify` is the only self-check.
 - No redesign after a render or verify failure — only the mechanical fixes in section 6.

@@ -246,6 +246,6 @@ Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H}
 - No invented timing: every word `animation-delay` comes VERBATIM from `word-timings.json`; derived
   numbers only via the closed forms in sections 3–4. No fade-outs; the gate cuts each beat.
 - Never move a slot anchor, add slots, uppercase the words, or re-balance the scatter aesthetically.
-- Never animate `color` or `filter:blur`; never put `var()` in transforms or keyframes; no `vw` sizes.
+- Never animate `color` or `filter:blur`.
 - Never read the video frames, never run ffmpeg checks — `--verify` is the only self-check.
 - No redesign after a render or verify failure — only the mechanical fixes in section 6.

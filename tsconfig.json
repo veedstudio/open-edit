@@ -9,6 +9,13 @@
     "strict": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["node"]
-  }
+    "types": [
+      "node"
+    ]
+  },
+  "exclude": [
+    "runs",
+    "node_modules",
+    ".open-edit"
+  ]
 }
