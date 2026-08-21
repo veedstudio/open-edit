@@ -1,9 +1,8 @@
 // STATISTICS-NATIVE verdict resolver — scores WCAG AA/AAA run verdicts from the
-// analyzer's policy-free `contrast-statistics.json`. The statistics carry ONLY
-// the peak-plateau frames; each sampled peak frame is scored with ITS OWN fg /
-// font metrics against its own clusters, and the run passes a level iff EVERY
-// sampled peak frame clears that frame's threshold AND no peak frame is
-// unsampled. Unit-tested in tests/wcag-verdicts.test.ts.
+// analyzer's policy-free `contrast-statistics.json`. Scoring is per one-second
+// SLIDING WINDOW (windows.ts): a run passes a level iff EVERY window clears it
+// for EVERY foreground the text wore in that window, no window is unscorable,
+// and no peak frame is unsampled. Unit-tested in tests/wcag-verdicts.test.ts.
 //
 // Also home of the `contrast-statistics.json` consumer types (field names are
 // the analyzer's serialized output, schema version 1) and the template class
@@ -11,12 +10,15 @@
 
 import {
   compositeLuminance,
+  DEFAULT_BAR,
+  DEFAULT_MIN_LEAD_RATIO,
   effectiveThreshold,
   ratioFromLuminance,
   relativeLuminance,
   type Rgba,
   type Srgb8,
 } from "./policy.ts";
+import { scoreWindowWorst, slidingWindows, windowPasses, windowSize } from "./windows.ts";
 
 // ---------------------------------------------------------------------------
 // contrast-statistics.json shape.
@@ -108,41 +110,31 @@ export interface VerdictResult {
   indeterminateCount: number;
 }
 
-// Ratio of a frame's fg (composited at its own alpha) over one background
-// cluster — the same math as policy.ts's pooled loop, applied per frame.
-function frameClusterRatio(fg: Rgba, clusterColor: Srgb8): number {
-  const lBg = relativeLuminance(clusterColor);
-  const lFg = compositeLuminance(relativeLuminance(fg), fg.a, lBg);
-  return ratioFromLuminance(lFg, lBg);
-}
-
-// Worst cluster ratio on one frame; 0 when the frame sampled no clusters.
-function frameWorstRatio(f: FrameStat): number {
-  let worst = Infinity;
-  for (const cl of f.clusters) {
-    const ratio = frameClusterRatio(f.fg, cl.color);
-    if (ratio < worst) worst = ratio;
-  }
-  return f.clusters.length === 0 ? 0 : worst;
-}
-
-// Per-element verdict: every sampled peak frame must clear its OWN per-frame
-// threshold (frame fg + frame font metrics), and any unsampled peak frame fails
-// the run outright (its background is unknown).
-function verdictFor(elt: ElementStat, minRatio: number | null): ElementVerdict {
-  const sampled = elt.frames.filter((f) => !f.unsampled);
+// Per-element verdict. Any unsampled peak frame fails the run outright (its
+// background is unknown).
+// Judged over one-second SLIDING windows, not per instant: a caption unreadable
+// for a second is a real failure, a single 200ms dip is sampling noise. Each
+// window answers to THE acceptability predicate (optionWithinBar), the same one
+// the solver and the credited evaluation use — so a rung can no longer be
+// offered that this verdict then rejects.
+function verdictFor(elt: ElementStat, minRatio: number | null, k: number): ElementVerdict {
+  const windows = slidingWindows(elt, k);
   const anyUnsampled = elt.frames.some((f) => f.unsampled) || (elt.unsampled_frames?.n ?? 0) > 0;
-  if (elt.indeterminate || sampled.length === 0) {
+  if (elt.indeterminate || windows.length === 0) {
     return { id: elt.id, aa: false, aaa: false, indeterminate: elt.indeterminate, worstFrameRatio: 0 };
   }
   let worst = Infinity;
   let aa = !anyUnsampled;
   let aaa = !anyUnsampled;
-  for (const f of sampled) {
-    const w = frameWorstRatio(f);
-    if (w < effectiveThreshold("AA", f.font_size, f.font_weight, minRatio)) aa = false;
-    if (w < effectiveThreshold("AAA", f.font_size, f.font_weight, minRatio)) aaa = false;
-    if (w < worst) worst = w;
+  for (const w of windows) {
+    const rAA = effectiveThreshold("AA", w.fontSize, w.fontWeight, minRatio);
+    const rAAA = effectiveThreshold("AAA", w.fontSize, w.fontWeight, minRatio);
+    // Every foreground the run wore in this window has to clear — a caption that
+    // changes colour mid-flight is judged with each colour it actually had.
+    const sAA = scoreWindowWorst(w, rAA, DEFAULT_MIN_LEAD_RATIO);
+    if (!windowPasses(sAA, DEFAULT_BAR)) aa = false;
+    if (!windowPasses(scoreWindowWorst(w, rAAA, DEFAULT_MIN_LEAD_RATIO), DEFAULT_BAR)) aaa = false;
+    if (sAA.worstRatio < worst) worst = sAA.worstRatio;
   }
   return { id: elt.id, aa, aaa, indeterminate: elt.indeterminate, worstFrameRatio: worst === Infinity ? 0 : worst };
 }
@@ -151,7 +143,8 @@ function verdictFor(elt: ElementStat, minRatio: number | null): ElementVerdict {
 // statistics. `minRatio` mirrors the analyzer's --min-ratio (null = level
 // thresholds only, the default).
 export function resolveVerdicts(statistics: Statistics, minRatio: number | null = null): VerdictResult {
-  const elements = statistics.elements.map((e) => verdictFor(e, minRatio));
+  const k = windowSize(statistics);
+  const elements = statistics.elements.map((e) => verdictFor(e, minRatio, k));
   return {
     elements,
     failingAA: elements.filter((e) => !e.aa).length,

@@ -1,6 +1,6 @@
 // One soundtrack out of many pieces.
 //
-// `mux-audio.sh` restores the SOURCE audio of a clip onto its render, which is the whole audio story a
+// `mux-audio.ts` restores the SOURCE audio of a clip onto its render, which is the whole audio story a
 // captioned run has. A film is not that: a 12-minute documentary carried 66 narration takes, 11 sound
 // effects and 6 music cues, and nothing in this repository could put them together — no `amix`, no
 // `adelay`, no concat anywhere. So the run hand-wrote its own, once, and threw it away.

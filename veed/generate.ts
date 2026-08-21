@@ -1,6 +1,6 @@
 // Generate source footage with VEED Fabric when the user has no video to caption.
 //
-//   1. Log in once:   node --import tsx veed/login.ts        (same token as transcription — no MCP connector)
+//   1. Log in once:   npx @veedstudio/openedit-cli login       (same token as transcription — no MCP connector)
 //   2. Confirm cost:  node --import tsx veed/generate.ts --script "..." --key my-run --workspace ws-id
 //   3. Spend + make:  node --import tsx veed/generate.ts --key my-run --yes        (NO --script here)
 //   4. If 3 broke:    node --import tsx veed/generate.ts --key my-run --resume     (collects, spends nothing)
@@ -36,7 +36,6 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { REPO_ROOT } from '../config.ts';
 import { runKeyOf } from '../pipeline/scripts/resolve-video.ts';
-import { VEED_ORIGIN } from './api.ts';
 import { assertSafeKey, assertSafeSessionId, describeValue, parseFlags } from './args.ts';
 import {
   chargeFileName, classifyChargeRecords, parseChargeRecord, sessionIdOfChargeFile,
@@ -49,7 +48,7 @@ import {
 } from './fabric.ts';
 import type { VeedHttp } from './api.ts';
 import { refreshingHttp } from './http.ts';
-import { DEFAULT_TOKEN_PATH, resolveToken } from './token-store.ts';
+import { resolveVeedToken } from './cli-token.ts';
 import {
   conservativeRate, DEFAULT_VOICE_RATES_PATH, parseVoiceRates, rateFor, rateRange, serializeVoiceRates,
   withObservation,
@@ -143,6 +142,19 @@ const PENDING_TTL_MS = 60 * 60_000;
 // Runs AFTER the credits are spent, so a stalled CDN connection must not hang forever on paid-for work:
 // generous enough for the whole transfer, finite so the process always ends. Same budget as veed/http.ts.
 const DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
+
+// A server-side `failed` verdict costs nothing (VEED does not charge a failed job), so a run re-submits a
+// fresh job rather than surrendering to a transient backend hiccup. The waits below sit BETWEEN attempts, so
+// three attempts wait twice; the last value is sticky if the array is ever shorter than the attempts.
+const MAX_GENERATION_ATTEMPTS = 3;
+const GENERATION_RETRY_BACKOFF_MS = [10_000, 20_000];
+
+// Matched on the code, never the message beside it: "Insufficient funds" is display copy and can be reworded.
+const INSUFFICIENT_CREDITS_CODE = 'insufficient_credits';
+
+function isTerminalGenerationFailure(e: FabricJobFailedError): boolean {
+  return e.code === INSUFFICIENT_CREDITS_CODE;
+}
 
 export function scriptHash(script: string): string {
   return createHash('sha256').update(script, 'utf8').digest('hex');
@@ -677,7 +689,7 @@ export async function run(args: Args, deps: GenerateDeps): Promise<RunResult> {
 
   const client = await deps.connect(async () => {
     const fresh = await deps.resolveAccessToken();
-    if (!fresh) throw new Error('VEED login is no longer valid; run: node --import tsx veed/login.ts');
+    if (!fresh) throw new Error('VEED login is no longer valid; run: npx @veedstudio/openedit-cli login');
     return fresh;
   });
 
@@ -853,73 +865,109 @@ export async function run(args: Args, deps: GenerateDeps): Promise<RunResult> {
   }
 
   // --- everything past this line spends real credits ---
-  // VEED exposes no per-job charge, so the balance either side of the create call is all there is — and it is
-  // only ever a WORKSPACE observation; the quote above is the figure this run reports.
-  const balanceBefore = await readBalance(client, workspaceId);
-  // Written BEFORE the charging call, deliberately: a create that times out, 502s or returns a truncated
-  // body has still moved the money, and a record written afterwards would not exist to say so (buying twice).
-  const charge = await acquireChargeSlot(deps, key, now());
-  const chargePath = chargePathFor(key, charge.sessionId);
-  const job = await createVideo(client, req, { readFileBytes: deps.readFileBytes });
-  // Now the charge is known to have landed AND has an id: the record can name the job --resume needs.
-  await deps.writeState(chargePath, `${JSON.stringify({ ...charge, phase: 'charged', jobId: job.jobId }, null, 2)}\n`);
-  // Closing balance taken HERE, not after the download: the balance is workspace-global, so the minutes of
-  // polling and downloading would let other spends land inside the measurement. Whether VEED debits at create
-  // or completion is unknown, so this reading is preferred only when it moved, with the post-download one as fallback.
-  const balanceAtCreate = await readBalance(client, workspaceId);
-  // The approval is spent the instant the charge lands, so it goes before anything that could still fail:
-  // a job that fails, times out or dies mid-download must not leave a "yes" behind that buys a second video.
-  await deps.removeState(pendingPath);
-  log(`[fabric] job ${job.jobId} started${job.durationSeconds ? ` (${job.durationSeconds.toFixed(1)}s of video)` : ''}`);
-  log(`[fabric] recorded at ${chargePath} — if this run is interrupted, collect it without paying again:\n  node --import tsx veed/generate.ts --key ${key} --resume`);
-
-  const spend: SpendRecord = {
-    jobId: job.jobId,
-    workspaceId,
-    workspaceName: workspace.name,
-    estimatedCredits: confirmation.estimatedCredits,
-    scriptChars: confirmation.script.length,
-    durationSeconds: job.durationSeconds,
-    assumedCharsPerSecond: rate,
-    chargedCredits: null,
-    observedWorkspaceDelta: null,
-    balanceBefore,
-    at: now(),
-  };
-  const spendPath = spendPathFor(key, charge.sessionId);
-  // Written at the charge and again below with the observed figure: a run that dies mid-download still spent
-  // the credits, and an audit trail that only appears on success hides the cases worth auditing.
-  await deps.writeState(spendPath, `${JSON.stringify(spend, null, 2)}\n`);
-
-  try {
-    return await collect(client, job.jobId, key, charge.sessionId, deps, log);
-  } finally {
-    let balanceAfter = balanceAtCreate;
-    let assessment = assessCharge(balanceBefore, balanceAtCreate, confirmation.estimatedCredits);
-    // The tight reading is credible only when it already CORROBORATES the quote; anything less — nothing
-    // moved, or only PART of the charge had landed — needs the completion read, the last chance to see a
-    // debit that settles late. The speech synthesis debits a couple of credits at create while the clip's
-    // credits settle at completion, so the early delta is routinely positive but far below the quote;
-    // stopping there would report that partial figure as "nothing credible" while the full charge settled
-    // unseen. 'ambiguous' is left alone: the early delta is already above the quote, and waiting only lets
-    // more concurrent movement pile onto a reading that is already untrustworthy.
-    if (assessment.kind === 'unmeasured') {
-      balanceAfter = await readBalance(client, workspaceId);
-      assessment = assessCharge(balanceBefore, balanceAfter, confirmation.estimatedCredits);
+  let lastFailure: FabricJobFailedError | undefined;
+  for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      const waitMs = GENERATION_RETRY_BACKOFF_MS[Math.min(attempt - 1, GENERATION_RETRY_BACKOFF_MS.length - 1)];
+      log(`[fabric] retry ${attempt + 1}/${MAX_GENERATION_ATTEMPTS} in ${Math.round(waitMs / 1000)}s (reason=${lastFailure?.reason ?? 'unknown'})`);
+      await deps.sleep(waitMs);
     }
-    spend.chargedCredits = assessment.kind === 'measured' ? assessment.delta : null;
-    spend.observedWorkspaceDelta = assessment.delta;
-    reportCharge(log, spend, assessment, balanceAfter);
-    if (spend.durationSeconds && spend.scriptChars) {
-      // The next quote for this voice is built from what this one actually did.
-      await deps.writeState(
-        DEFAULT_VOICE_RATES_PATH,
-        serializeVoiceRates(withObservation(rates, req.voiceId, spend.scriptChars / spend.durationSeconds)),
-      );
-    }
+
+    // VEED exposes no per-job charge, so the balance either side of the create call is all there is — and it
+    // is only ever a WORKSPACE observation; the quote above is the figure this run reports. Read per attempt
+    // so each attempt's record stands on its own.
+    const balanceBefore = await readBalance(client, workspaceId);
+    // Written BEFORE the charging call, deliberately: a create that times out, 502s or returns a truncated
+    // body has still moved the money, and a record written afterwards would not exist to say so (buying twice).
+    // A retry runs under a per-attempt session id so its charge/spend files sit BESIDE the failed attempt's,
+    // never on top of them — and so scanChargeRecords (which excludes the acquiring session's own record)
+    // still excludes THIS attempt. Only acquireChargeSlot reads deps.sessionId; the rest take it explicitly.
+    const attemptDeps: GenerateDeps = attempt === 0
+      ? deps
+      : { ...deps, sessionId: `${deps.sessionId}-r${attempt}` };
+    const charge = await acquireChargeSlot(attemptDeps, key, now());
+    const chargePath = chargePathFor(key, charge.sessionId);
+    const job = await createVideo(client, req, { readFileBytes: deps.readFileBytes });
+    // Now the charge is known to have landed AND has an id: the record can name the job --resume needs.
+    await deps.writeState(chargePath, `${JSON.stringify({ ...charge, phase: 'charged', jobId: job.jobId }, null, 2)}\n`);
+    // Closing balance taken HERE, not after the download: the balance is workspace-global, so the minutes of
+    // polling and downloading would let other spends land inside the measurement. Whether VEED debits at create
+    // or completion is unknown, so this reading is preferred only when it moved, with the post-download one as fallback.
+    const balanceAtCreate = await readBalance(client, workspaceId);
+    // The approval is consumed at the FIRST create and never re-read: the retries re-submit the same in-memory
+    // request, so a "yes" left on disk could only ever buy a SECOND, unrelated video. After the attempts are
+    // exhausted the run throws and a fresh confirm pass is required.
+    if (attempt === 0) await deps.removeState(pendingPath);
+    log(`[fabric] job ${job.jobId} started${job.durationSeconds ? ` (${job.durationSeconds.toFixed(1)}s of video)` : ''}`);
+    log(`[fabric] recorded at ${chargePath} — if this run is interrupted, collect it without paying again:\n  node --import tsx veed/generate.ts --key ${key} --resume`);
+
+    const spend: SpendRecord = {
+      jobId: job.jobId,
+      workspaceId,
+      workspaceName: workspace.name,
+      estimatedCredits: confirmation.estimatedCredits,
+      scriptChars: confirmation.script.length,
+      durationSeconds: job.durationSeconds,
+      assumedCharsPerSecond: rate,
+      chargedCredits: null,
+      observedWorkspaceDelta: null,
+      balanceBefore,
+      at: now(),
+    };
+    const spendPath = spendPathFor(key, charge.sessionId);
+    // Written at the charge and again below with the observed figure: a run that dies mid-download still spent
+    // the credits, and an audit trail that only appears on success hides the cases worth auditing.
     await deps.writeState(spendPath, `${JSON.stringify(spend, null, 2)}\n`);
-    log(`[fabric] spend recorded at ${spendPath}`);
+
+    // Closes this attempt's charge audit against the balance. Only reached for a job that was actually
+    // charged — a success, or a timeout/transport failure whose credits are gone and which --resume collects.
+    const finalizeCharge = async (): Promise<void> => {
+      let balanceAfter = balanceAtCreate;
+      let assessment = assessCharge(balanceBefore, balanceAtCreate, confirmation.estimatedCredits);
+      // The tight reading is credible only when it already CORROBORATES the quote; anything less — nothing
+      // moved, or only PART of the charge had landed — needs the completion read, the last chance to see a
+      // debit that settles late. The speech synthesis debits a couple of credits at create while the clip's
+      // credits settle at completion, so the early delta is routinely positive but far below the quote;
+      // stopping there would report that partial figure as "nothing credible" while the full charge settled
+      // unseen. 'ambiguous' is left alone: the early delta is already above the quote, and waiting only lets
+      // more concurrent movement pile onto a reading that is already untrustworthy.
+      if (assessment.kind === 'unmeasured') {
+        balanceAfter = await readBalance(client, workspaceId);
+        assessment = assessCharge(balanceBefore, balanceAfter, confirmation.estimatedCredits);
+      }
+      spend.chargedCredits = assessment.kind === 'measured' ? assessment.delta : null;
+      spend.observedWorkspaceDelta = assessment.delta;
+      reportCharge(log, spend, assessment, balanceAfter);
+      if (spend.durationSeconds && spend.scriptChars) {
+        // The next quote for this voice is built from what this one actually did.
+        await deps.writeState(
+          DEFAULT_VOICE_RATES_PATH,
+          serializeVoiceRates(withObservation(rates, req.voiceId, spend.scriptChars / spend.durationSeconds)),
+        );
+      }
+      await deps.writeState(spendPath, `${JSON.stringify(spend, null, 2)}\n`);
+      log(`[fabric] spend recorded at ${spendPath}`);
+    };
+
+    try {
+      const result = await collect(client, job.jobId, key, charge.sessionId, deps, log);
+      await finalizeCharge();
+      return result;
+    } catch (e) {
+      // Closed against the balances actually read: a zero asserted here would deny the synthesis debit.
+      await finalizeCharge();
+      if (e instanceof FabricJobFailedError) {
+        lastFailure = e;
+        // A timeout may already have consumed what it billed for; a refusal did not.
+        if (e.timedOut || isTerminalGenerationFailure(e)) throw e;
+        continue;
+      }
+      // Transport and client-side timeouts may still be finishing on a paid job, so --resume collects them.
+      throw e;
+    }
   }
+  // All attempts returned the server's `failed` verdict without one that a re-submit could fix.
+  throw lastFailure ?? new Error(`Fabric generation failed after ${MAX_GENERATION_ATTEMPTS} attempts`);
 }
 
 // Saying nothing about cost is never acceptable, nor is a number the run cannot stand behind. VEED gives no
@@ -1027,8 +1075,9 @@ async function collect(
       onProgress: (attempt, status) => log(`[fabric] poll ${attempt + 1}: ${status}`),
     });
   } catch (e) {
-    // A job the SERVER declared dead is unrecoverable and needs a fresh approval, which a lingering record
-    // would block forever; every other failure may still finish server-side, so its record stays for --resume.
+    // A job the server declared failed is terminal and (unlike a timeout) was not charged: resolving its
+    // charge record frees the run to re-submit under a fresh slot, which a lingering record would block
+    // forever. Every other failure may still finish server-side, so its record stays for --resume to collect.
     if (e instanceof FabricJobFailedError) await resolveChargeRecord(deps, key, sessionId, now());
     throw e;
   }
@@ -1052,10 +1101,10 @@ function noTokenHelp(): void {
     [
       'No VEED login found. Log in with VEED:',
       '',
-      '  node --import tsx veed/login.ts',
+      '  npx @veedstudio/openedit-cli login',
       '',
-      'It opens your browser once and stores a refreshable token, owner-only, at',
-      `  ${DEFAULT_TOKEN_PATH}`,
+      'It opens your browser once and stores a refreshable token, owner-only, in the',
+      "CLI's app-data directory (npx @veedstudio/openedit-cli token --path prints where).",
       '',
       'The same login covers both transcription and Fabric generation.',
     ].join('\n'),
@@ -1064,12 +1113,7 @@ function noTokenHelp(): void {
 
 export function realDeps(): GenerateDeps {
   return {
-    resolveAccessToken: () =>
-      resolveToken({
-        envToken: process.env.VEED_ACCESS_TOKEN,
-        tokenPath: DEFAULT_TOKEN_PATH,
-        expectedOrigin: VEED_ORIGIN,
-      }),
+    resolveAccessToken: resolveVeedToken,
     // Resolved per request, so a token refresh mid-poll is picked up without reconnecting.
     connect: async (getToken) => refreshingHttp(getToken),
     readFileBytes: async (path) => new Uint8Array(await readFile(path)),

@@ -12,7 +12,7 @@
 //
 // The concat demuxer copies streams rather than re-encoding, which is what keeps a twelve-minute film
 // from being transcoded once per assembly. It requires every part to share codec parameters — the
-// engine renders them identically and `mux-audio.sh` encodes aac for all of them, so they do. That
+// engine renders them identically and `mux-audio.ts` encodes aac for all of them, so they do. That
 // requirement is checked rather than assumed: a mismatch here produces a file that plays for one
 // chapter and then glitches, which is the kind of defect nobody sees until the whole thing is watched.
 import { execFileSync } from 'node:child_process';

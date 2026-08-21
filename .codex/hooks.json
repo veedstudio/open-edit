@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/skills/open-edit/hooks/session-start.sh codex",
+            "command": "node \".claude/skills/open-edit/hooks/session-start.mjs\" codex",
             "statusMessage": "Checking Open Edit setup"
           }
         ]

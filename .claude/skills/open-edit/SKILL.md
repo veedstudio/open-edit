@@ -75,7 +75,7 @@ bars. The user asked for clean captions; say you're on it, then deliver.
   language: what it means for their video, not exit codes.
 
 ## PREFLIGHT — ALWAYS run at session start
-An installed skill contains this file plus `scripts/preflight.sh`; the full runtime may not exist yet.
+An installed skill contains this file plus `scripts/preflight.mjs` and its `scripts/platform.mjs` (`scripts/preflight.sh` is the macOS shim that bootstraps Node); the full runtime may not exist yet.
 Resolve **SKILL_ROOT** as the directory containing this `SKILL.md`. Then resolve **WORKSPACE** by the first
 rule that applies:
 
@@ -90,11 +90,11 @@ absolute path from WORKSPACE before changing working directories.
 
 At the start of EVERY session, before doing Open Edit work, run:
 ```
-bash "$SKILL_ROOT/scripts/preflight.sh" --dry --workspace "$WORKSPACE"
+node "$SKILL_ROOT/scripts/preflight.mjs" --dry --workspace "$WORKSPACE"
 ```
 Then run bare preflight to perform all safe, first-time workspace-local setup automatically:
 ```
-bash "$SKILL_ROOT/scripts/preflight.sh" --workspace "$WORKSPACE"
+node "$SKILL_ROOT/scripts/preflight.mjs" --workspace "$WORKSPACE"
 ```
 This installs the project-local SessionStart hooks, performs the first full runtime clone, installs pinned
 repository dependencies, and installs the renderer when their prerequisites already exist. It is idempotent.
@@ -104,7 +104,7 @@ applied by bare preflight. If `--dry` or bare preflight prints `APPROVAL REQUIRE
 action to the user and wait for an explicit affirmative response. Only when the user approves ALL reported
 actions may you run:
 ```
-bash "$SKILL_ROOT/scripts/preflight.sh" --auto-approve --workspace "$WORKSPACE"
+node "$SKILL_ROOT/scripts/preflight.mjs" --auto-approve --workspace "$WORKSPACE"
 ```
 `--auto-approve` means the user agreed to every currently proposed global install and clean update. Never infer
 approval from the original render request. If the user approves only selected actions, perform only those exact
@@ -132,8 +132,9 @@ file, so a run with no video simply has no subject for them — see INPUTS: auth
 `--record` are unchanged.
 
 ### PREFLIGHT — completed above  · SCRIPT
-Do not run a second dependency implementation. `pipeline/scripts/preflight.sh` is only a compatibility wrapper
-around the skill-bundled preflight. The provider choice — and any sign-in or install it implies —
+Do not run a second dependency implementation. `pipeline/scripts/preflight.mjs` (and its `.sh` twin) is only a compatibility wrapper
+around the skill-bundled preflight. If `node` itself is missing, treat installing it as an APPROVAL REQUIRED action
+(macOS: `brew install node` — the shim reports this itself; Windows: `winget install --id OpenJS.NodeJS.LTS`). The provider choice — and any sign-in or install it implies —
 remains the interactive PREP step.
 
 ### FOOTAGE — a video to work from, generate one, or none  · SCRIPT (only when the user brought none; runs before PREP)
@@ -288,13 +289,19 @@ Never let a run that spent credits end silently about cost.
 directory under `runs/`, so it must match letters, digits, `.`, `-`, `_` only, and may not be `.`, `..`,
 or start with `-` (see `assertSafeKey` in `veed/generate.ts`).
 
-**AFTER THE MONEY IS GONE.** The charge lands the moment the job is created, so nothing past that point is
-ever retried automatically. Every attempt records itself at `runs/<key>/.fabric-charge-<sessionId>.json`
-BEFORE it calls VEED, so an attempt that never came back is still visible. Three outcomes, and they are NOT
-the same:
-- **Generation FAILED** (VEED reports the job failed) — report plainly what VEED said. Do NOT re-run `--yes`
-  to "retry": a retry is a SECOND charge for the same script. A fresh attempt needs a fresh confirm pass and
-  a fresh explicit yes from the user; the dead job blocks nothing.
+**AFTER THE MONEY IS GONE.** A charge lands the moment a job is CREATED, and a job that was charged is never
+re-charged automatically. A generation VEED REFUSES is the exception: its generation half is not billed, so
+`generate.ts` re-submits a few times with backoff before giving up — you never do that by hand. A re-submit is
+not free, though: the speech synthesis is billed ahead of the generation on every attempt, so a run that
+failed several times still cost something. Report the figures the run prints; never call a failed run free.
+It does not re-submit a generation the server TIMED OUT (that one may already have consumed what it billed
+for), nor one refused for want of credits. Every attempt records itself at
+`runs/<key>/.fabric-charge-<sessionId>.json` BEFORE it calls VEED, so an attempt that never came back is still
+visible. Three outcomes, and they are NOT the same:
+- **Generation FAILED** (VEED refused it, and the built-in re-submits are exhausted or the cause was one no
+  re-submit could clear) — report plainly what VEED said, including the reason it now prints, and report what
+  each attempt recorded as spent. Do NOT re-run `--yes` to "retry" it yourself: a further attempt needs a
+  fresh confirm pass and a fresh explicit yes. The dead job blocks nothing.
 - **The run was interrupted** (transport blip, polling died, download stalled, closed laptop) — the video is
   already PAID FOR and nothing needs approving. Collect it with
   `node --import tsx veed/generate.ts --key <key> --resume`, which polls, downloads and spends NOTHING.
@@ -438,7 +445,7 @@ one you took — they can switch later. Never record `whisperx` with no tier.
   Python tool — the install pulls in PyTorch and the first run downloads a model, so expect a slow first
   pass and around 2 GB of disk. It goes in its own isolated environment, not your system Python and not
   this project, and `uv tool uninstall whisperx` removes it again. Install it now?" On yes run
-  `bash pipeline/scripts/install-whisperx.sh` and stream its output.
+  `node pipeline/scripts/install-whisperx.mjs` and stream its output.
 - **custom** → the user's service is yours to drive: get a Whisper-family JSON out of it (their MCP,
   their CLI, their API — their credentials, never handled here), then
   `node --import tsx prep/whisper.ts <json> <video>` — one json per video, repeated in pairs for a
@@ -490,13 +497,13 @@ provider" means rewrite that file.
 LOGIN (if `go.ts` says "No VEED login found"): OAuth needs the user to authenticate in a browser once,
 but you (the agent) launch it — do NOT just tell the user to run a command. Preferred flow (refreshable
 token, ~30-day):
-- Run `node --import tsx veed/login.ts` in the background — it starts a local catcher, prints an
-  authorize URL, and OPENS THAT URL IN THE USER'S BROWSER ITSELF (`execFile('open', …)`). You open
+- Run `npx @veedstudio/openedit-cli login` in the background — it starts a local catcher, prints an
+  authorize URL, and OPENS THAT URL IN THE USER'S BROWSER ITSELF (the platform's own opener). You open
   nothing: watch its output for `Logged in.` and meanwhile tell the user a VEED login tab has opened
   and to click "Allow" if a consent screen appears (usually it auto-approves — they're likely already
   signed into veed.io). The browser redirects to `http://127.0.0.1:8977/callback`, the running
-  login.ts catches it, and stores the token. No pasting needed. If this box has no browser `open` can
-  reach (headless/SSH), use `VEED_LOGIN_MANUAL=1 …` instead and paste the redirected URL back to it.
+  login command catches it, and stores the token. No pasting needed. If this box has no browser `open` can
+  reach (headless/SSH), add `--manual` instead and paste the redirected URL back to it.
 - If the OAuth flow misbehaves, re-run it. NEVER read the user's browser cookies or local storage
   to obtain a token, and never ask them to paste one out of DevTools.
 
@@ -740,7 +747,7 @@ Route by the SHAPE of the run (the SAMPLE ONE STYLE script's output + the creati
   to route on. Write `runs/<key>/design/system.json` first (this path authors from scratch, so it needs
   a system as much as face-1 — `groundedIn` names whatever the run's own facts are: the brief, a script,
   a shot list), author per `director-brief.md` with the canvas and duration from the ask, then run
-  `bash pipeline/scripts/gates.sh runs/<key> --no-probe --no-mux` — no source footage to diff frames
+  `node --import tsx pipeline/scripts/gates.ts runs/<key> --no-probe --no-mux` — no source footage to diff frames
   against, and no source track to restore. If the run HAS a built soundtrack, pass
   `--audio runs/<key>/audio/mix.m4a` instead of `--no-mux`. A footage-free run is as supported as any
   other; what it lacks is a source file to derive from, not a path through this step. Place pictures
@@ -749,7 +756,7 @@ Route by the SHAPE of the run (the SAMPLE ONE STYLE script's output + the creati
   reference them by name rather than inlining them.
 
 **A. COMPILED RECIPE (`hasRecipe:true`)** — the recipe did the design thinking offline; code does the
-assembly. Run (OUTSIDE any sandbox — the engine needs the window-server):
+assembly. Run (OUTSIDE any sandbox — the engine needs a real desktop session):
 ```
 node --import tsx pipeline/scripts/generate-recipe.ts --run runs/<key> --record
 ```
@@ -875,7 +882,7 @@ Hold the system across all beats; vary scale/composition per beat; escalate hook
 z-index>=1 + a UNIQUE `id` e.g. id="cap3" — see the opacity trap; the id makes --verify name the element in
 its failure lines; each caption visible only in its cue window) +
 {repo}/runs/{key}/final/manifest.json {"render":{"width":W,"height":H,"fps":FPS,"duration":durationSec}}.
-RENDER + VERIFY (OUTSIDE any sandbox — needs the window-server; binary = {repo}/.veed-engine/veed-engine-cli, NOT on PATH):
+RENDER + VERIFY (OUTSIDE any sandbox — needs a real desktop session; binary = {repo}/.veed-engine/veed-engine-cli — veed-engine-cli.exe on Windows — NOT on PATH):
   DESIGN GATE (mechanical, no engine): node --import tsx {repo}/pipeline/scripts/design-gate.ts {repo}/runs/{key}
      — reads every .wv in the run back against design/system.json: a font, size, tracking, colour or
      easing the system does not declare is an error, as is a donor id that is not a real ref. Exit 1 →
@@ -903,42 +910,55 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs the window-server; binary = {repo
      DETECTS and REPORTS; it NEVER silently changes colours — the human chooses.
        node --import tsx {repo}/pipeline/scripts/wcag-pass.ts --run {repo}/runs/{key}
      It samples the REAL rendered background behind every caption, checks WCAG AA contrast, writes
-     final/contrast-statistics.json (the policy-free statistics the verdicts and the recommendation
-     studio are computed from), and STOPS. It prints `status: pass|attention` plus EXHAUSTIVE `review:`
-     disposition lines (will fix / no colour satisfies / halo recommended / indeterminate — report these
-     honestly). Exit 1 = tooling missing or crashed (fix the environment; see config.ts WCAG_* vars) —
-     not a design failure.
+     final/contrast-statistics.json (the policy-free statistics the verdicts and the proposals are
+     computed from), and STOPS. It prints `status: pass|attention` plus ONE `propose:` line per failing
+     CLASS. Exit 1 = tooling missing or crashed (fix the environment: the engine carries the analyzer,
+     so install or update it with pipeline/scripts/install-veed-engine.mjs) — not a design failure.
+     ONE REMEDIATION PER CLASS: every text of a class takes the SAME fix, solved at the class's common
+     denominator, so a class is the unit the user chooses at. Each line offers up to three rungs,
+     RECOMMENDED FIRST — `colour` (only when one colour covers the whole class), `shadow` (a solved
+     recipe, not a guess: either a SOFT stack printed as `x{layers} @ {blur}px`, or a HARD faux-outline
+     ring printed as `{directions}-way @ {offset}px` when no soft stack reaches AA), `background` (text
+     anchored to black/white on a solid plate). When no colour covers the class the line SAYS SO and
+     offers only shadow and background; when nothing reaches AA it says that too. Say `background` to the user as "a solid box" — the rung NAMES are the choice file's
+     own values, so copy them across verbatim and never translate one into another word.
      - `status: pass` → all caption text clears AA. Note it and move on.
-     - `status: attention` → some caption text has low contrast. Tell the user in PLAIN PRODUCT TERMS:
-       how many of how many text elements fail, and the worst offenders (from the `review:` lines). Then
-       ASK which of these to do — do NOT pick for them, do NOT silently apply:
-         (a) OPEN THE RECOMMENDATION STUDIO — curated, clickable colour/design options to choose from. It
-             is served by the preview server (the PREVIEW step) at the /wcag/ route — if that server is
-             running, open `http://127.0.0.1:<port>/wcag/` for the user (the port from the `preview:`
-             line); only if no preview server is up, generate the static page instead:
-               node --import tsx {repo}/pipeline/scripts/wcag/recommend.ts --run {repo}/runs/{key}
-             (writes runs/{key}/final/wcag-recommendations.html — open that file).
-             When the user CLICKS a choice, the studio writes runs/{key}/final/wcag-choice.json
-             ({"schema":1,"chosen":[{level,group,kind:"colour"|"shadow"|"outline"|"background",hex,backingHex?,selector?}]}).
-             READ that file to tell the user what they picked, then run the apply step (b) — a clicked
-             choice always takes effect (wcag-pass sees the file and drives the applier with it).
-             CHAT IS AN EQUAL PATH: if the user says what they want in words ("apply the AA corpus colour",
-             "add a shadow halo behind the caption" → kind:"shadow"), WRITE the same wcag-choice.json shape
-             yourself, then apply.
-         (b) APPLY — promoted only on MEASURED improvement:
-               node --import tsx {repo}/pipeline/scripts/wcag-pass.ts --run {repo}/runs/{key} --apply
-             With a runs/{key}/final/wcag-choice.json present, --apply drives the applier from that explicit
-             choice (colour / shadow / outline / background backing) and ALWAYS runs it; with NO choice file it falls
-             back to the automatic hue-preserving colour set (value/saturation shift only, design identity
-             kept), applied only where a colours-only fix is applicable. FINAL IS FINAL — no sibling dirs,
-             no video artifacts; on promotion the remediated template becomes runs/{key}/final/template.wv
-             and the file artifacts land inside final/: template.draft.wv (pre-remediation original),
-             template.draft.wcag-remediated.wv (the remediation output), template.final.wv (clone of
-             the shipping template on promotion), wcag-remediation.css (per-rule evidence),
-             wcag-remediation-plan.json, contrast-statistics{,.remediated}.json. After promoting it re-runs
-             --verify on final/ itself, and prints `status: pass|remediated|not-improved|residual` + the
-             same EXHAUSTIVE `review:` lines.
-         (c) LEAVE AS-IS — record the original unchanged.
+     - `status: attention` → some caption text is below AA. Speak it in PLAIN PRODUCT TERMS, briefly,
+       for someone who does not know what a CSS class is. Head it `Text contrast audit — target rating:
+       WCAG AA`, give the count, then ONE line per class: the class label (the `propose:` selector with
+       its `.`/`#` dropped, `-`/`_`/`.` turned into spaces, sentence-cased — `.caption-emph` reads as
+       "Caption emph"), the recommended rung, and the alternatives in passing. Then close on exactly
+       THREE choices, and do NOT pick for them:
+         Apply    make these changes
+         Ignore   record the video unchanged
+         Adjust   name a different option
+       - APPLY or ADJUST → WRITE runs/{key}/final/wcag-choice.json yourself from what they said
+         ({"schema":1,"chosen":[{level:"AA",selector,kind:"colour"|"shadow"|"background",hex,backingHex?,recipe?}]};
+         `selector` is the class key from the `propose:` line COPIED VERBATIM, one entry per class,
+         `backingHex` required for `background`, `recipe` carried VERBATIM from the offered shadow —
+         `{style:"soft",layers,blur}` or `{style:"hard",directions,offset}`, never converted between the
+         two), then run the
+         apply step. A selector naming no text in the template ABORTS the apply step and lists the valid
+         keys — so copy them, never invent or reformat one. On ADJUST keep the classes they did not
+         mention on their recommended rung.
+       - IGNORE → record the original unchanged; write nothing.
+     - APPLY STEP — a chosen option ALWAYS takes effect:
+         node --import tsx {repo}/pipeline/scripts/wcag-pass.ts --run {repo}/runs/{key} --apply
+       With a runs/{key}/final/wcag-choice.json present, --apply drives the applier from that explicit
+       choice (colour / shadow / background box) and ALWAYS runs it, promoting unconditionally; with NO
+       choice file it falls back to the automatic hue-preserving colour set (value/saturation shift only,
+       design identity kept), applied only where a colours-only fix covers a whole class and promoted only
+       on MEASURED improvement. FINAL IS FINAL — no sibling dirs,
+       no video artifacts; on promotion the remediated template becomes runs/{key}/final/template.wv
+       and the file artifacts land inside final/: template.draft.wv (pre-remediation original),
+       template.draft.wcag-remediated.wv (the remediation output), template.final.wv (clone of
+       the shipping template on promotion), wcag-remediation.css (per-rule evidence),
+       wcag-choice.resolved.json (the chosen class keys resolved to the element ids actually styled),
+       wcag-remediation-plan.json, contrast-statistics.json. SAMPLING HAPPENS ONCE, in the detect run:
+       a decoration is painted OVER the footage, so its effect is COMPUTED against those same samples
+       and the remediated render is never re-sampled. After promoting it re-runs
+       --verify on final/ itself, and prints `status: pass|remediated|not-improved|residual` + the
+       same per-class `review:` lines.
   RECORD the deliverable — ONLY after --verify is clean, always FROM runs/{key}/final (whatever the
      user chose in the WCAG PASS already lives in final/template.wv — the untouched original, or an
      --apply promotion). --verify and --record are mutually exclusive, so this is a
@@ -952,7 +972,7 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs the window-server; binary = {repo
 OUTPUT: {repo}/runs/{key}/final/{template.wv, manifest.json, out.silent.mp4}.
 THEN (same turn, no pause): note the locked system so you can describe the delivered look in plain
 terms (aesthetic, fonts, palette, device — not gate status), note the wcag status (pass / attention with
-what the user chose — recommendation studio, --apply's remediated palette shift, or leave-as-is), and
+what the user chose — Apply, Ignore, or an Adjust), and
 continue straight to probe-qa + mux.
 ```
 
@@ -973,23 +993,23 @@ write `runs/<key>-remix/design/system.json` FIRST (a remix authors a document fr
 its own system exactly as face-1 does — copy the original's and change what the brief asks to change,
 naming the donors in `donors`), then author
 `runs/<key>-remix/final/{template.wv, manifest.json}` per `director-brief.md` REMIX MODE, then run the
-whole chain with one command (OUTSIDE any sandbox — verify and record need the window-server):
-  `bash pipeline/scripts/gates.sh runs/<key>-remix`
+whole chain with one command (OUTSIDE any sandbox — verify and record need a real desktop session):
+  `node --import tsx pipeline/scripts/gates.ts runs/<key>-remix`
 It runs design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, stops at the first failure and names
 the gate. A `--verify` failure: fix ONLY the flagged element and re-run, at most twice, then stop and
 report honestly. A probe-qa failure: report it in plain terms and pick the fix WITH the user — never
 redesign. The deliverable lands next to the original, and the user compares.
 The WCAG AA pass runs INSIDE that chain, before the record — do not run it again afterwards. It DETECTS
 and REPORTS only; the chain does not pause and does not apply anything. On `status: attention` the
-route is exactly the main flow's WCAG PASS, and a remix gets the whole of it: tell the user in plain
-product terms how many text elements fail and the worst offenders, then ASK — the recommendation studio
-(the preview server's `/wcag/` route, or `wcag/recommend.ts` when no server is up), a choice written to
-`final/wcag-choice.json` either by a click or by you from what they said in words, `wcag-pass.ts --apply`
-to act on it, or leave it as-is. Never pick for them. After an apply, re-run the chain so the record is
-made from the promoted template.
+route is exactly the main flow's WCAG PASS, and a remix gets the whole of it: the `Text contrast audit
+— target rating: WCAG AA` heading, the count, and one line per class from the `propose:` lines with
+humanised labels, closing on the same three choices (Apply / Ignore / Adjust). On Apply or Adjust write
+`runs/<key>-remix/final/wcag-choice.json` yourself from what they said and run
+`… wcag-pass.ts --run runs/<key>-remix --apply`; on Ignore leave it as-is. Never pick for them. After an
+apply, re-run the chain so the record is made from the promoted template.
 
 ### MUX AUDIO — restore the soundtrack  · SCRIPT
-the engine renders video only. When the run's audio IS the source clip's, `bash pipeline/scripts/mux-audio.sh runs/<key>` muxes it onto
+the engine renders video only. When the run's audio IS the source clip's, `node --import tsx pipeline/scripts/mux-audio.ts runs/<key>` muxes it onto
 `final/out.silent.mp4` → **`runs/<key>/final/out.mp4`** (the deliverable). `-map 1:a:0?` tolerates a source with
 no audio track, and the deliverable takes the PICTURE's length, so a built mix shorter than the render cannot truncate it. Deliver `out.mp4` to the user — this is the FIRST
 moment the run is presented as done (never announce the silent render or muxing separately).
@@ -1003,7 +1023,7 @@ piece — write `runs/<key>/audio/mix.json`, build the track, and mux THAT:
 ```
 ```
 node --import tsx pipeline/scripts/mix-audio.ts runs/<key>          # → runs/<key>/audio/mix.m4a
-bash pipeline/scripts/mux-audio.sh runs/<key> --audio runs/<key>/audio/mix.m4a
+node --import tsx pipeline/scripts/mux-audio.ts runs/<key> --audio runs/<key>/audio/mix.m4a
 ```
 `durationSec` is required and is the FILM's length — anything past it is trimmed, so one long cue
 cannot lengthen the deliverable. A bed marked `duck` is opened by the voice itself rather than by a
@@ -1020,7 +1040,9 @@ immediately:
 (OUTSIDE the sandbox because recursive fs.watch needs FSEvents, which the sandbox's filesystem
 interception blocks; if launched sandboxed anyway, the server falls back to 2s polling.)
 It prints `preview: http://127.0.0.1:<port>/` and opens the user's browser (VEED_PREVIEW_NO_OPEN=1 to
-just print). NEVER set VEED_PREVIEW_NO_OPEN yourself — the auto-open IS the live-preview experience, on
+just print). It also writes the URL to `runs/<key>/preview.url` — read that file when the background
+launcher does not surface the child's stdout (removed again on clean shutdown, so a present file is a
+live server). NEVER set VEED_PREVIEW_NO_OPEN yourself — the auto-open IS the live-preview experience, on
 EVERY path (recipe and creative alike); suppress it only when the user explicitly asks for no browser.
 Share the URL with the user in one line. The preview is READ-ONLY in V1; transcript changes go through
 YOU in chat, not the page. The page live-updates (when user requests amends) off the run dir as later
@@ -1039,10 +1061,10 @@ Kill the server(s) when the session wraps up.
 - **variety / bold-broadcast** (good for 16:9 landscape): "loud broadcast / sports-lower-third energy; big type in the landscape thirds; heavy effects."
 
 ## Gotchas
-- veed-engine-cli is checked by PREFLIGHT — keep it current via `bash pipeline/scripts/install-veed-engine.sh`; macOS-arm64 binary. Older builds lose features (e.g. pre-0.3 = no shadows = major degrade).
+- veed-engine-cli is checked by PREFLIGHT — keep it current via `node pipeline/scripts/install-veed-engine.mjs`; macos-arm64 / windows-x64 binary. Older builds lose features (e.g. pre-0.3 = no shadows = major degrade).
 - Sandbox: PREP (veed/go.ts) needs network egress to `*.veed.io` — a sandboxed
   `fetch failed` there means the sandbox blocked the call; re-run it outside the sandbox. The DESIGN + RENDER step's
-  engine `--verify`/`--record` always runs OUTSIDE the sandbox (it needs the window-server).
+  engine `--verify`/`--record` always runs OUTSIDE the sandbox (it needs a real desktop session — the window-server on macOS).
 - Recipes are COMPILED CODE (`refs/html/<id>/recipe.ts` over the shared `pipeline/recipes/lib.ts`),
   authored + validated OFFLINE, one-time per ref (derived from the ref's prose sheet
   `refs/html/<id>/recipe.md` — which doubles as the creative pass's craft-substrate/donor material) —
@@ -1057,9 +1079,9 @@ Kill the server(s) when the session wraps up.
 - The preview server (PREVIEW) is loopback-only and additive — if its default port 8978 is busy (an
   orphan from a dead session), it self-selects an ephemeral port; trust the URL it prints.
 - TRANSCRIPTION WARNINGS (local provider) — read them precisely, same discipline as the font rules below.
-  A WhisperX run prints a wall of `Could not load libtorchcodec`, `dlopen` failures and
+  A WhisperX run on macOS prints a wall of `Could not load libtorchcodec`, `dlopen` failures and
   `Library not loaded: @rpath/libavutil.<N>.dylib` for several FFmpeg majors, plus a Lightning
-  checkpoint-upgrade notice. Those are pyannote probing FFmpeg builds it cannot find and are HARMLESS —
+  checkpoint-upgrade notice (Windows builds print an equivalent DLL-probing wall). Those are pyannote probing FFmpeg builds it cannot find and are HARMLESS —
   they look fatal and are not. The signal that transcription actually worked is the line
   `[transcribe] whisperx: <N> words -> <path>`: if it appears, the transcript is written and you continue.
   If it does NOT appear, the run failed for a real reason — read the last error, not the dlopen wall.

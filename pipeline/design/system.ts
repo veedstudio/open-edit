@@ -147,10 +147,10 @@ export function runHasFootage(runDir: string): boolean {
       );
     }
   }
-  // The run's own products are not footage. `gates.sh` records `<doc>/out.silent.mp4` and copies it to
-  // `<doc>/out.mp4`, both of which the walk reached — so a graphics-only run passed the gate, rendered,
+  // The run's own products are not footage. The gate chain records `<doc>/out.silent.mp4` and copies it
+  // to `<doc>/out.mp4`, both of which the walk reached — so a graphics-only run passed the gate, rendered,
   // and then failed every gate after it demanding a subject be measured in footage it never had.
-  // `out.tmp.mp4` is what mux-audio.sh writes before its rename; a mux that dies leaves it behind,
+  // `out.tmp.mp4` is what the mux writes before its rename; a mux that dies leaves it behind,
   // and from then on the run demanded placement for footage it never had.
   const PRODUCT = /^out(\.silent|\.tmp)?\.(mp4|mov|webm|mkv)$/i;
   const walk = (dir: string, depth: number): boolean => {

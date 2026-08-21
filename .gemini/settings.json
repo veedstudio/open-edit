@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/skills/open-edit/hooks/session-start.sh gemini",
+            "command": "node \".claude/skills/open-edit/hooks/session-start.mjs\" gemini",
             "name": "Open Edit preflight",
             "timeout": 120000
           }

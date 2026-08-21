@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/skills/open-edit/hooks/session-start.sh\" claude"
+            "command": "node \".claude/skills/open-edit/hooks/session-start.mjs\" claude"
           }
         ]
       }

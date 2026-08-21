@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { FFMPEG, VEED_ENGINE_BIN } from '../config.ts';
 import { VEED_API_BASE } from './api.ts';
-import { DEFAULT_TOKEN_PATH } from './token-store.ts';
+import { tokenStorePath } from './cli-token.ts';
 
 type Check = { label: string; ok: boolean; detail: string; blocking: boolean };
 const checks: Check[] = [];
@@ -31,7 +31,7 @@ const engine = tryCmd(VEED_ENGINE_BIN, ['--version']) ?? tryCmd(VEED_ENGINE_BIN,
 add(
   'veed-engine-cli',
   engine !== null,
-  engine ? engine.split('\n')[0] : `not found at "${VEED_ENGINE_BIN}" (run: bash pipeline/scripts/install-veed-engine.sh; only needed for render, not transcription)`,
+  engine ? engine.split('\n')[0] : `not found at "${VEED_ENGINE_BIN}" (run: node pipeline/scripts/install-veed-engine.mjs; only needed for render, not transcription)`,
   false,
 );
 
@@ -43,13 +43,17 @@ add('VEED API base', true, VEED_API_BASE, false);
 // no network calls, so this reports the CONFIGURED url only; reachability is proven by the first real run.
 add('Fabric generation endpoint', true, `${VEED_API_BASE} (configured; not contacted)`, false);
 
-const tokenPath = DEFAULT_TOKEN_PATH;
 const tokenEnv = (process.env.VEED_ACCESS_TOKEN ?? '').trim() !== '';
+// The openedit CLI owns the token store; asked offline, so a cold npx cache reads as
+// "not logged in" rather than pulling the network into a no-network file. Running the
+// login command below both caches the CLI and logs in.
+const tokenPath = tokenEnv ? null : await tokenStorePath();
+const tokenCached = tokenPath !== null && existsSync(tokenPath);
 // Optional, not blocking: only the VEED provider reads this token.
 add(
   'VEED login token',
-  tokenEnv || existsSync(tokenPath),
-  tokenEnv ? 'VEED_ACCESS_TOKEN set' : existsSync(tokenPath) ? `cached at ${tokenPath}` : 'not logged in yet; needed ONLY for the VEED provider — run: node --import tsx veed/login.ts',
+  tokenEnv || tokenCached,
+  tokenEnv ? 'VEED_ACCESS_TOKEN set' : tokenCached ? `cached at ${tokenPath}` : 'not logged in yet; needed ONLY for the VEED provider — run: npx @veedstudio/openedit-cli login',
   false,
 );
 

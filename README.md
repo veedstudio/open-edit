@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/platform-Apple%20Silicon%20%C2%B7%20macOS%2026-black" alt="Platform: Apple Silicon, macOS 26">
+  <img src="https://img.shields.io/badge/platform-Apple%20Silicon%20%C2%B7%20Windows%20x64-black" alt="Platform: Apple Silicon and Windows x64">
 </p>
 
 <p align="center">
@@ -41,10 +41,11 @@ VEED Fabric when you have none — that spends credits, and never without your a
 
 | | |
 | --- | --- |
-| Platform | Apple Silicon Mac. Preflight requires macOS on arm64 and stops there |
-| Intel Macs | Not supported — the renderer ships macOS-arm64 only |
+| Platform | Apple Silicon Mac or Windows x64 PC. Preflight requires one of the two and stops elsewhere |
+| Intel Macs | Not supported — the renderer ships macOS-arm64 and windows-x64 only |
 | Older macOS | Built and tested on Tahoe 26.0. Nothing checks the version, so earlier releases may work — untested |
-| Windows, Linux | Planned; prioritisation depends on demand |
+| Windows | Windows 10 or newer (the installer extracts with the bundled `tar`). Git, Node, and ffmpeg via winget — preflight prints the exact commands and never runs them itself |
+| Linux | Planned; prioritisation depends on demand |
 | Transcription | needed only to caption speech — OpenEdit asks once and remembers: VEED ([sign up](https://www.veed.io/signup) / [login](https://www.veed.io/login)), WhisperX locally, or your own service. **VEED transcription consumes VEED credits**; WhisperX runs locally on your machine, and your own service is billed by whoever provides it |
 | Generation | optional — a veed.io account, only if you ask OpenEdit to generate footage you do not have |
 
@@ -145,18 +146,19 @@ OpenEdit asks once which provider to use and records the answer at the runtime r
 account's, and a free account covers about 10 minutes of transcription a month, beyond which it needs a
 [plan](https://www.veed.io/pricing). The audio track is uploaded and stored in order to transcribe it; the
 video is not uploaded. By default OpenEdit does not create a VEED project. The agent guides the one-time
-browser login and stores a refreshable token at `veed/.veed-token.json` inside the runtime.
+browser login and stores a refreshable token in the platform's per-user app-data directory.
 
 ```sh
-node --import tsx veed/login.ts
+npx @veedstudio/openedit-cli login
 node --import tsx veed/go.ts /path/to/video.mp4
 ```
 
 **WhisperX** — free, local and offline; nothing leaves your machine. Installed on request, and the first
-run also downloads a model. CPU-bound on Apple Silicon, with two quality tiers.
+run also downloads a model. Runs on CPU by default, with two quality tiers; a CUDA-capable box can
+override via `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE`.
 
 ```sh
-bash pipeline/scripts/install-whisperx.sh                  # on request, once
+node pipeline/scripts/install-whisperx.mjs                 # on request, once
 node --import tsx prep/transcribe.ts /path/to/video.mp4    # --model medium for the better tier
 ```
 

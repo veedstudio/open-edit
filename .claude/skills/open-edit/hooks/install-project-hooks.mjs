@@ -11,7 +11,10 @@ if (!workspaceArg || !skillRootArg) {
 
 const workspace = resolve(workspaceArg);
 const skillRoot = resolve(skillRootArg);
-const relativeHook = relative(workspace, resolve(skillRoot, 'hooks/session-start.sh')).split(sep).join('/');
+const toRelative = (file) => relative(workspace, resolve(skillRoot, file)).split(sep).join('/');
+const relativeHook = toRelative('hooks/session-start.mjs');
+// Configs written before the Node port hold the shell adapter's path; recognise those as ours too.
+const legacyHook = toRelative('hooks/session-start.sh');
 if (!relativeHook || relativeHook.startsWith('../')) {
   console.error('preflight: hook installation skipped — installed skill is outside the project');
   process.exit(0);
@@ -32,46 +35,57 @@ const isOurs = (group, hookPath) =>
   Array.isArray(group?.hooks) && group.hooks.some(hook => typeof hook?.command === 'string'
     && hook.command.includes(hookPath));
 
+async function persist(path, document) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(document, null, 2)}\n`);
+}
+
 async function merge(path, event) {
   const document = await readJson(path);
   document.hooks ??= {};
   document.hooks.SessionStart ??= [];
-  let groups = document.hooks.SessionStart;
-  const mine = groups.filter(group => isOurs(group, relativeHook));
-  if (mine.length > 0) {
-    // Collapse any duplicates a previous version accumulated; never touch anyone else's hooks.
-    if (mine.length === 1) return;
-    const first = mine[0];
-    document.hooks.SessionStart = groups.filter(group => !isOurs(group, relativeHook) || group === first);
-    groups = document.hooks.SessionStart;
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`);
-    console.error(`preflight: collapsed ${mine.length - 1} duplicate SessionStart hook(s) in ${relative(workspace, path)}`);
+  const groups = document.hooks.SessionStart;
+  const mine = groups.filter(group => isOurs(group, relativeHook) || isOurs(group, legacyHook));
+  const current = mine.filter(group => isOurs(group, relativeHook));
+  if (mine.length === 1 && current.length === 1) return;
+  if (mine.length === 0) {
+    groups.push(event.group);
+    await persist(path, document);
+    console.error(`preflight: installed SessionStart hook in ${relative(workspace, path)}`);
     return;
   }
-  groups.push(event.group);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(document, null, 2)}\n`);
-  console.error(`preflight: installed SessionStart hook in ${relative(workspace, path)}`);
+  // One write covers both repairs: collapse duplicates a previous version accumulated, and replace a
+  // legacy shell-adapter entry with the node form. Never touch anyone else's hooks.
+  let kept = false;
+  document.hooks.SessionStart = groups.flatMap(group => {
+    if (!mine.includes(group)) return [group];
+    if (kept) return [];
+    kept = true;
+    return [current[0] ?? event.group];
+  });
+  await persist(path, document);
+  if (current.length === 0) {
+    console.error(`preflight: migrated SessionStart hook to the node adapter in ${relative(workspace, path)}`);
+  } else {
+    console.error(`preflight: collapsed ${mine.length - 1} duplicate SessionStart hook(s) in ${relative(workspace, path)}`);
+  }
 }
 
-const plainCommand = `bash "${relativeHook}"`;
-const claudeCommand = `bash "$CLAUDE_PROJECT_DIR/${relativeHook}" claude`;
+// Relative-path commands, deliberately shell-neutral: every supported agent runs SessionStart hooks
+// with cwd = project dir, and `$CLAUDE_PROJECT_DIR`-style expansion does not exist under cmd.exe.
+const command = (agentName) => `node "${relativeHook}" ${agentName}`;
 await merge(resolve(workspace, '.claude/settings.json'), {
-  command: claudeCommand,
-  group: { hooks: [{ type: 'command', command: claudeCommand }] },
+  group: { hooks: [{ type: 'command', command: command('claude') }] },
 });
 await merge(resolve(workspace, '.codex/hooks.json'), {
-  command: `${plainCommand} codex`,
   group: {
     matcher: 'startup|resume|clear|compact',
-    hooks: [{ type: 'command', command: `${plainCommand} codex`, statusMessage: 'Checking Open Edit setup' }],
+    hooks: [{ type: 'command', command: command('codex'), statusMessage: 'Checking Open Edit setup' }],
   },
 });
 await merge(resolve(workspace, '.gemini/settings.json'), {
-  command: `${plainCommand} gemini`,
   group: {
     matcher: 'startup|resume|clear',
-    hooks: [{ type: 'command', command: `${plainCommand} gemini`, name: 'Open Edit preflight', timeout: 120000 }],
+    hooks: [{ type: 'command', command: command('gemini'), name: 'Open Edit preflight', timeout: 120000 }],
   },
 });
