@@ -1,5 +1,5 @@
 /* VEED page design tokens — SINGLE SOURCE OF TRUTH for every user-facing HTML page this repo
- * generates (the preview page, the WCAG recommendation studio, future reports). Extracted
+ * generates (the preview page, future reports). Extracted
  * verbatim from preview/page/style.css; values follow the Brand Guidelines 2026 ramps. Any
  * generated page must inline or link THIS file — never reinvent tokens. See internal/doc/PAGES.md. */
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap"); /* only the weights this page uses */

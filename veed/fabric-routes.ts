@@ -41,6 +41,8 @@ export interface Generation {
   assetId?: string;
   errorMessage?: string;
   errorCode?: string;
+  // 'error' and 'timedOut' both normalise to failed, but only a timeout may already have been billed.
+  timedOut?: boolean;
 }
 
 export async function getDefaultSpace(http: VeedHttp, workspaceId: string): Promise<string> {
@@ -193,8 +195,13 @@ export async function getGeneration(http: VeedHttp, jobId: string): Promise<Gene
     output?: { assetId?: string };
   }>(await http.getJson(`/ai-playground/${jobId}`));
 
-  if (job.status === 'error' || job.status === 'timedOut') {
-    return { status: 'failed', errorMessage: job.error?.message, errorCode: job.error?.code };
+  if (job.status === 'error' || job.status === 'timedOut' || job.status === 'failed') {
+    return {
+      status: 'failed',
+      errorMessage: job.error?.message,
+      errorCode: job.error?.code,
+      timedOut: job.status === 'timedOut',
+    };
   }
   const raw = job.status || 'pending';
   return { status: raw === 'queued' ? 'pending' : raw, assetId: job.output?.assetId };

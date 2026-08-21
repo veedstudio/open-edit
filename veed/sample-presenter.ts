@@ -11,13 +11,12 @@
 // question to ask, so no workspace flag is invented here.
 import { pathToFileURL } from 'node:url';
 import { seedFromKey, mulberry32 } from '../pipeline/scripts/sample-style.ts';
-import { VEED_ORIGIN } from './api.ts';
 import { assertSafeKey, parseFlags } from './args.ts';
 import type { FabricCharacter, FabricVoice } from './fabric.ts';
 import { framingOf, listCharacters, listVoices } from './fabric.ts';
 import type { VeedHttp } from './api.ts';
 import { realHttp } from './http.ts';
-import { DEFAULT_TOKEN_PATH, resolveToken } from './token-store.ts';
+import { resolveVeedToken } from './cli-token.ts';
 
 // generate.ts's own default, so the proposal and the command it prints agree when no --key is given.
 const DEFAULT_KEY = 'generated';
@@ -245,18 +244,16 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const token = await resolveToken({
-    envToken: process.env.VEED_ACCESS_TOKEN, tokenPath: DEFAULT_TOKEN_PATH, expectedOrigin: VEED_ORIGIN,
-  });
+  const token = await resolveVeedToken();
   if (!token) {
     console.error(
       [
         'No VEED login found. Log in once (the same login Fabric generation uses):',
         '',
-        '  node --import tsx veed/login.ts',
+        '  npx @veedstudio/openedit-cli login',
         '',
-        'It stores a refreshable token, owner-only, at',
-        `  ${DEFAULT_TOKEN_PATH}`,
+        'It stores a refreshable token, owner-only, in the',
+        "CLI's app-data directory (npx @veedstudio/openedit-cli token --path prints where).",
       ].join('\n'),
     );
     process.exit(1);

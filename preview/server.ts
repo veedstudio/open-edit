@@ -1,26 +1,19 @@
 // The preview server: serves the read-only page, streams the two media files with
 // Range support, and pushes run-dir state over SSE. Loopback-only, same trust model as
-// veed/login.ts's OAuth catcher. Run:
+// the openedit login command's OAuth catcher. Run:
 //   node --import tsx preview/server.ts runs/<key>
 // Env: VEED_PREVIEW_PORT (default 8978; falls back to an ephemeral port if busy),
 //      VEED_PREVIEW_NO_OPEN=1 (print the URL, don't open the browser).
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { createReadStream } from 'node:fs';
-import { readFile, stat, writeFile } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
+import { createServer, type Server, type ServerResponse } from 'node:http';
+import { createReadStream, rmSync, writeFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
+import { openUrl } from '../pipeline/open-url.ts';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readRunState } from './state.ts';
 import { planRange } from './media.ts';
 import { makeHub, makeRunDirWatcher, type Hub } from './events.ts';
-import {
-  emptyChoiceFile,
-  parseChoiceFile,
-  upsertChoice,
-  validateChoiceEntry,
-  type ChoiceFile,
-} from '../pipeline/scripts/wcag/wcag-choice.ts';
 
 const PAGE_DIR = join(dirname(fileURLToPath(import.meta.url)), 'page');
 const PAGE_ASSETS: Record<string, { file: string; type: string }> = {
@@ -65,28 +58,6 @@ async function streamMedia(res: ServerResponse, path: string, rangeHeader: strin
   pipeline(createReadStream(path, { start: plan.start, end: plan.end }), res, () => {});
 }
 
-// Collect a small request body (the choice POST). Caps at 64 KiB — a choice
-// entry is tiny; anything larger is a malformed/abusive request.
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    let aborted = false;
-    req.on('data', (chunk) => {
-      if (aborted) return; // stop accumulating past the cap, but do not tear down the socket
-      data += chunk;
-      if (data.length > 65536) {
-        aborted = true;
-        // Drain the rest rather than destroy(): the handler still needs to send a 413 the client can read,
-        // and destroying the socket here reaches the client as a dropped connection, not a status.
-        req.resume();
-        reject(new Error('request body too large'));
-      }
-    });
-    req.on('end', () => { if (!aborted) resolve(data); });
-    req.on('error', reject);
-  });
-}
-
 export async function createPreviewServer(
   runDir: string,
   opts: { port?: number; openBrowser?: boolean } = {},
@@ -99,16 +70,6 @@ export async function createPreviewServer(
     watch: (onEvent) => makeRunDirWatcher(runDir, onEvent),
   });
   await hub.start();
-
-  // /wcag/choice is a read-modify-write on one shared file; serialise the writes so two overlapping POSTs
-  // cannot both read the same base and clobber each other's group (last-write-wins would silently drop a
-  // choice). One tail promise per server is enough — this process is the only writer.
-  let choiceTail: Promise<unknown> = Promise.resolve();
-  const serialiseChoice = <T,>(fn: () => Promise<T>): Promise<T> => {
-    const done = choiceTail.then(fn, fn);
-    choiceTail = done.catch(() => {});
-    return done;
-  };
 
   const server: Server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -150,71 +111,6 @@ export async function createPreviewServer(
         await streamMedia(res, join(runDir, 'final', 'out.mp4'), req.headers.range);
         return;
       }
-      // ---- WCAG recommendation studio (pre-decision picker) ----------------
-      // Canonical URL is /wcag/ — the page's relative asset URLs (the video)
-      // resolve against the trailing slash; at /wcag they'd hit the root.
-      if (req.method === 'GET' && path === '/wcag') {
-        res.writeHead(301, { location: '/wcag/' });
-        res.end();
-        return;
-      }
-      if (req.method === 'GET' && (path === '/wcag/' || path === '/wcag/variants')) {
-        const file = path === '/wcag/variants' ? 'wcag-design-variants.html' : 'wcag-recommendations.html';
-        try {
-          const body = await readFile(join(runDir, 'final', file));
-          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': body.length, 'cache-control': 'no-store' });
-          res.end(body);
-        } catch {
-          json(res, 404, { error: 'no recommendations yet — run pipeline/scripts/wcag/recommend.ts first' });
-        }
-        return;
-      }
-      if (req.method === 'POST' && path === '/wcag/choice') {
-        let raw: string;
-        try {
-          raw = await readBody(req);
-        } catch (e) {
-          // readBody rejects an over-cap body specifically; report THAT, not a JSON error it never reached.
-          const tooLarge = e instanceof Error && e.message === 'request body too large';
-          json(res, tooLarge ? 413 : 400, { error: tooLarge ? 'request body too large' : 'could not read request body' });
-          return;
-        }
-        let entry: unknown;
-        try {
-          entry = JSON.parse(raw);
-        } catch {
-          json(res, 400, { error: 'invalid JSON body' });
-          return;
-        }
-        const err = validateChoiceEntry(entry);
-        if (err) {
-          json(res, 400, { error: err }); // reject unknown kinds / malformed hex loudly
-          return;
-        }
-        // Read-modify-write, last-write-wins per group. A malformed existing file is replaced (the server
-        // owns this file); a valid one is preserved. Serialised so a concurrent POST cannot read the same
-        // base and drop this group's write.
-        const choicePath = join(runDir, 'final', 'wcag-choice.json');
-        const next = await serialiseChoice(async () => {
-          let file: ChoiceFile = emptyChoiceFile();
-          try {
-            file = parseChoiceFile(JSON.parse(await readFile(choicePath, 'utf8')));
-          } catch { /* missing or corrupt -> start fresh */ }
-          const merged = upsertChoice(file, entry as Parameters<typeof upsertChoice>[1]);
-          await writeFile(choicePath, JSON.stringify(merged, null, 2) + '\n');
-          return merged;
-        });
-        json(res, 200, next);
-        return;
-      }
-      // The page references its original render relatively (e.g. out.draft.silent.mp4).
-      if (req.method === 'GET' && path.startsWith('/wcag/')) {
-        const name = path.slice('/wcag/'.length);
-        if (/^[\w.-]+\.mp4$/.test(name)) {
-          await streamMedia(res, join(runDir, 'final', name), req.headers.range);
-          return;
-        }
-      }
       json(res, 404, { error: 'not found' });
     } catch (e) {
       json(res, 500, { error: e instanceof Error ? e.message : 'internal error' });
@@ -238,7 +134,7 @@ export async function createPreviewServer(
   });
 
   const url = `http://127.0.0.1:${port}`;
-  if (opts.openBrowser) execFile('open', [url], () => {});
+  if (opts.openBrowser) openUrl(url);
   return {
     url,
     port,
@@ -256,8 +152,17 @@ async function main(): Promise<void> {
   const srv = await createPreviewServer(runDir, {
     openBrowser: process.env.VEED_PREVIEW_NO_OPEN !== '1',
   });
-  console.log(`preview: ${srv.url}/  (run: ${basename(runDir)})`);
+  const line = `preview: ${srv.url}/  (run: ${basename(runDir)})`;
+  console.log(line);
+  // Background launchers don't reliably surface a detached child's stdout (observed on Windows), so
+  // the URL is also mirrored to stderr off-TTY and written to a file the agent can read.
+  if (!process.stdout.isTTY) console.error(line);
+  const urlFile = join(runDir, 'preview.url');
+  try {
+    writeFileSync(urlFile, `${srv.url}/\n`);
+  } catch { /* the port is still discoverable from the log line */ }
   const shutdown = (): void => {
+    rmSync(urlFile, { force: true });
     void srv.close().then(() => process.exit(0));
   };
   process.on('SIGINT', shutdown);

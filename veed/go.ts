@@ -2,7 +2,7 @@
 // transcription API and write runs/<key>/transcript.json in the exact shape the
 // editor pipeline already consumes (prep.ts then cuts the base frames from it).
 //
-//   1. Log in once:  node --import tsx veed/login.ts
+//   1. Log in once:  npx @veedstudio/openedit-cli login
 //   2. Run:          node --import tsx veed/go.ts <video.mp4> [...]
 //
 // Env: VEED_ORIGIN (default https://www.veed.io), VEED_ACCESS_TOKEN (optional,
@@ -15,10 +15,10 @@ import { extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { REPO_ROOT } from '../config.ts';
 import { resolveVideoArg, runKeyOf } from '../pipeline/scripts/resolve-video.ts';
-import { VEED_ORIGIN, type VeedHttp } from './api.ts';
+import type { VeedHttp } from './api.ts';
 import { refreshingHttp } from './http.ts';
 import { transcribeWithVeed } from './orchestrate.ts';
-import { DEFAULT_TOKEN_PATH, resolveToken } from './token-store.ts';
+import { resolveVeedToken } from './cli-token.ts';
 
 async function readVideoBytes(videoPath: string): Promise<{ bytes: Uint8Array; mimeType: string; extension: string }> {
   // Buffer IS a Uint8Array; no copy.
@@ -28,22 +28,13 @@ async function readVideoBytes(videoPath: string): Promise<{ bytes: Uint8Array; m
   return { bytes, mimeType, extension: ext };
 }
 
-// The stored login, resolved FRESH each call so a token refresh is always picked up.
-function resolveVeedToken(): Promise<string | null> {
-  return resolveToken({
-    envToken: process.env.VEED_ACCESS_TOKEN,
-    tokenPath: DEFAULT_TOKEN_PATH,
-    expectedOrigin: VEED_ORIGIN,
-  });
-}
-
 // A VeedHttp that re-resolves the token per REQUEST. A batch can outlive a single access token, so closing
 // over one (realHttp) would 401 on a later video after earlier ones already spent credits; resolving per
 // request refreshes mid-run instead.
 export function connectRefreshing(resolve: () => Promise<string | null> = resolveVeedToken): VeedHttp {
   return refreshingHttp(async () => {
     const token = await resolve();
-    if (!token) throw new Error('VEED login expired mid-run — re-run: node --import tsx veed/login.ts');
+    if (!token) throw new Error('VEED login expired mid-run — re-run: npx @veedstudio/openedit-cli login');
     return token;
   });
 }
@@ -53,10 +44,10 @@ function noTokenHelp(): void {
     [
       'No VEED login found. Log in with VEED:',
       '',
-      '  node --import tsx veed/login.ts',
+      '  npx @veedstudio/openedit-cli login',
       '',
-      'It opens your browser once and stores a refreshable token, owner-only, at',
-      `  ${DEFAULT_TOKEN_PATH}`,
+      'It opens your browser once and stores a refreshable token, owner-only, in the',
+      "CLI's app-data directory (npx @veedstudio/openedit-cli token --path prints where).",
       '',
       'then re-run:  node --import tsx veed/go.ts <video.mp4> [...]',
     ].join('\n'),

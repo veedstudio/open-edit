@@ -95,6 +95,11 @@ export interface FabricStatus {
   jobId: string;
   status: 'pending' | 'processing' | 'done' | 'failed';
   url: string | null;
+  // The server's account of WHY a job failed, so the caller can log it and decide whether a re-submit is
+  // worth it (a transient error is; an out-of-credits one is not). Absent on any non-failed status.
+  errorReason?: string;
+  errorCode?: string;
+  timedOut?: boolean;
 }
 
 // Portrait framing is a property of the character, not a parameter: these ids carry a `_P_` marker in
@@ -463,7 +468,13 @@ export async function getStatus(http: VeedHttp, jobId: string): Promise<FabricSt
         : job.status === 'processing' ? 'processing' : 'pending';
   // Only a finished job has an output asset to resolve, and the download URL lives on the asset rather
   // than on the job.
-  if (status !== 'done' || !job.assetId) return { jobId, status, url: null };
+  if (status !== 'done' || !job.assetId) {
+    const result: FabricStatus = { jobId, status, url: null };
+    if (job.errorMessage !== undefined) result.errorReason = job.errorMessage;
+    if (job.errorCode !== undefined) result.errorCode = job.errorCode;
+    if (job.timedOut) result.timedOut = true;
+    return result;
+  }
   const asset = await getAsset(http, job.assetId);
   return { jobId, status, url: asset?.sourceUrl || asset?.cdnUrl || null };
 }
@@ -487,16 +498,22 @@ export const POLL_DEADLINE_MS = 15 * 60_000;
 // can still collect the video without paying again.
 const MAX_CONSECUTIVE_POLL_FAILURES = 3;
 
-// The server's verdict, told apart from a poll that merely gave up. The two are opposite outcomes for money
-// already spent — a failed job is unrecoverable and frees the run to take a fresh approval, a timeout may
-// still be finishing server-side and must stay resumable — and the caller cannot tell them apart from a
-// message.
+// The server's verdict, told apart from a poll that merely gave up. They are opposite outcomes: a failed job
+// is terminal and was not charged, so it can be re-submitted; a timeout may still be finishing server-side
+// and must stay resumable rather than re-submitted. The caller cannot tell them apart from a message, hence
+// the dedicated type — and it carries the server's reason so a retry can skip a cause no re-submit would fix.
 export class FabricJobFailedError extends Error {
   readonly jobId: string;
-  constructor(jobId: string) {
-    super(`Fabric job ${jobId} failed`);
+  readonly reason?: string;
+  readonly code?: string;
+  readonly timedOut: boolean;
+  constructor(jobId: string, reason?: string, code?: string, timedOut = false) {
+    super(`Fabric job ${jobId} ${timedOut ? 'timed out server-side' : 'failed'}${reason ? `: ${reason}` : ''}`);
     this.name = 'FabricJobFailedError';
     this.jobId = jobId;
+    this.reason = reason;
+    this.code = code;
+    this.timedOut = timedOut;
   }
 }
 
@@ -525,12 +542,18 @@ export async function awaitVideo(http: VeedHttp, jobId: string, deps: AwaitVideo
     // Only a real answer is terminal: `failed` is the server's verdict, not a blip, so it aborts at once
     // instead of burning the retries above.
     if (status) {
-      deps.onProgress?.(attempt, status.status);
+      const outcome = status.status === 'failed' && status.timedOut ? 'timed out server-side' : status.status;
+      const detail = status.status === 'failed' && status.errorReason
+        ? `${outcome}: ${status.errorReason}`
+        : outcome;
+      deps.onProgress?.(attempt, detail);
       if (status.status === 'done') {
         if (!status.url) throw new Error(`Fabric job ${jobId} reported done with no url`);
         return status.url;
       }
-      if (status.status === 'failed') throw new FabricJobFailedError(jobId);
+      if (status.status === 'failed') {
+        throw new FabricJobFailedError(jobId, status.errorReason, status.errorCode, status.timedOut);
+      }
     }
 
     if (now() - started >= POLL_DEADLINE_MS) {

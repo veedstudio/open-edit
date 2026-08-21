@@ -392,6 +392,13 @@ export function huePreservingCandidates(
   return cands;
 }
 
+/** THE acceptability knobs, mirroring the analyzer CLI's defaults
+ * (--max-estimated-failure / --min-lead-ratio). They live here, with
+ * optionWithinBar, because every score in the gate — verdict, solver and the
+ * credited evaluation alike — has to answer to the same bar. */
+export const DEFAULT_BAR = 0.1;
+export const DEFAULT_MIN_LEAD_RATIO = 2.0;
+
 export const FLOOR_MASS_FRACTION = 0.1;
 
 // THE single acceptability predicate:

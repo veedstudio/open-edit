@@ -1,41 +1,53 @@
 // wcag-choice.json — the PINNED contract for user-chosen remediations, shared by
-// the studio page (emits entries), the preview server (validates + persists), and
-// the applier (reads + applies). One record per run at runs/<key>/final/.
+// the agent (writes it from what the user said) and the applier (reads + applies).
+// One record per run at runs/<key>/final/.
 //
-// USER DECISION: a clicked choice ALWAYS takes effect — the click is the human
-// approval, so a chosen option is applied even when it is not a colours-only
-// recolor (halo / background). Colours-only stays the applier's DEFAULT (the
-// report path with no --choice); the click is what unlocks halo/background.
+// USER DECISION: a chosen option ALWAYS takes effect — the user's word is the
+// human approval, so a chosen option is applied even when it is not a
+// colours-only recolor (shadow / background). Colours-only stays the applier's
+// DEFAULT (the report path with no --choice); the choice is what unlocks the rest.
 //
-//   { "schema": 1, "chosen": [ { level, group, kind, hex, backingHex?, selector? } ] }
+//   { "schema": 1, "chosen": [ { level, selector, kind, hex, backingHex?, recipe? } ] }
 //
-// Dedup key is `group` (corpus | outliers): last click on a group replaces its
-// entry, so there are at most two chosen entries.
+// `selector` is the CLASS KEY (`.name`, or `#id` for class-less text) and is both
+// the dedup key and the selector the applier emits: one remediation per class is
+// the rule, so a later entry for the same class replaces the earlier one.
 
-export type ChoiceLevel = "AA" | "AAA";
-export type ChoiceGroup = "corpus" | "outliers";
-export type ChoiceKind = "colour" | "shadow" | "outline" | "background";
+// The ring geometry comes from the solver that emitted these recipes — a second
+// copy of `offset * cos(pi/directions)` here is exactly the drift that would let
+// a rejected recipe be accepted, or the reverse.
+import { hardRingReaches } from "./recommend.ts";
+
+/** AA only. The gate solves every rung at the AA thresholds, so an "AAA" label
+ * would ride on an AA-grade value and be reported as applied — the schema
+ * refuses to carry a claim nothing computes. */
+export type ChoiceLevel = "AA";
+export type ChoiceKind = "colour" | "shadow" | "background";
+
+/** `layers` blurred copies at `blur` px, emitted at the modelled shadow alpha. */
+export interface SoftChoiceRecipe { style?: "soft"; layers: number; blur: number }
+/** `directions` zero-blur copies at `offset` px, emitted OPAQUE — the ring has to
+ * replace the background, not tint it, or it does not reach AA. */
+export interface HardChoiceRecipe { style: "hard"; directions: number; offset: number }
+export type ShadowChoiceRecipe = SoftChoiceRecipe | HardChoiceRecipe;
 
 export interface ChoiceEntry {
   level: ChoiceLevel;
-  group: ChoiceGroup;
+  /** Class key AND CSS selector — `.name`, or `#id` for class-less text. */
+  selector: string;
   kind: ChoiceKind;
-  /** Text colour (colour recolor / halo colour / background text anchor). #rrggbb. */
+  /** Text colour (colour recolor / shadow colour / background text anchor). #rrggbb. */
   hex: string;
   /** Solid plate colour — REQUIRED for kind "background". #rrggbb. */
   backingHex?: string;
-  /** CSS selector(s) the choice applies to (corpus class key, or the outlier id
-   * list as a comma-joined selector). Carried so the applier needs no re-derivation. */
-  selector?: string;
-  /** Per-selector split for a HETEROGENEOUS group (outlier halo/background, where
-   * each element's fg solves to its OWN halo/anchor colour). When present the
-   * applier emits one rule per split part instead of a single rule for `selector`.
-   * `hex` = the applied text colour (halo colour, or the background text anchor);
-   * `backingHex` = the plate colour (background only). */
-  split?: { selector: string; hex: string; backingHex?: string }[];
-  /** The solved SHADOW recipe (kind "shadow" only): the applier emits `layers`
-   * stacked `0 0 {blur}px` shadows of `hex` at the shadow alpha. */
-  recipe?: { layers: number; blur: number };
+  /** The solved SHADOW recipe (kind "shadow" only). Two shapes, because they are
+   * different treatments: a SOFT stack of blurred copies tints what is behind the
+   * text, while a HARD ring of zero-blur copies replaces it. */
+  recipe?: ShadowChoiceRecipe;
+  /** The element ids `selector` resolved to. Filled by wcag-pass, NEVER by hand:
+   * a class key is not a CSS selector, so the applier targets these ids instead
+   * of the key to avoid reaching elements in a different roll-up class. */
+  ids?: string[];
 }
 
 export interface ChoiceFile {
@@ -43,26 +55,29 @@ export interface ChoiceFile {
   chosen: ChoiceEntry[];
 }
 
-// SSOT fallback recipe for a shadow choice that carries no `recipe` (an older or
-// hand-written entry). Consumers (applier, credited resolver, studio specimens)
-// import this — never hard-code the pair — so the emitted CSS, the credited
-// rating, and the preview can never drift apart.
-export const DEFAULT_SHADOW_RECIPE: { layers: number; blur: number } = { layers: 3, blur: 8 };
+// SSOT fallback recipe for a shadow choice that carries no `recipe` (a
+// hand-written entry). Consumers (applier, credited resolver) import this —
+// never hard-code the pair — so the emitted CSS and the credited rating can
+// never drift apart.
+export const DEFAULT_SHADOW_RECIPE: ShadowChoiceRecipe = { style: "soft", layers: 3, blur: 8 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
-const LEVELS: readonly string[] = ["AA", "AAA"];
-const GROUPS: readonly string[] = ["corpus", "outliers"];
-const KINDS: readonly string[] = ["colour", "shadow", "outline", "background"];
+// The class-key shapes wcag-pass rolls up by: `.class` or `#id`.
+const SELECTOR = /^[.#][^\s,]+$/;
+const LEVELS: readonly string[] = ["AA"];
+const KINDS: readonly string[] = ["colour", "shadow", "background"];
 
 // Validate ONE entry against the contract. Returns an error string (loud, names
-// the offending field) or null when valid. Rejects unknown level/group/kind and
-// malformed hex; a background choice must carry a valid backingHex.
+// the offending field) or null when valid. Rejects unknown level/kind, a
+// malformed selector or hex; a background choice must carry a valid backingHex.
 export function validateChoiceEntry(x: unknown): string | null {
   if (typeof x !== "object" || x === null) return "entry must be an object";
   const e = x as Record<string, unknown>;
-  if (!LEVELS.includes(e.level as string)) return `invalid level ${JSON.stringify(e.level)} (AA|AAA)`;
-  if (!GROUPS.includes(e.group as string)) return `invalid group ${JSON.stringify(e.group)} (corpus|outliers)`;
-  if (!KINDS.includes(e.kind as string)) return `invalid kind ${JSON.stringify(e.kind)} (colour|shadow|outline|background)`;
+  if (!LEVELS.includes(e.level as string)) return `invalid level ${JSON.stringify(e.level)} (AA)`;
+  if (typeof e.selector !== "string" || !SELECTOR.test(e.selector)) {
+    return `invalid selector ${JSON.stringify(e.selector)} (a class key: .name or #id)`;
+  }
+  if (!KINDS.includes(e.kind as string)) return `invalid kind ${JSON.stringify(e.kind)} (colour|shadow|background)`;
   if (typeof e.hex !== "string" || !HEX.test(e.hex)) return `invalid hex ${JSON.stringify(e.hex)} (#rrggbb)`;
   if (e.kind === "background") {
     if (typeof e.backingHex !== "string" || !HEX.test(e.backingHex)) {
@@ -71,36 +86,40 @@ export function validateChoiceEntry(x: unknown): string | null {
   } else if (e.backingHex !== undefined && (typeof e.backingHex !== "string" || !HEX.test(e.backingHex))) {
     return `invalid backingHex ${JSON.stringify(e.backingHex)} (#rrggbb)`;
   }
-  if (e.selector !== undefined && typeof e.selector !== "string") return "selector must be a string";
-  if (e.split !== undefined) {
-    if (!Array.isArray(e.split) || e.split.length === 0) return "split must be a non-empty array";
-    for (let i = 0; i < e.split.length; i++) {
-      const p = e.split[i] as Record<string, unknown>;
-      if (typeof p !== "object" || p === null) return `split[${i}] must be an object`;
-      if (typeof p.selector !== "string" || p.selector.length === 0) return `split[${i}] needs a selector`;
-      if (typeof p.hex !== "string" || !HEX.test(p.hex)) return `split[${i}] invalid hex ${JSON.stringify(p.hex)}`;
-      if (e.kind === "background") {
-        if (typeof p.backingHex !== "string" || !HEX.test(p.backingHex)) return `split[${i}] background needs backingHex`;
-      } else if (p.backingHex !== undefined && (typeof p.backingHex !== "string" || !HEX.test(p.backingHex))) {
-        return `split[${i}] invalid backingHex`;
-      }
+  if (e.ids !== undefined) {
+    if (!Array.isArray(e.ids) || e.ids.length === 0) return "ids must be a non-empty array when present";
+    for (let i = 0; i < e.ids.length; i++) {
+      if (typeof e.ids[i] !== "string" || (e.ids[i] as string).length === 0) return `ids[${i}] must be a non-empty string`;
     }
   }
   if (e.recipe !== undefined) {
     const rc = e.recipe as Record<string, unknown>;
     if (typeof rc !== "object" || rc === null) return "recipe must be an object";
-    if (!Number.isInteger(rc.layers) || (rc.layers as number) < 1) return `recipe.layers must be a positive integer, got ${JSON.stringify(rc.layers)}`;
-    if (typeof rc.blur !== "number" || !(rc.blur as number > 0)) return `recipe.blur must be a positive number, got ${JSON.stringify(rc.blur)}`;
+    if (rc.style === "hard") {
+      if (!Number.isInteger(rc.directions) || (rc.directions as number) < 1) return `recipe.directions must be a positive integer, got ${JSON.stringify(rc.directions)}`;
+      if (typeof rc.offset !== "number" || !(rc.offset as number > 0)) return `recipe.offset must be a positive number, got ${JSON.stringify(rc.offset)}`;
+      // A ring whose copies stop short of the 1px surface WCAG asks about paints
+      // nothing adjacent to the glyph. Every analytic score then reads the
+      // treatment as no change — and a chosen option promotes unconditionally,
+      // so the pass would ship the ORIGINAL template reported as remediated.
+      if (!hardRingReaches(rc.directions as number, rc.offset as number)) {
+        return `recipe never reaches the adjacent ring: ${rc.directions}-way at ${rc.offset}px covers only ` +
+          `${((rc.offset as number) * Math.cos(Math.PI / (rc.directions as number))).toFixed(3)}px of the 1px surface`;
+      }
+    } else {
+      if (!Number.isInteger(rc.layers) || (rc.layers as number) < 1) return `recipe.layers must be a positive integer, got ${JSON.stringify(rc.layers)}`;
+      if (typeof rc.blur !== "number" || !(rc.blur as number > 0)) return `recipe.blur must be a positive number, got ${JSON.stringify(rc.blur)}`;
+    }
   }
   return null;
 }
 
 export const emptyChoiceFile = (): ChoiceFile => ({ schema: 1, chosen: [] });
 
-// Read-modify-write ONE entry, last-write-wins per group (drops any prior entry
-// for the same group, then appends). Pure — the server does the IO around it.
+// Read-modify-write ONE entry, last-write-wins per class (drops any prior entry
+// for the same selector, then appends). Pure — the caller does the IO around it.
 export function upsertChoice(file: ChoiceFile, entry: ChoiceEntry): ChoiceFile {
-  return { schema: 1, chosen: [...file.chosen.filter((c) => c.group !== entry.group), entry] };
+  return { schema: 1, chosen: [...file.chosen.filter((c) => c.selector !== entry.selector), entry] };
 }
 
 // Parse + fully validate a whole choice file (the applier's entry point). Throws

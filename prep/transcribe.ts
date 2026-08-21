@@ -10,14 +10,14 @@
 //
 //   node --import tsx prep/transcribe.ts <video.mp4> [...] [--model small.en|medium|...] [--language en]
 //
-// Device and compute are fixed to cpu/int8: the platform is Apple Silicon only, where CTranslate2 has
-// no GPU path.
+// Device and compute default to cpu/int8, which runs everywhere (CTranslate2 has no GPU path on Apple
+// Silicon); a CUDA-capable box overrides via OPEN_EDIT_WHISPERX_DEVICE / OPEN_EDIT_WHISPERX_COMPUTE.
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
-import { FFMPEG, FFPROBE, REPO_ROOT, WHISPERX_BIN, WHISPERX_MODEL } from '../config.ts';
+import { FFMPEG, FFPROBE, REPO_ROOT, WHISPERX_BIN, WHISPERX_COMPUTE, WHISPERX_DEVICE, WHISPERX_MODEL } from '../config.ts';
 // runKeyOf is re-exported rather than redefined, so existing importers of this module keep working while
 // there stays exactly one copy of the rule.
 import { resolveVideoArg, runKeyOf } from '../pipeline/scripts/resolve-video.ts';
@@ -147,8 +147,8 @@ export function whisperxArgs(audio: string, outDir: string, model: string, langu
   return [
     audio,
     '--model', model,
-    '--device', 'cpu',
-    '--compute_type', 'int8',
+    '--device', WHISPERX_DEVICE,
+    '--compute_type', WHISPERX_COMPUTE,
     '--output_format', 'json',
     '--output_dir', outDir,
     ...(language ? ['--language', language] : []),
@@ -162,7 +162,7 @@ export async function assertWhisperxUsable(run: Run = realRun): Promise<void> {
   const out = `${help.out}${help.err}`; // some CLIs print usage on stderr
   if (code !== 0) {
     throw new Error(
-      `${WHISPERX_BIN} is not available. Install it with pipeline/scripts/install-whisperx.sh ` +
+      `${WHISPERX_BIN} is not available. Install it with pipeline/scripts/install-whisperx.mjs ` +
       '(or choose VEED transcription instead).',
     );
   }
@@ -171,7 +171,7 @@ export async function assertWhisperxUsable(run: Run = realRun): Promise<void> {
   if (missing.length > 0) {
     throw new Error(
       `this build of ${WHISPERX_BIN} does not accept ${missing.join(', ')} — its CLI has changed. ` +
-      'Reinstall with pipeline/scripts/install-whisperx.sh, or use VEED transcription.',
+      'Reinstall with pipeline/scripts/install-whisperx.mjs, or use VEED transcription.',
     );
   }
 }

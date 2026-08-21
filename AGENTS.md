@@ -34,7 +34,7 @@ zero tokens → `style.json`; the pool is the recipes-only runtime index `refs/t
 always recipe-backed) → **design + render** (`pipeline/scripts/generate-recipe.ts --run runs/<key>
 --record`, a SCRIPT driving the full gate chain: the compiled recipe emits the .wv document → lint → `--verify`
 with the mechanical ladder fix loop → records `out.silent.mp4` → probe-qa frame QA) → **mux audio**
-(`pipeline/scripts/mux-audio.sh`). Deliverable → `runs/<key>/final/out.mp4`.
+(`pipeline/scripts/mux-audio.ts`). Deliverable → `runs/<key>/final/out.mp4`.
 The **CREATIVE PASS** routes on the SHAPE of the ask (the user never learns recipes exist):
 **face-1** — the prompt arrives WITH the user's own reference/brand/concept → the orchestrator authors
 design+render INLINE per the brief (no subagent: nothing to orphan in headless runs, and the design stays
@@ -60,14 +60,14 @@ fast-path/refinement switch.
   built on `pipeline/recipes/lib.ts` (the shared assembly rules); turns `meta.json` + `word-timings.json`
   into the final .wv document deterministically. Authored + validated offline (derived from the sheet);
   `hasRecipe` keys on the module existing.
-- `pipeline/scripts/` — `sample-style.ts` (facet-scored seeded style pick) · `generate-recipe.ts` (runs the compiled recipe: generate → lint → `--verify` fix loop → `--record` → probe) · `lint-template.ts` (mechanical engine-limit gate) · `design-gate.ts` (a run's documents read back against its own design system) · `probe-qa.ts` (frame QA vs the source) · `resolve-video.ts` (the video-arg resolution rule shared by both entry points) · `synth-word-timings.ts` (imported by prep) · `extract-beat-frames.ts` (imported by prep) · `gates.sh` (THE chain: design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, one
+- `pipeline/scripts/` — `sample-style.ts` (facet-scored seeded style pick) · `generate-recipe.ts` (runs the compiled recipe: generate → lint → `--verify` fix loop → `--record` → probe) · `lint-template.ts` (mechanical engine-limit gate) · `design-gate.ts` (a run's documents read back against its own design system) · `probe-qa.ts` (frame QA vs the source) · `resolve-video.ts` (the video-arg resolution rule shared by both entry points) · `synth-word-timings.ts` (imported by prep) · `extract-beat-frames.ts` (imported by prep) · `gates.ts` (THE chain: design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, one
   command, `--doc` to gate one chapter of a longer piece) · `wcag-pass.ts` · `expect-windows.ts` ·
   `scoped-edit.ts` · `brand.ts` · `creative-log.ts` · `mix-audio.ts` · `cut-frames.ts` (frames at every
   shot boundary, where a uniform grid never looks) · `scene-frames.ts` (stills for a clip with no beats) ·
   `concat-chapters.ts` (stream-copies the chapters of one film, refusing parts that disagree) ·
   `concat-videos.ts` (re-encodes generated clips that DO disagree onto one canvas) ·
-  `mux-audio.sh`, `preflight.sh`, `install-veed-engine.sh` (deterministic). Run `gates.sh` rather
-  than retyping the gates it drives.
+  `mux-audio.ts`, `preflight.mjs`, `install-veed-engine.mjs` (deterministic; the sibling `.sh` files
+  are thin POSIX shims onto the same scripts). Run `gates.ts` rather than retyping the gates it drives.
 - `pipeline/design/` — the authored path's substrate. `system.ts` is the per-run design system
   (`runs/<key>/design/system.json`): fonts, the type ladder with tracking per rung, palette, spacing,
   named easings and durations, the reveal unit, the devices in play, and `donors` — the recipe ids it
@@ -89,9 +89,9 @@ fast-path/refinement switch.
   CLI: `stills.ts search <query>` · `show <File:…>` · `save <File:…|url> --run <dir> --id <id>`).
 - `pipeline/scripts/mix-audio.ts` — one soundtrack out of many pieces, for a run whose audio is not
   simply the source clip's. Each track states where it starts and how loud it sits; a bed marked
-  `duck` is ducked by the `voice` tracks themselves rather than by a guessed gain. `mux-audio.sh`
+  `duck` is ducked by the `voice` tracks themselves rather than by a guessed gain. `mux-audio.ts`
   still restores a single source track; this is what a film needs instead.
-- `veed/` — VEED-native transcription + login (one writer of `transcript.json`; real per-word timings). `prep/prep.ts` — `meta.json` + `word-timings.json` + base frames (needs a transcript from any provider). `refs/` — `html/` refs + `tags.json` (v3, the RUNTIME INDEX — recipes only, facet taxonomy, `fit` = aspect SOT) + per-ref `recipe.md` (the prose recipe sheet a compiled recipe is derived from — the fast path runs the compiled module, never the sheet; the creative pass reads sheets as craft substrate and REMIX donors).
+- `veed/` — VEED-native transcription + login (one writer of `transcript.json`; real per-word timings), plus Fabric generation and video background removal on the same login. `background-removal.ts` reaches the live free VEED route by default, or fal's own `--fast` model when that variant is wanted; `lipsync.ts` (video + new audio -> re-lipsynced video) has no VEED-hosted route at all and always goes through fal. Both fal-charged paths still use the VEED login to host the local file for a URL — `asset-upload.ts` is the shared upload primitive — but the generation call itself bills the user's own fal key (`pipeline/providers/fal.ts`), never a VEED workspace. `prep/prep.ts` — `meta.json` + `word-timings.json` + base frames (needs a transcript from any provider). `refs/` — `html/` refs + `tags.json` (v3, the RUNTIME INDEX — recipes only, facet taxonomy, `fit` = aspect SOT) + per-ref `recipe.md` (the prose recipe sheet a compiled recipe is derived from — the fast path runs the compiled module, never the sheet; the creative pass reads sheets as craft substrate and REMIX donors).
 - `config.ts` — all machine paths (ffmpeg / ffprobe / veed-engine). `docs/` — FLOW (orchestration) · recipe-format (the recipe law). Engine support matrix = the `feature-support.md` asset downloaded with the engine release into `.veed-engine/` (not vendored here).
 
 ## Hard rules (do not drift — these protect output quality)
@@ -126,11 +126,11 @@ fast-path/refinement switch.
   reads the FOOTAGE frames** — it writes per-beat facts in CANVAS px to `analysis.json`; the design pass
   composes from those numbers when the file exists (safe margins otherwise) and never opens the frames.
   (User-SUPPLIED materials on face-1 are the one exception to "no vision in design" — studying them is the point.)
-- Engine = `veed-engine-cli` (the veed render engine, downloaded directly from the upstream `veedstudio/weave-renderer-public-releases` repo into `.veed-engine/` via `pipeline/scripts/install-veed-engine.sh`; **the SKILL's PREFLIGHT step self-checks the version** vs the latest GitHub release).
+- Engine = `veed-engine-cli` (the veed render engine, downloaded directly from the upstream `veedstudio/weave-renderer-public-releases` repo into `.veed-engine/` via `pipeline/scripts/install-veed-engine.mjs`, which picks the release asset for the platform (macos-arm64 or windows-x64); **the SKILL's PREFLIGHT step self-checks the version** vs the latest GitHub release).
 
 ## Conventions
 - Canvas (probed by prep): the source's own width/height (rotation-corrected) and fps (nominal `r_frame_rate`); `aspect` is an orientation label — 9:16 when h ≥ w, else 16:9. Beat render frame = `round(beatMidSec * fps)`.
-- Setup/run: see `SETUP.md`. Run the render step OUTSIDE any sandbox (it needs the window-server).
+- Setup/run: see `SETUP.md`. Run the render step OUTSIDE any sandbox (it needs a real desktop session — the window-server on macOS).
 - **Don't scan the bulk asset dir** — `refs/html/` (28 ref folders, one per pool ref; each ships prefab
   `template.wv` + sheet + compiled recipe) is a bulk library, not browsing material. Never `ls -R` /
   glob it broadly; use `refs/tags.json` to choose refs and address a ref's files by id.
@@ -143,7 +143,7 @@ workspace. There is no project-scoped path: the no-project route is the only one
 - `go.ts` is the CLI entrypoint and writes `runs/<key>/transcript.json`.
 - `orchestrate.ts` owns upload, readiness polling, transcription, and mapping.
 - `api.ts` and `http.ts` are the typed API and authenticated transport layers.
-- `oauth.ts`, `login.ts`, and `token-store.ts` own PKCE login, local token storage, and refresh.
+- PKCE login, local token storage, and refresh live in the `@veedstudio/openedit-cli` npm package (`npx @veedstudio/openedit-cli login`); the files here obtain tokens by spawning its `token` command via `cli-token.ts` — a process boundary, never an import.
 - `transcript-mapper.ts` converts VEED captions to the pipeline's timestamped chunk shape.
 - `readiness.ts` reports live-run prerequisites.
 
@@ -157,7 +157,7 @@ listed first because it transcribes best, not because it wins ties.
 | Provider | What it is | Entry point |
 | --- | --- | --- |
 | `veed` | Premium quality, hosted. One-time browser sign-in; limits are the VEED account's. | `veed/go.ts` |
-| `whisperx` | Free, local, offline. Two tiers: `medium` (slower, better) and `small.en` (fastest, weaker on names). CPU-bound here — CTranslate2 has no GPU path on Apple Silicon. | `prep/transcribe.ts` |
+| `whisperx` | Free, local, offline. Two tiers: `medium` (slower, better) and `small.en` (fastest, weaker on names). CPU by default (CTranslate2 has no GPU path on Apple Silicon); a CUDA-capable box overrides via `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE`. | `prep/transcribe.ts` |
 | `custom` | The user's own service or MCP, and the route for GENERATED narration — the media argument may be an audio file, so a film's own voice track reaches `transcript.json` before any picture exists. **We provide no support code**: you obtain a Whisper-family JSON however their tool works, then map it. No credential ever passes through OpenEdit. | `prep/whisper.ts <json> <media>` |
 
 The choice is recorded in `$OPEN_EDIT_ROOT/.open-edit-prefs.json` — the runtime root, which is not the
@@ -174,7 +174,7 @@ leaves the transcripts already written in place.
 ```sh
 # whisperx, installed on request only — isolated uv/pipx environment, ~2 GB with weights,
 # removed again with `uv tool uninstall whisperx`
-bash pipeline/scripts/install-whisperx.sh                       # uv/pipx, pinned interpreter
+node pipeline/scripts/install-whisperx.mjs                      # uv/pipx, pinned interpreter
 node --import tsx prep/transcribe.ts <video.mp4> [...] [--model medium] [--language de]
 
 # custom: any Whisper-family JSON the user's service produced, one json per video
@@ -210,7 +210,7 @@ Run the isolated VEED tests without network access:
 ```sh
 node --import tsx --test \
   tests/charge-records.test.ts tests/cli-entry.test.ts tests/fabric.test.ts \
-  tests/generate.test.ts tests/generate-charge.test.ts tests/generate-set.test.ts tests/generate-validation.test.ts tests/login-page.test.ts tests/oauth.test.ts tests/orchestrate.test.ts tests/sample-presenter.test.ts \
-  tests/go.test.ts tests/token-store.test.ts \
+  tests/generate.test.ts tests/generate-charge.test.ts tests/generate-set.test.ts tests/generate-validation.test.ts tests/orchestrate.test.ts tests/sample-presenter.test.ts \
+  tests/cli-token.test.ts tests/go.test.ts \
   tests/transcript-mapper.test.ts tests/voice-rates.test.ts tests/workspace.test.ts
 ```
