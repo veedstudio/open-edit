@@ -31,7 +31,7 @@ carries the canvas, the duration and the content from the ASK instead, and there
 honour. That is a complete contract, not a missing one — proceed on it.
 
 (Recipe-backed picks never reach this pass: recipes are compiled code — `refs/html/<id>/recipe.ts`, run
-by `pipeline/scripts/generate-recipe.ts` — so you execute this contract only for a CREATIVE run: face-1 (the user
+by the generate-recipe command — so you execute this contract only for a CREATIVE run: face-1 (the user
 brought their own reference/brand/concept — their materials are the design authority) or a style-refine
 re-run. The engine rules below are the same rules the compiled recipes encode.)
 
@@ -269,7 +269,7 @@ size it will be seen, not at 400px.
 ## LOOK AT THE CUTS — the frames a uniform grid never samples
 
 ```
-node --import tsx {repo}/pipeline/scripts/cut-frames.ts <video> --out {run}/qa/cuts
+npx @veedstudio/openedit-cli cut-frames <video> --out {run}/qa/cuts
 ```
 
 It finds every shot boundary and writes one strip per cut: the frame before it, then the frames after.
@@ -282,11 +282,11 @@ the same strips.
 
 ## RENDER + VERIFY (needs the window-server → run OUTSIDE any sandbox)
 **One command drives the whole chain**, and it is the one to use unless you have a reason not to:
-`bash pipeline/scripts/gates.sh <run-dir> [--doc <subdir>] [--audio <file>] [--no-design] [--no-wcag] [--no-expect] [--no-probe] [--no-mux]`
+`npx @veedstudio/openedit-cli gates <run-dir> [--doc <subdir>] [--audio <file>] [--no-design] [--no-wcag] [--no-expect] [--no-probe] [--no-mux]`
 It runs design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, stops at the first failure and names
 the gate that failed. `--doc` picks the document under the run — it defaults to `final`, and a film
 gates one chapter at a time (`--doc chapters/act-3`). When every chapter is gated, join them with
-`pipeline/scripts/concat-chapters.ts`, which stream-copies and refuses parts whose format differs —
+`npx @veedstudio/openedit-cli concat-chapters`, which stream-copies and refuses parts whose format differs —
 NOT `concat-videos.ts`, which re-encodes and normalises the frame rate because its inputs are
 generated clips that disagree by nature. `--no-design` only when a compiled recipe IS the
 system; an authored run without `design/system.json` is the defect that gate exists for. `--no-expect`
@@ -355,7 +355,7 @@ scripts that produced them were thrown away, which is a bill nobody should pay t
 ## SCOPED EDITS — prove you changed only what was asked
 When you are iterating on an accepted document rather than authoring a new one, keep the accepted
 copy and check the result against it before reporting:
-`node --import tsx pipeline/scripts/scoped-edit.ts <accepted.wv> <new.wv> --allow <selector-or-id>…`
+`npx @veedstudio/openedit-cli scoped-edit <accepted.wv> <new.wv> --allow <selector-or-id>…`
 Every difference outside the allowed set is printed with both values. This is a defect class no
 render-time gate can catch: both documents are valid, and a caption that quietly shifted is exactly as
 renderable as one that did not.

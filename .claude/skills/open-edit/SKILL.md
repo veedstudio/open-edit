@@ -21,8 +21,9 @@ scripted, never whether the work is supported.**
 
 - **One video** — recommended, and the best-travelled path. The transcript, the canvas (dims + fps) and
   the base frames are all derived from the file, which is what lets a compiled recipe run at zero tokens.
-- **Several videos** — ONE batch, not one run each. `prep/transcribe.ts`, `veed/go.ts` and `prep/prep.ts`
-  all take `<video.mp4> [...]` and write one `runs/<key>` per video, so the provider question, the sign-in
+- **Several videos** — ONE batch, not one run each. `npx @veedstudio/openedit-cli transcribe` (either
+  provider) and `npx @veedstudio/openedit-cli prep` both take `<video.mp4> [...]` and write one
+  `runs/<key>` per video, so the provider question, the sign-in
   and any install happen once; STYLE, DESIGN + RENDER and MUX then run per `runs/<key>`.
 - **No video — FULLY SUPPORTED, not a degraded mode.** Motion graphics, stills, slides, generated
   imagery, audio-only sources. Author the `.wv` INLINE per `pipeline/director-brief.md` and run the SAME
@@ -30,7 +31,7 @@ scripted, never whether the work is supported.**
   RENDER + VERIFY block — none of it reads `meta.json`). Choose `<key>` from the ask, take the canvas and
   duration from the ask rather than from ffprobe, and drop only the steps that have no subject: the recipe
   draw (no footage to derive facets from), `probe-qa` (it diffs frames against source footage) and
-  mux-audio (no audio track). `generate-recipe.ts` is the scripted convenience for 1+ videos, NOT the
+  mux-audio (no audio track). the generate-recipe command is the scripted convenience for 1+ videos, NOT the
   definition of a supported run — its absence costs you the shortcut, nothing else.
 
 The captioned run is **fully scripted end to end**: recipes are COMPILED CODE (`refs/html/<id>/recipe.ts`),
@@ -43,7 +44,7 @@ user-approval gate**. Read `docs/FLOW.md` for the map.
 Default run (the FAST PATH) = PREFLIGHT → PREP → SAMPLE ONE STYLE → DESIGN + RENDER → MUX AUDIO (ANALYSE is SKIPPED). Vibe/genre/energy come from the
 transcript; placement comes from the brief's safe margins; the style is SAMPLED by script; word reveal
 timings are precomputed (`word-timings.json`). The runtime index is recipes-only, so a default run's DESIGN + RENDER step
-is always `pipeline/scripts/generate-recipe.ts` — a SCRIPT, no model, no subagent: the recipe already did
+is always `npx @veedstudio/openedit-cli generate-recipe` — a SCRIPT, no model, no subagent: the recipe already did
 the design thinking, offline, and the code does the assembly + the full gate chain (lint → verify → record
 → probe). Creative face-1 is authored INLINE by the orchestrator; the only spawned agent is the opt-in analyse pass.
 REFINEMENT is declared by `analysis.json` existing (the ANALYSE step ran on user request) — placement then composes
@@ -75,36 +76,39 @@ bars. The user asked for clean captions; say you're on it, then deliver.
   language: what it means for their video, not exit codes.
 
 ## PREFLIGHT — ALWAYS run at session start
-An installed skill contains this file plus `scripts/preflight.mjs` and its `scripts/platform.mjs` (`scripts/preflight.sh` is the macOS shim that bootstraps Node); the full runtime may not exist yet.
+An installed skill contains this file (`scripts/preflight.sh` is the macOS shim that bootstraps Node); the
+setup itself is the published CLI's init command, and the full runtime may not exist yet.
 Resolve **SKILL_ROOT** as the directory containing this `SKILL.md`. Then resolve **WORKSPACE** by the first
 rule that applies:
 
-1. **If SKILL_ROOT sits inside an Open Edit checkout, WORKSPACE is that checkout** — preflight reuses it,
+1. **If SKILL_ROOT sits inside an Open Edit checkout, WORKSPACE is that checkout** — init reuses it,
    and the run exercises that code.
 2. **Otherwise** WORKSPACE is the user's current project root, or the current directory outside a project —
-   preflight creates its own runtime at `<WORKSPACE>/.open-edit/runtime` and every step below runs there.
+   init creates its own runtime at `<WORKSPACE>/.open-edit/runtime` and every step below runs there.
 
-Preflight names which of the two it resolved (`reusing the local checkout at …` or `will use a managed clone
+Init names which of the two it resolved (`reusing the local checkout at …` or `will use a managed clone
 at …`); read that line before trusting a run to be testing your changes. Resolve the supplied video to an
 absolute path from WORKSPACE before changing working directories.
 
-At the start of EVERY session, before doing Open Edit work, run:
+At the start of EVERY session, before doing Open Edit work, report what setup would do (init also keeps
+the workspace's SessionStart hooks current when it applies — idempotent, and a hook problem never blocks
+a run):
 ```
-node "$SKILL_ROOT/scripts/preflight.mjs" --dry --workspace "$WORKSPACE"
+npx --yes @veedstudio/openedit-cli init --dry --workspace "$WORKSPACE"
 ```
-Then run bare preflight to perform all safe, first-time workspace-local setup automatically:
+Then run bare init to perform all safe, first-time workspace-local setup automatically:
 ```
-node "$SKILL_ROOT/scripts/preflight.mjs" --workspace "$WORKSPACE"
+npx --yes @veedstudio/openedit-cli init --workspace "$WORKSPACE"
 ```
-This installs the project-local SessionStart hooks, performs the first full runtime clone, installs pinned
-repository dependencies, and installs the renderer when their prerequisites already exist. It is idempotent.
+This performs the first full runtime clone, installs pinned repository dependencies, and installs the
+renderer when their prerequisites already exist. It is idempotent.
 
 **Approval law — never weaken this:** machine-global dependencies and updates to existing code are never
-applied by bare preflight. If `--dry` or bare preflight prints `APPROVAL REQUIRED`, communicate EVERY exact
+applied by bare init. If `--dry` or bare init prints `APPROVAL REQUIRED`, communicate EVERY exact
 action to the user and wait for an explicit affirmative response. Only when the user approves ALL reported
 actions may you run:
 ```
-node "$SKILL_ROOT/scripts/preflight.mjs" --auto-approve --workspace "$WORKSPACE"
+npx --yes @veedstudio/openedit-cli init --auto-approve --workspace "$WORKSPACE"
 ```
 `--auto-approve` means the user agreed to every currently proposed global install and clean update. Never infer
 approval from the original render request. If the user approves only selected actions, perform only those exact
@@ -133,7 +137,7 @@ file, so a run with no video simply has no subject for them — see INPUTS: auth
 
 ### PREFLIGHT — completed above  · SCRIPT
 Do not run a second dependency implementation. `pipeline/scripts/preflight.mjs` (and its `.sh` twin) is only a compatibility wrapper
-around the skill-bundled preflight. If `node` itself is missing, treat installing it as an APPROVAL REQUIRED action
+around the init command. If `node` itself is missing, treat installing it as an APPROVAL REQUIRED action
 (macOS: `brew install node` — the shim reports this itself; Windows: `winget install --id OpenJS.NodeJS.LTS`). The provider choice — and any sign-in or install it implies —
 remains the interactive PREP step.
 
@@ -180,7 +184,7 @@ typed only in the first one.**
 workspace. With exactly one on the account there is nothing to decide, so it is used and NAMED with what it
 holds; with several and no prior answer the CLI stops and asks, and never picks. Run the confirm
 command with NO workspace flag first:
-`node --import tsx veed/generate.ts --script "<the script>" --key <key>`
+`npx @veedstudio/openedit-cli generate --script "<the script>" --key <key>`
 With no workspace chosen it stops having spent nothing (exit 1) and prints every workspace with its name and
 credit balance. Put that choice to the user in plain terms (the names and what each has left, not ids if you
 can avoid them), then re-run naming the one they picked — that re-run is the PREP step below. That choice is
@@ -214,25 +218,25 @@ does not, so `--voice` is required with `--image`.
 **A SET of images is ONE approval.** Several stills is one video made of several shots, so it is one
 question, not N. Write a shots file — `[{ id, script, image | character, voice }, …]` — and confirm the
 whole set at once:
-`node --import tsx veed/generate-set.ts --shots shots.json --key <key> --workspace <id>`
+`npx @veedstudio/openedit-cli generate-set --shots shots.json --key <key> --workspace <id>`
 It prints every shot with its own share of the cost and ONE total, then spends the lot on a single
 `--yes`. The approval is hashed over the whole set: edit a line, reorder two shots, swap an image or a
 voice, and it refuses rather than buying something nobody saw. Each shot still runs under its own key, so
 a failure halfway leaves the shots already paid for alone and `--resume` collects them. Then join:
-`node --import tsx pipeline/scripts/concat-videos.ts <out.mp4> <clip1.mp4> <clip2.mp4> [...]`
+`npx @veedstudio/openedit-cli concat-videos <out.mp4> <clip1.mp4> <clip2.mp4> [...]`
 It fits each clip into one canvas and pads the rest rather than cropping, because stills of different
 shapes produce clips of different sizes and nothing should lose its framing to a join. The result is an
 ordinary source file: transcribe it, caption it, render it like any other footage.
 
 **That joiner is for SOURCE clips that disagree, and only those.** It re-encodes and normalises the
 frame rate, which is right for generated clips of different shapes and wrong for anything else. The
-finished chapters of a long piece are joined by `pipeline/scripts/concat-chapters.ts`, which
+finished chapters of a long piece are joined by `npx @veedstudio/openedit-cli concat-chapters`, which
 stream-copies and refuses parts whose format differs rather than transcoding a whole film — see the
 DESIGN + RENDER step. Reaching for the wrong one costs a re-encode and silently resamples a 24 or 25
 fps film to 30.
 
 **WHO presents it.** If the user has no opinion about the presenter, do not paste 24 thumbnails at them:
-`node --import tsx veed/sample-presenter.ts --key <key> [--gender male|female] [--locale <locale>] [--portrait|--landscape]`
+`npx @veedstudio/openedit-cli sample-presenter --key <key> [--gender male|female] [--locale <locale>] [--portrait|--landscape]`
 PROPOSES one character + voice, prints two or three alternates with thumbnail and audio-preview links, and
 ends with the ready-to-run confirm command carrying that pair. `--portrait`/`--landscape` is how FRAMING gets
 chosen (the character IS the framing — there is no aspect parameter), so pass the one the user's format needs.
@@ -241,7 +245,7 @@ or by editing the two ids. Show them the pick and the alternates and get a yes b
 command.
 
 1. CONFIRM (spends NOTHING):
-   `node --import tsx veed/generate.ts --script "<the script>" --key <key> --workspace <id>`
+   `npx @veedstudio/openedit-cli generate --script "<the script>" --key <key> --workspace <id>`
    It prints the script, the character, voice, framing ("portrait 9:16"), the workspace being billed with its
    balance, and the exact credit cost, records that approval at `runs/<key>/.fabric-pending.json`, and prints
    the exact next command. Show the user the cost in plain terms and get an explicit yes.
@@ -249,7 +253,7 @@ command.
    quote this step refuses, names both figures, and records no approval — so it never hands you a "run exactly"
    command for the ANALYSE step that is guaranteed to fail.
 2. SPEND (only after that yes) — copy the command it printed, **with no `--script`**:
-   `node --import tsx veed/generate.ts --key <key> --yes`
+   `npx @veedstudio/openedit-cli generate --key <key> --yes`
    It re-confirms against the server and REFUSES to spend if the fresh quote is above the cost that was
    approved, if the recorded script no longer matches its hash, if the approval is over an hour old, or if a
    `--workspace` here disagrees with the one that was approved. In any of those cases nothing is charged:
@@ -287,7 +291,7 @@ Never let a run that spent credits end silently about cost.
 
 → `runs/<key>/<key>.mp4`. Feed that path into the PREP step exactly like user-supplied footage. `<key>` names a
 directory under `runs/`, so it must match letters, digits, `.`, `-`, `_` only, and may not be `.`, `..`,
-or start with `-` (see `assertSafeKey` in `veed/generate.ts`).
+or start with `-` (see `assertSafeKey` in the `@veedstudio/openedit-cli` generate command).
 
 **AFTER THE MONEY IS GONE.** A charge lands the moment a job is CREATED, and a job that was charged is never
 re-charged automatically. A generation VEED REFUSES is the exception: its generation half is not billed, so
@@ -304,13 +308,13 @@ visible. Three outcomes, and they are NOT the same:
   fresh confirm pass and a fresh explicit yes. The dead job blocks nothing.
 - **The run was interrupted** (transport blip, polling died, download stalled, closed laptop) — the video is
   already PAID FOR and nothing needs approving. Collect it with
-  `node --import tsx veed/generate.ts --key <key> --resume`, which polls, downloads and spends NOTHING.
+  `npx @veedstudio/openedit-cli generate --key <key> --resume`, which polls, downloads and spends NOTHING.
   Polling gives up after 15 minutes, or after a run of consecutive status-check failures — the job may still
   be finishing server-side, so always `--resume` before ever paying again.
 - **The attempt vanished mid-charge** (`--yes` refuses saying a charge MAY have landed) — no job id was ever
   recorded, so nothing can collect it. Tell the user plainly that VEED may already have charged, and have
   them check that workspace's balance and videos around the time the refusal named. To free the key, run
-  `node --import tsx veed/generate.ts --key <key> --abandon <sessionId>` with the id from the refusal; it
+  `npx @veedstudio/openedit-cli generate --key <key> --abandon <sessionId>` with the id from the refusal; it
   clears that one record and nothing else, and any credits that attempt spent are gone.
 `--yes` REFUSES while another run of the same key is charging, while a paid job is uncollected (it points at
 `--resume`), and while an abandoned attempt is unresolved. Runs of DIFFERENT keys never block each other, and
@@ -339,7 +343,7 @@ video models return synced speech in the clip; some return picture only. CHECK T
 assuming either — its own endpoint documentation says which, and a clip already on disk answers it in
 one `ffprobe`. If the clip carries speech, transcribe it like any other footage. If it does not, the
 words come from somewhere else: generate the voice track and map its times through
-`prep/whisper.ts <json> <media>`, or author the caption windows directly from the script. Only the
+`npx @veedstudio/openedit-cli whisper <json> <media>`, or author the caption windows directly from the script. Only the
 second case is worth warning the user about, and only once you have established it is the case.
 
 **A TAKE'S OWN AUDIO MUST NOT OWN THE CUT.** Laying a generated take's dialogue down as the soundtrack
@@ -381,7 +385,7 @@ carry the interruption. Nothing that exists to instruct the reader of the script
 the viewer sees.
 
 **Every generated asset lands in the manifest with its provenance**
-(`pipeline/providers/assets.ts`): what made it, from what prompt, derived from what, and what it cost.
+(the CLI's asset manifest, `runs/<key>/assets/manifest.json`): what made it, from what prompt, derived from what, and what it cost.
 Report the spend unprompted when the run delivers, with `spendLine` — it says plainly when a figure is
 a lower bound and when the RESPONSE carried no price. That is a statement about the inference response
 and about this client, which does not ask for a price; it is not a statement that the endpoint has no
@@ -429,27 +433,27 @@ WhisperX so a later run cannot drift onto a different model:
 
 | They chose | Record it as |
 | --- | --- |
-| 1 · VEED | `node --import tsx prep/transcribe.ts --record veed` |
-| 2 · WhisperX, better | `node --import tsx prep/transcribe.ts --record whisperx --model medium` |
-| 3 · WhisperX, fastest | `node --import tsx prep/transcribe.ts --record whisperx --model small.en` |
-| 4 · their own service | `node --import tsx prep/transcribe.ts --record custom` |
+| 1 · VEED | `npx @veedstudio/openedit-cli transcribe --record veed` |
+| 2 · WhisperX, better | `npx @veedstudio/openedit-cli transcribe --record whisperx --model medium` |
+| 3 · WhisperX, fastest | `npx @veedstudio/openedit-cli transcribe --record whisperx --model small.en` |
+| 4 · their own service | `npx @veedstudio/openedit-cli transcribe --record custom` |
 
 If they answer "WhisperX" without choosing a tier, take **fastest** (`small.en`), record it, and say which
 one you took — they can switch later. Never record `whisperx` with no tier.
 
-- **veed** → `node --import tsx veed/go.ts <video> [...]`, login flow below. When the browser opens, say
+- **veed** → `npx @veedstudio/openedit-cli transcribe --provider veed <video> [...]`, login flow below. When the browser opens, say
   exactly: "I've opened a VEED login tab in your browser — click Allow if it asks. I'll wait here;
   there's nothing to paste."
-- **whisperx** → `node --import tsx prep/transcribe.ts <video> [...]` — the recorded tier applies; pass
+- **whisperx** → `npx @veedstudio/openedit-cli transcribe <video> [...]` — the recorded tier applies; pass
   `--model medium|small.en` only to override it. If the binary is missing, ASK before installing: "WhisperX isn't installed. It's a local
   Python tool — the install pulls in PyTorch and the first run downloads a model, so expect a slow first
   pass and around 2 GB of disk. It goes in its own isolated environment, not your system Python and not
   this project, and `uv tool uninstall whisperx` removes it again. Install it now?" On yes run
-  `node pipeline/scripts/install-whisperx.mjs` and stream its output.
+  `npx @veedstudio/openedit-cli install-whisperx` and stream its output.
 - **custom** → the user's service is yours to drive: get a Whisper-family JSON out of it (their MCP,
   their CLI, their API — their credentials, never handled here), then
-  `node --import tsx prep/whisper.ts <json> <video>` — one json per video, repeated in pairs for a
-  batch. `prep/whisper.ts` IS the shipped mapper; what we ship no helper for is DRIVING the user's
+  `npx @veedstudio/openedit-cli whisper <json> <video>` — one json per video, repeated in pairs for a
+  batch. The whisper command IS the shipped mapper; what we ship no helper for is DRIVING the user's
   service, which is yours to do with their tool.
 
 OFFERING THE ALTERNATIVE — once, and in these words, so the user hears the actual trade rather than a
@@ -474,7 +478,7 @@ second nag:
 
 WHEN A RUN FAILS — classify it, because the right move differs and none of them is a silent retry:
 
-- **Out of credits** (`veed/go.ts` says "out of transcription credits") → the account is the blocker, not
+- **Out of credits** (the veed transcribe run says "out of transcription credits") → the account is the blocker, not
   the choice, so go back to the Q1 question with VEED still on the table: "VEED is out of transcription
   credits for this workspace — a free account covers about 10 minutes a month. You can add a plan at
   https://www.veed.io/pricing and I'll retry, or I can run WhisperX locally instead: free, offline, and
@@ -494,7 +498,7 @@ Re-ask only when the recorded provider is gone (token revoked, WhisperX uninstal
 to switch, or when a run failed and the alternative has not been offered yet; "switch transcription
 provider" means rewrite that file.
 
-LOGIN (if `go.ts` says "No VEED login found"): OAuth needs the user to authenticate in a browser once,
+LOGIN (if the veed transcribe run says "No VEED login found"): OAuth needs the user to authenticate in a browser once,
 but you (the agent) launch it — do NOT just tell the user to run a command. Preferred flow (refreshable
 token, ~30-day):
 - Run `npx @veedstudio/openedit-cli login` in the background — it starts a local catcher, prints an
@@ -508,7 +512,7 @@ token, ~30-day):
   to obtain a token, and never ask them to paste one out of DevTools.
 
 Then the rest of prep (needs the transcript above for the beat times, whichever provider wrote it):
-`node --import tsx prep/prep.ts <video> [...]`
+`npx @veedstudio/openedit-cli prep <video> [...]`
 Auto-detects aspect from the source and writes, under `runs/<key>/`:
 - `meta.json` — the single source of truth downstream: canvas `width/height/fps`, `durationSec`, and all paths
   (`videoPath`, `transcriptPath`, `wordTimingsPath`, `framesDir`). Canvas = the source's own dims
@@ -524,7 +528,7 @@ Auto-detects aspect from the source and writes, under `runs/<key>/`:
 **A clip with no speech has no beats, and still has a composition.** `prep` samples one still per
 transcript chunk, which is the right unit for a captioned run and no unit at all for a silent clip, a
 card with no audio, or a piece of stock footage. Those runs get time-sampled stills instead:
-`node --import tsx pipeline/scripts/scene-frames.ts <video.mp4> <runs/key/frames> [--count 8]`
+`npx @veedstudio/openedit-cli scene-frames <video.mp4> <runs/key/frames> [--count 8]`
 It writes the stills plus `scene-plan.json` — canvas, fps, and for each sample its second and its frame
 index — so facts are written against sample indices rather than against beats that do not exist. No
 transcript is read on this path.
@@ -572,7 +576,7 @@ RETURN tight: video format (9:16|16:9) · overall vibe/genre · subject + settin
 ```
 
 ### SAMPLE ONE STYLE — deterministic, zero tokens  · SCRIPT
-`node --import tsx pipeline/scripts/sample-style.ts --run runs/<key>`
+`npx @veedstudio/openedit-cli sample-style --run runs/<key>`
 Facet-scored seeded draw of ONE aspect-matched ref from `refs/tags.json` (v3: the RUNTIME INDEX —
 recipes only; `fit` is the aspect SOT). Vibe comes from the transcript automatically (energy from word
 rate/caps/exclamations — no LLM, no frames) and weights the draw; same run key → same ref. Writes
@@ -668,17 +672,17 @@ compaction loses it.
     the moment the ask carries ANY creative direction it is a REMIX, never a re-roll.
   - Defect repairs (typo, overlap, out-of-sync word) are neither — fix at the source, then re-run the
     gates. Creative-run output (face-1/REMIX — agent-authored) → patch the run's template directly.
-    Recipe-run output → NEVER hand-edit the generated .wv document (generate-recipe.ts owns it): a text/timing
+    Recipe-run output → NEVER hand-edit the generated .wv document (the generate-recipe command owns it): a text/timing
     defect = fix transcript/word-timings and re-run the script; placement-vs-footage = the refine path
     (ANALYSE); a deliberate one-run tweak = the CUSTOMISING `--module` copy (DESIGN + RENDER variant A).
   - **A BRAND OR A SET GETS A FILE, NOT A PARAGRAPH.** When the user supplies a brand, or several
     pieces are being made together, write `brand.json` beside the run (palette BY ROLE, colour law,
     type pair, the mark's file path and placement, and for a set the bone every piece keeps). Validate
-    it with `node --import tsx pipeline/scripts/brand.ts --file <brand.json> --check` — it fails when a
+    it with `npx @veedstudio/openedit-cli brand --file <brand.json> --check` — it fails when a
     named mark is not on disk, which is what makes a design pass draw its own — and paste
     `--brief` into the design pass. Retyping the law per piece is how four cards drifted apart.
   - **RECORD WHAT WAS REJECTED, AND WHY.** Before starting another round on the same footage:
-    `node --import tsx pipeline/scripts/creative-log.ts --for <video> --reject "<what it was>" --why "<their reason>"`
+    `npx @veedstudio/openedit-cli creative-log --for <video> --reject "<what it was>" --why "<their reason>"`
     and when something lands, `--accept "<the aesthetic>" --why "<why it landed>"`. Then start the next
     round by reading it back with `--brief` and putting that text in the design pass. It is keyed by
     the FOOTAGE, so rounds two, three and four inherit it, and it survives a compaction — which the
@@ -686,7 +690,7 @@ compaction loses it.
     complaint this exists to prevent.
   - **A SCOPED EDIT MUST PROVE ITS SCOPE.** When the user asks for one thing and says to leave the rest
     alone, copy the accepted document first, then check the result against it:
-    `node --import tsx pipeline/scripts/scoped-edit.ts <accepted.wv> <new.wv> --allow <selector-or-id>…`
+    `npx @veedstudio/openedit-cli scoped-edit <accepted.wv> <new.wv> --allow <selector-or-id>…`
     It names every difference outside what you were allowed to touch, with both values. Run it before
     you say the change is done — "you moved something I told you not to move" is the correction this
     pipeline earns most often, and neither `--verify` nor probe-qa can see it: both documents render
@@ -747,7 +751,7 @@ Route by the SHAPE of the run (the SAMPLE ONE STYLE script's output + the creati
   to route on. Write `runs/<key>/design/system.json` first (this path authors from scratch, so it needs
   a system as much as face-1 — `groundedIn` names whatever the run's own facts are: the brief, a script,
   a shot list), author per `director-brief.md` with the canvas and duration from the ask, then run
-  `node --import tsx pipeline/scripts/gates.ts runs/<key> --no-probe --no-mux` — no source footage to diff frames
+  `npx @veedstudio/openedit-cli gates runs/<key> --no-probe --no-mux` — no source footage to diff frames
   against, and no source track to restore. If the run HAS a built soundtrack, pass
   `--audio runs/<key>/audio/mix.m4a` instead of `--no-mux`. A footage-free run is as supported as any
   other; what it lacks is a source file to derive from, not a path through this step. Place pictures
@@ -758,7 +762,7 @@ Route by the SHAPE of the run (the SAMPLE ONE STYLE script's output + the creati
 **A. COMPILED RECIPE (`hasRecipe:true`)** — the recipe did the design thinking offline; code does the
 assembly. Run (OUTSIDE any sandbox — the engine needs a real desktop session):
 ```
-node --import tsx pipeline/scripts/generate-recipe.ts --run runs/<key> --record
+npx @veedstudio/openedit-cli generate-recipe --run runs/<key> --record
 ```
 One invocation runs the FULL gate chain: loads the ref's compiled recipe (`refs/html/<id>/recipe.ts`),
 generates `runs/<key>/final/{template.wv, manifest.json}` from `meta.json` + `word-timings.json` (word
@@ -908,12 +912,12 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs a real desktop session; binary = 
      beat's reveal timing is subtle; ids only (a word with no id can't be targeted).
   WCAG PASS (DEFAULT on creative runs; level AA) — after --verify is clean, before recording. It
      DETECTS and REPORTS; it NEVER silently changes colours — the human chooses.
-       node --import tsx {repo}/pipeline/scripts/wcag-pass.ts --run {repo}/runs/{key}
+       npx @veedstudio/openedit-cli wcag-pass --run {repo}/runs/{key}
      It samples the REAL rendered background behind every caption, checks WCAG AA contrast, writes
      final/contrast-statistics.json (the policy-free statistics the verdicts and the proposals are
      computed from), and STOPS. It prints `status: pass|attention` plus ONE `propose:` line per failing
      CLASS. Exit 1 = tooling missing or crashed (fix the environment: the engine carries the analyzer,
-     so install or update it with pipeline/scripts/install-veed-engine.mjs) — not a design failure.
+     so install or update it with npx @veedstudio/openedit-cli install-engine) — not a design failure.
      ONE REMEDIATION PER CLASS: every text of a class takes the SAME fix, solved at the class's common
      denominator, so a class is the unit the user chooses at. Each line offers up to three rungs,
      RECOMMENDED FIRST — `colour` (only when one colour covers the whole class), `shadow` (a solved
@@ -943,7 +947,7 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs a real desktop session; binary = 
          mention on their recommended rung.
        - IGNORE → record the original unchanged; write nothing.
      - APPLY STEP — a chosen option ALWAYS takes effect:
-         node --import tsx {repo}/pipeline/scripts/wcag-pass.ts --run {repo}/runs/{key} --apply
+         npx @veedstudio/openedit-cli wcag-pass --run {repo}/runs/{key} --apply
        With a runs/{key}/final/wcag-choice.json present, --apply drives the applier from that explicit
        choice (colour / shadow / background box) and ALWAYS runs it, promoting unconditionally; with NO
        choice file it falls back to the automatic hue-preserving colour set (value/saturation shift only,
@@ -977,7 +981,7 @@ continue straight to probe-qa + mux.
 ```
 
 After recording: run the last gate —
-`node --import tsx pipeline/scripts/probe-qa.ts runs/<key>` (mechanical frame QA: per-beat mid + tail
+`npx @veedstudio/openedit-cli probe-qa runs/<key>` (mechanical frame QA: per-beat mid + tail
 probes vs the source — caption present, WCAG-ish contrast). FAIL → do NOT redesign and do NOT
 auto-re-render: report honestly in plain terms and pick the fix WITH the user. Warns → proceed to mux;
 surface one only if it's likely visible in the deliverable.
@@ -994,7 +998,7 @@ its own system exactly as face-1 does — copy the original's and change what th
 naming the donors in `donors`), then author
 `runs/<key>-remix/final/{template.wv, manifest.json}` per `director-brief.md` REMIX MODE, then run the
 whole chain with one command (OUTSIDE any sandbox — verify and record need a real desktop session):
-  `node --import tsx pipeline/scripts/gates.ts runs/<key>-remix`
+  `npx @veedstudio/openedit-cli gates runs/<key>-remix`
 It runs design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, stops at the first failure and names
 the gate. A `--verify` failure: fix ONLY the flagged element and re-run, at most twice, then stop and
 report honestly. A probe-qa failure: report it in plain terms and pick the fix WITH the user — never
@@ -1005,11 +1009,11 @@ route is exactly the main flow's WCAG PASS, and a remix gets the whole of it: th
 — target rating: WCAG AA` heading, the count, and one line per class from the `propose:` lines with
 humanised labels, closing on the same three choices (Apply / Ignore / Adjust). On Apply or Adjust write
 `runs/<key>-remix/final/wcag-choice.json` yourself from what they said and run
-`… wcag-pass.ts --run runs/<key>-remix --apply`; on Ignore leave it as-is. Never pick for them. After an
+`… wcag-pass --run runs/<key>-remix --apply`; on Ignore leave it as-is. Never pick for them. After an
 apply, re-run the chain so the record is made from the promoted template.
 
 ### MUX AUDIO — restore the soundtrack  · SCRIPT
-the engine renders video only. When the run's audio IS the source clip's, `node --import tsx pipeline/scripts/mux-audio.ts runs/<key>` muxes it onto
+the engine renders video only. When the run's audio IS the source clip's, `npx @veedstudio/openedit-cli mux-audio runs/<key>` muxes it onto
 `final/out.silent.mp4` → **`runs/<key>/final/out.mp4`** (the deliverable). `-map 1:a:0?` tolerates a source with
 no audio track, and the deliverable takes the PICTURE's length, so a built mix shorter than the render cannot truncate it. Deliver `out.mp4` to the user — this is the FIRST
 moment the run is presented as done (never announce the silent render or muxing separately).
@@ -1022,8 +1026,8 @@ piece — write `runs/<key>/audio/mix.json`, build the track, and mux THAT:
   { "path": "assets/sfx-3.mp3",  "atSec": 88.2, "gainDb": -6,  "role": "sfx" } ] }
 ```
 ```
-node --import tsx pipeline/scripts/mix-audio.ts runs/<key>          # → runs/<key>/audio/mix.m4a
-node --import tsx pipeline/scripts/mux-audio.ts runs/<key> --audio runs/<key>/audio/mix.m4a
+npx @veedstudio/openedit-cli mix-audio runs/<key>          # → runs/<key>/audio/mix.m4a
+npx @veedstudio/openedit-cli mux-audio runs/<key> --audio runs/<key>/audio/mix.m4a
 ```
 `durationSec` is required and is the FILM's length — anything past it is trimmed, so one long cue
 cannot lengthen the deliverable. A bed marked `duck` is opened by the voice itself rather than by a
@@ -1036,7 +1040,7 @@ every run. A silent deliverable is a complete one here, not a failed mux.
 ### PREVIEW — open the localhost preview  · SCRIPT (parallel, non-blocking, runs alongside the rest)
 As soon as render is DONE, launch the preview server in the BACKGROUND, OUTSIDE any sandbox, and continue
 immediately:
-`node --import tsx preview/server.ts runs/<key>`
+`npx @veedstudio/openedit-cli preview runs/<key>`
 (OUTSIDE the sandbox because recursive fs.watch needs FSEvents, which the sandbox's filesystem
 interception blocks; if launched sandboxed anyway, the server falls back to 2s polling.)
 It prints `preview: http://127.0.0.1:<port>/` and opens the user's browser (VEED_PREVIEW_NO_OPEN=1 to
@@ -1061,14 +1065,14 @@ Kill the server(s) when the session wraps up.
 - **variety / bold-broadcast** (good for 16:9 landscape): "loud broadcast / sports-lower-third energy; big type in the landscape thirds; heavy effects."
 
 ## Gotchas
-- veed-engine-cli is checked by PREFLIGHT — keep it current via `node pipeline/scripts/install-veed-engine.mjs`; macos-arm64 / windows-x64 binary. Older builds lose features (e.g. pre-0.3 = no shadows = major degrade).
-- Sandbox: PREP (veed/go.ts) needs network egress to `*.veed.io` — a sandboxed
+- veed-engine-cli is checked by PREFLIGHT — keep it current via `npx @veedstudio/openedit-cli install-engine`; macos-arm64 / windows-x64 binary. Older builds lose features (e.g. pre-0.3 = no shadows = major degrade).
+- Sandbox: PREP (the veed transcribe run) needs network egress to `*.veed.io` — a sandboxed
   `fetch failed` there means the sandbox blocked the call; re-run it outside the sandbox. The DESIGN + RENDER step's
   engine `--verify`/`--record` always runs OUTSIDE the sandbox (it needs a real desktop session — the window-server on macOS).
 - Recipes are COMPILED CODE (`refs/html/<id>/recipe.ts` over the shared `pipeline/recipes/lib.ts`),
   authored + validated OFFLINE, one-time per ref (derived from the ref's prose sheet
   `refs/html/<id>/recipe.md` — which doubles as the creative pass's craft-substrate/donor material) —
-  the fast path only ever RUNS them via `generate-recipe.ts`. The runtime index is recipes-only, so
+  the fast path only ever RUNS them via `npx @veedstudio/openedit-cli generate-recipe`. The runtime index is recipes-only, so
   implicit runs are always scripted end to end; the from-scratch inline pass runs only for creative face-1
   (and refine re-runs).
 - **USER MATERIALS GET OPENED** (creative face-1): the design pass OPENS and studies the user's

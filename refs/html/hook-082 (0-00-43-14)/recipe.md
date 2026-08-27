@@ -269,7 +269,7 @@ Then record (a SECOND invocation — `--verify` and `--record` are mutually excl
 Then probe-qa (mechanical frame QA — the defects verify can't see):
 
 ```
-node --import tsx pipeline/scripts/probe-qa.ts runs/<key>
+npx @veedstudio/openedit-cli probe-qa runs/<key>
 ```
 
 FAIL → report honestly and offer a `--seed`/`--style` re-run; do NOT redesign or auto-re-render. Warns
