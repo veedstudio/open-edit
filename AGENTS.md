@@ -28,13 +28,13 @@ the work calls for edits, motion graphics, or other compositions.
 When the user says "run the open-edit skill on `<video.mp4>`", follow
 `.claude/skills/open-edit/SKILL.md` exactly (the FAST PATH):
 **preflight** (automatically prepare the workspace-local runtime; ask before global installs or updates) →
-**prep** (transcript from the recorded provider — `veed/go.ts` or `prep/transcribe.ts` — then `prep/prep.ts`: `meta.json` + `word-timings.json` from
-the transcript's real per-word times + base frames) → **sample ONE style** (`sample-style.ts`, facet-scored, seeded,
+**prep** (transcript from the recorded provider — `npx @veedstudio/openedit-cli transcribe`, with `--provider veed` for the hosted route — then `npx @veedstudio/openedit-cli prep`: `meta.json` + `word-timings.json` from
+the transcript's real per-word times + base frames) → **sample ONE style** (`npx @veedstudio/openedit-cli sample-style`, facet-scored, seeded,
 zero tokens → `style.json`; the pool is the recipes-only runtime index `refs/tags.json`, so the draw is
-always recipe-backed) → **design + render** (`pipeline/scripts/generate-recipe.ts --run runs/<key>
+always recipe-backed) → **design + render** (`npx @veedstudio/openedit-cli generate-recipe --run runs/<key>
 --record`, a SCRIPT driving the full gate chain: the compiled recipe emits the .wv document → lint → `--verify`
 with the mechanical ladder fix loop → records `out.silent.mp4` → probe-qa frame QA) → **mux audio**
-(`pipeline/scripts/mux-audio.ts`). Deliverable → `runs/<key>/final/out.mp4`.
+(`npx @veedstudio/openedit-cli mux-audio`). Deliverable → `runs/<key>/final/out.mp4`.
 The **CREATIVE PASS** routes on the SHAPE of the ask (the user never learns recipes exist):
 **face-1** — the prompt arrives WITH the user's own reference/brand/concept → the orchestrator authors
 design+render INLINE per the brief (no subagent: nothing to orphan in headless runs, and the design stays
@@ -60,14 +60,10 @@ fast-path/refinement switch.
   built on `pipeline/recipes/lib.ts` (the shared assembly rules); turns `meta.json` + `word-timings.json`
   into the final .wv document deterministically. Authored + validated offline (derived from the sheet);
   `hasRecipe` keys on the module existing.
-- `pipeline/scripts/` — `sample-style.ts` (facet-scored seeded style pick) · `generate-recipe.ts` (runs the compiled recipe: generate → lint → `--verify` fix loop → `--record` → probe) · `lint-template.ts` (mechanical engine-limit gate) · `design-gate.ts` (a run's documents read back against its own design system) · `probe-qa.ts` (frame QA vs the source) · `resolve-video.ts` (the video-arg resolution rule shared by both entry points) · `synth-word-timings.ts` (imported by prep) · `extract-beat-frames.ts` (imported by prep) · `gates.ts` (THE chain: design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, one
-  command, `--doc` to gate one chapter of a longer piece) · `wcag-pass.ts` · `expect-windows.ts` ·
-  `scoped-edit.ts` · `brand.ts` · `creative-log.ts` · `mix-audio.ts` · `cut-frames.ts` (frames at every
-  shot boundary, where a uniform grid never looks) · `scene-frames.ts` (stills for a clip with no beats) ·
-  `concat-chapters.ts` (stream-copies the chapters of one film, refusing parts that disagree) ·
-  `concat-videos.ts` (re-encodes generated clips that DO disagree onto one canvas) ·
-  `mux-audio.ts`, `preflight.mjs`, `install-veed-engine.mjs` (deterministic; the sibling `.sh` files
-  are thin POSIX shims onto the same scripts). Run `gates.ts` rather than retyping the gates it drives.
+- `pipeline/scripts/` — `lint-template.ts` (mechanical engine-limit gate — the rules the substrate is written against, so it lives here with it) · `design-gate.ts` (a run's documents read back against its own design system) · `synth-word-timings.ts` (TYPES ONLY — the `word-timings.json` contract; the synthesis lives in the CLI's prep command) · `npx @veedstudio/openedit-cli gates` (THE chain: design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, one
+  command, `--doc` to gate one chapter of a longer piece) ·
+  `preflight.mjs` (a thin shim onto `npx @veedstudio/openedit-cli init`;
+  the sibling `.sh` file is its POSIX twin). Run the gates command rather than retyping the gates it drives.
 - `pipeline/design/` — the authored path's substrate. `system.ts` is the per-run design system
   (`runs/<key>/design/system.json`): fonts, the type ladder with tracking per rung, palette, spacing,
   named easings and durations, the reveal unit, the devices in play, and `donors` — the recipe ids it
@@ -81,21 +77,21 @@ fast-path/refinement switch.
   drawn with `scaleX`, where a plain bar is what a default draws; contrast over footage is a two-layer
   ground shadow in the document's own colour, not a scrim box. `geometry.ts` is arcs,
   lattices, springs and clip polygons.
-- `pipeline/providers/` — the asset seam. `assets.ts` (`runs/<key>/assets/manifest.json`: records
-  APPEND, so a regenerated plate never erases the call that was already billed) · `fal.ts` (the user's
-  own key; `submitOnce` refuses to buy an identical request twice) · `queue-ledger.ts` (what was
-  accepted, so a lost poll resumes instead of re-submitting) · `stills.ts` (a real picture with its
-  licence and credit; a file whose terms are absent reads as `unknown`, never as permissive — it has a
-  CLI: `stills.ts search <query>` · `show <File:…>` · `save <File:…|url> --run <dir> --id <id>`).
-- `pipeline/scripts/mix-audio.ts` — one soundtrack out of many pieces, for a run whose audio is not
+- The asset seam lives in the `@veedstudio/openedit-cli` package: the asset manifest (`runs/<key>/assets/manifest.json`: records
+  APPEND, so a regenerated plate never erases the call that was already billed), the fal client (the user's
+  own key; `submitOnce` refuses to buy an identical request twice), the queue ledger (what was
+  accepted, so a lost poll resumes instead of re-submitting), and `npx @veedstudio/openedit-cli stills` (a real picture with its
+  licence and credit; a file whose terms are absent reads as `unknown`, never as permissive —
+  `stills search <query>` · `stills show <File:…>` · `stills save <File:…|url> --run <dir> --id <id>`).
+- `npx @veedstudio/openedit-cli mix-audio` — one soundtrack out of many pieces, for a run whose audio is not
   simply the source clip's. Each track states where it starts and how loud it sits; a bed marked
-  `duck` is ducked by the `voice` tracks themselves rather than by a guessed gain. `mux-audio.ts`
+  `duck` is ducked by the `voice` tracks themselves rather than by a guessed gain. The mux-audio command
   still restores a single source track; this is what a film needs instead.
-- `veed/` — VEED-native transcription + login (one writer of `transcript.json`; real per-word timings), plus Fabric generation and video background removal on the same login. `background-removal.ts` reaches the live free VEED route by default, or fal's own `--fast` model when that variant is wanted; `lipsync.ts` (video + new audio -> re-lipsynced video) has no VEED-hosted route at all and always goes through fal. Both fal-charged paths still use the VEED login to host the local file for a URL — `asset-upload.ts` is the shared upload primitive — but the generation call itself bills the user's own fal key (`pipeline/providers/fal.ts`), never a VEED workspace. `prep/prep.ts` — `meta.json` + `word-timings.json` + base frames (needs a transcript from any provider). `refs/` — `html/` refs + `tags.json` (v3, the RUNTIME INDEX — recipes only, facet taxonomy, `fit` = aspect SOT) + per-ref `recipe.md` (the prose recipe sheet a compiled recipe is derived from — the fast path runs the compiled module, never the sheet; the creative pass reads sheets as craft substrate and REMIX donors).
+- `veed/` — VEED-native transcription + login (one writer of `transcript.json`; real per-word timings), plus Fabric generation and video background removal on the same login. `npx @veedstudio/openedit-cli background-removal` reaches the live free VEED route by default, or fal's own `--fast` model when that variant is wanted; `npx @veedstudio/openedit-cli lipsync` (video + new audio -> re-lipsynced video) has no VEED-hosted route at all and always goes through fal. Both fal-charged paths still use the VEED login to host the local file for a URL, but the generation call itself bills the user's own fal key (the CLI's fal BYOK rail), never a VEED workspace. `npx @veedstudio/openedit-cli prep` — `meta.json` + `word-timings.json` + base frames (needs a transcript from any provider). `refs/` — `html/` refs + `tags.json` (v3, the RUNTIME INDEX — recipes only, facet taxonomy, `fit` = aspect SOT) + per-ref `recipe.md` (the prose recipe sheet a compiled recipe is derived from — the fast path runs the compiled module, never the sheet; the creative pass reads sheets as craft substrate and REMIX donors).
 - `config.ts` — all machine paths (ffmpeg / ffprobe / veed-engine). `docs/` — FLOW (orchestration) · recipe-format (the recipe law). Engine support matrix = the `feature-support.md` asset downloaded with the engine release into `.veed-engine/` (not vendored here).
 
 ## Hard rules (do not drift — these protect output quality)
-- Recipe runs are **deterministic** — `generate-recipe.ts` is the only writer of the final .wv document; never
+- Recipe runs are **deterministic** — the generate-recipe command is the only writer of the final .wv document; never
   hand-edit its output or "improve" a compiled recipe per-run. A gate failure (lint / `--verify` /
   probe-qa) gets the mechanical ladder fix (in the runner) or an honest report — never a redesign. If a
   run genuinely needs a customised recipe (explicit user ask), COPY `refs/html/<id>/recipe.ts` to the
@@ -126,7 +122,7 @@ fast-path/refinement switch.
   reads the FOOTAGE frames** — it writes per-beat facts in CANVAS px to `analysis.json`; the design pass
   composes from those numbers when the file exists (safe margins otherwise) and never opens the frames.
   (User-SUPPLIED materials on face-1 are the one exception to "no vision in design" — studying them is the point.)
-- Engine = `veed-engine-cli` (the veed render engine, downloaded directly from the upstream `veedstudio/weave-renderer-public-releases` repo into `.veed-engine/` via `pipeline/scripts/install-veed-engine.mjs`, which picks the release asset for the platform (macos-arm64 or windows-x64); **the SKILL's PREFLIGHT step self-checks the version** vs the latest GitHub release).
+- Engine = `veed-engine-cli` (the veed render engine, downloaded directly from the upstream `veedstudio/weave-renderer-public-releases` repo into the CLI's app-data dir via `npx @veedstudio/openedit-cli install-engine`, which picks the release asset for the platform (macos-arm64 or windows-x64); **the SKILL's PREFLIGHT step self-checks the version** vs the latest GitHub release).
 
 ## Conventions
 - Canvas (probed by prep): the source's own width/height (rotation-corrected) and fps (nominal `r_frame_rate`); `aspect` is an orientation label — 9:16 when h ≥ w, else 16:9. Beat render frame = `round(beatMidSec * fps)`.
@@ -137,15 +133,11 @@ fast-path/refinement switch.
 
 ## VEED transcription internals
 
-The `veed/` client uploads without a project and bills transcription to the authenticated user's
+The VEED client uploads without a project and bills transcription to the authenticated user's
 workspace. There is no project-scoped path: the no-project route is the only one it takes.
 
-- `go.ts` is the CLI entrypoint and writes `runs/<key>/transcript.json`.
-- `orchestrate.ts` owns upload, readiness polling, transcription, and mapping.
-- `api.ts` and `http.ts` are the typed API and authenticated transport layers.
-- PKCE login, local token storage, and refresh live in the `@veedstudio/openedit-cli` npm package (`npx @veedstudio/openedit-cli login`); the files here obtain tokens by spawning its `token` command via `cli-token.ts` — a process boundary, never an import.
-- `transcript-mapper.ts` converts VEED captions to the pipeline's timestamped chunk shape.
-- `readiness.ts` reports live-run prerequisites.
+- The whole VEED client — login, typed API, transport, transcription, Fabric, background removal, lipsync — lives in the `@veedstudio/openedit-cli` npm package: `npx @veedstudio/openedit-cli transcribe --provider veed <video>` writes `runs/<key>/transcript.json`.
+- What remains here: `args.ts` — the strict flag parser the workspace's own scripts (the design substrate's gates and installers) share. Everything else, `npx @veedstudio/openedit-cli readiness` included, lives in the package.
 
 ## Transcription providers
 
@@ -156,32 +148,31 @@ listed first because it transcribes best, not because it wins ties.
 
 | Provider | What it is | Entry point |
 | --- | --- | --- |
-| `veed` | Premium quality, hosted. One-time browser sign-in; limits are the VEED account's. | `veed/go.ts` |
-| `whisperx` | Free, local, offline. Two tiers: `medium` (slower, better) and `small.en` (fastest, weaker on names). CPU by default (CTranslate2 has no GPU path on Apple Silicon); a CUDA-capable box overrides via `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE`. | `prep/transcribe.ts` |
-| `custom` | The user's own service or MCP, and the route for GENERATED narration — the media argument may be an audio file, so a film's own voice track reaches `transcript.json` before any picture exists. **We provide no support code**: you obtain a Whisper-family JSON however their tool works, then map it. No credential ever passes through OpenEdit. | `prep/whisper.ts <json> <media>` |
+| `veed` | Premium quality, hosted. One-time browser sign-in; limits are the VEED account's. | `npx @veedstudio/openedit-cli transcribe --provider veed` |
+| `whisperx` | Free, local, offline. Two tiers: `medium` (slower, better) and `small.en` (fastest, weaker on names). CPU by default (CTranslate2 has no GPU path on Apple Silicon); a CUDA-capable box overrides via `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE`. | `npx @veedstudio/openedit-cli transcribe` |
+| `custom` | The user's own service or MCP, and the route for GENERATED narration — the media argument may be an audio file, so a film's own voice track reaches `transcript.json` before any picture exists. **We provide no support code**: you obtain a Whisper-family JSON however their tool works, then map it. No credential ever passes through OpenEdit. | `npx @veedstudio/openedit-cli whisper <json> <media>` |
 
 The choice is recorded in `$OPEN_EDIT_ROOT/.open-edit-prefs.json` — the runtime root, which is not the
 user's project root when the runtime is a managed clone — as `{ transcription: { provider, model? } }`, and is not
-re-asked. Write it with `node --import tsx prep/transcribe.ts --record <provider> [--model <id>]` rather
-than by hand; `prep/transcribe.ts` also exports `readPrefs` / `writePrefs` / `recordedModel` for
-programmatic use. An absent, corrupt or unrecognised file reads as a cold start with a stated reason, and
+re-asked. Write it with `npx @veedstudio/openedit-cli transcribe --record <provider> [--model <id>]` rather
+than by hand. An absent, corrupt or unrecognised file reads as a cold start with a stated reason, and
 a recorded `model` becomes the default tier for later runs.
 
-Every provider entry point takes `<video.mp4> [...]`, like `prep/prep.ts`, and writes one `runs/<key>` per
+Every provider entry point takes `<video.mp4> [...]`, like the prep command, and writes one `runs/<key>` per
 video — so a batch asks the provider question, signs in, and installs once. A failure stops the batch and
 leaves the transcripts already written in place.
 
 ```sh
 # whisperx, installed on request only — isolated uv/pipx environment, ~2 GB with weights,
 # removed again with `uv tool uninstall whisperx`
-node pipeline/scripts/install-whisperx.mjs                      # uv/pipx, pinned interpreter
-node --import tsx prep/transcribe.ts <video.mp4> [...] [--model medium] [--language de]
+npx @veedstudio/openedit-cli install-whisperx                   # uv/pipx, pinned interpreter
+npx @veedstudio/openedit-cli transcribe <video.mp4> [...] [--model medium] [--language de]
 
 # custom: any Whisper-family JSON the user's service produced, one json per video
-node --import tsx prep/whisper.ts transcription.json <media> [<json> <media> ...]   # media = video OR audio
+npx @veedstudio/openedit-cli whisper transcription.json <media> [<json> <media> ...]   # media = video OR audio
 ```
 
-`prep/whisper-mapper.ts` accepts the Python Whisper family (WhisperX, openai-whisper,
+The whisper command accepts the Python Whisper family (WhisperX, openai-whisper,
 whisper-timestamped, mlx-whisper), the OpenAI API's `verbose_json` with
 `timestamp_granularities=["word"]`, and whisper.cpp's `-oj -ml 1` millisecond offsets.
 
@@ -201,7 +192,7 @@ hundreds of timestamps through model context invites drift in the numbers themse
 
 A failed VEED run is classified rather than retried blindly (SKILL.md, the PREP step): out of credits returns to
 the provider question with VEED still offered — a free account covers about 10 minutes a month, so
-`veed/orchestrate.ts` names https://www.veed.io/pricing and the local alternative in the error itself; a
+the CLI's transcribe command names https://www.veed.io/pricing and the local alternative in the error itself; a
 login failure retries the login once; anything else retries the command once. The recorded provider is
 never rewritten on failure.
 
@@ -209,8 +200,5 @@ Run the isolated VEED tests without network access:
 
 ```sh
 node --import tsx --test \
-  tests/charge-records.test.ts tests/cli-entry.test.ts tests/fabric.test.ts \
-  tests/generate.test.ts tests/generate-charge.test.ts tests/generate-set.test.ts tests/generate-validation.test.ts tests/orchestrate.test.ts tests/sample-presenter.test.ts \
-  tests/cli-token.test.ts tests/go.test.ts \
-  tests/transcript-mapper.test.ts tests/voice-rates.test.ts tests/workspace.test.ts
+  tests/cli-entry.test.ts
 ```

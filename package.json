@@ -9,12 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/culori": "^4.0.1",
     "@types/node": "^22.0.0",
     "tsx": "4.21.0",
     "typescript": "^7.0.2"
-  },
-  "dependencies": {
-    "culori": "^4.0.2"
   }
 }

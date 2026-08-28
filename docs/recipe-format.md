@@ -3,7 +3,7 @@
 A recipe ships as **compiled code**: a generator module at `refs/html/<id>/recipe.ts` (next to the ref's
 prefab and prose sheet) implementing the `RecipeGenerator` interface from `pipeline/recipes/lib.ts` —
 `generate(meta, wordTimings, {demote}) → {wv, manifest}`. The fast path
-(`pipeline/scripts/generate-recipe.ts`) runs ONLY the module: deterministic, zero tokens, no model at run
+(`npx @veedstudio/openedit-cli generate-recipe`) runs ONLY the module: deterministic, zero tokens, no model at run
 time; `hasRecipe`/`--recipes-only` key on the module existing. `lib.ts` owns the invariant rules every
 recipe shares (uppercase + VEED glue, char counting, paging, balanced line split, size ladder + the verify
 loop's demotion lever, gate window + page-fade math, accent pick, SCALE); a module carries only its
@@ -35,7 +35,7 @@ scales every emitted px through them. The rule:
 ## Required sheet sections (in order)
 
 Each maps 1:1 onto the compiled module: SKELETON → the template literal · PER-BEAT ASSEMBLY / WORDS +
-TIMING / EMPHASIS → `generate()` over the lib helpers · VERIFY LOOP → `generate-recipe.ts`'s mechanical
+TIMING / EMPHASIS → `generate()` over the lib helpers · VERIFY LOOP → the generate-recipe command's mechanical
 fix loop · DO NOT → simply how the code behaves.
 
 1. **IDENTITY** — one sentence: what the prefab looks like + its signature devices.

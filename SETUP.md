@@ -5,15 +5,15 @@ From the project where you want to use Open Edit:
 ```
 npx skills add veedstudio/open-edit --skill open-edit
 ```
-On first use, bare preflight automatically clones the full runtime into `.open-edit/runtime`, installs its pinned
+On first use, bare `npx @veedstudio/openedit-cli init` automatically clones the full runtime into `.open-edit/runtime`, installs its pinned
 project dependencies and renderer locally, and registers project hooks for Claude, Codex, and Gemini. It reuses a
 valid Open Edit checkout. It never installs system tools or updates existing code without explicit approval.
 
-For local branch testing, install with `--copy` from a checkout, then pass bundled preflight
+For local branch testing, install with `--copy` from a checkout, then pass init
 `--repository <local-checkout> --ref <branch>`. Commit the branch first: a Git clone
 cannot include uncommitted worktree changes.
 
-Preflight has three modes: bare applies safe local setup, `--dry` reports without writing, and
+Init has three modes: bare applies safe local setup, `--dry` reports without writing, and
 `--auto-approve` applies all reported machine-global dependencies and clean updates. An agent must run
 `--auto-approve` only after showing every proposed action and receiving explicit approval.
 
@@ -22,19 +22,25 @@ Preflight has three modes: bare applies safe local setup, `--dry` reports withou
    On macOS, preflight offers to install missing tools via Homebrew. On Windows it only prints the
    commands (`winget install --id Git.Git` / `OpenJS.NodeJS.LTS` / `Gyan.FFmpeg` — or the direct
    downloads from git-scm.com, nodejs.org, and gyan.dev if winget is absent); run them yourself, then
-   re-run preflight from a NEW terminal so the PATH changes are visible.
-2. **ffmpeg/ffprobe** (frame extraction + audio mux). On PATH or set `VEED_ENGINE_FFMPEG ` / `VEED_ENGINE_FFPROBE`.
+   re-run preflight from a NEW terminal so the PATH changes are visible. pnpm is the exception: where
+   `corepack` is present preflight tries it first, and falls back to a global install when the pnpm it
+   resolves does not meet the floor.
+2. **ffmpeg/ffprobe** (frame extraction + audio mux). On PATH, or set `VEED_ENGINE_FFMPEG` /
+   `VEED_ENGINE_FFPROBE`. On Windows, where the global installers want elevation,
+   `npx @veedstudio/openedit-cli install-ffmpeg` puts a checksum-verified static build in the
+   CLI's app-data dir — no admin rights, and nothing to export afterwards. macOS uses
+   `brew install ffmpeg`, which already reaches a user-owned prefix.
 3. **veed-engine-cli** — the render engine. Its first install is automatic and local; later updates require
-   approval. `pipeline/scripts/install-veed-engine.mjs` downloads and verifies the latest release for your
-   platform into `.veed-engine/` (extraction uses the system `tar`, which ships with macOS and Windows 10+).
+   approval. `npx @veedstudio/openedit-cli install-engine` downloads and verifies the latest release for your
+   platform into the CLI's app-data dir (extraction uses the system `tar`, which ships with macOS and Windows 10+).
    Set `VEED_ENGINE_BIN` to use an existing installation.
 4. **A transcription provider** — the skill asks once and remembers the answer. Either
    **VEED** (`npx @veedstudio/openedit-cli login`, one-time OAuth, ~30-day refreshable token; a free account
-   covers about 10 minutes a month) or **WhisperX** locally (`node pipeline/scripts/install-whisperx.mjs`,
+   covers about 10 minutes a month) or **WhisperX** locally (`npx @veedstudio/openedit-cli install-whisperx`,
    free and offline). You can also point it at your own service. See `README.md`.
 5. **VEED credits.** **VEED transcription consumes VEED credits** (WhisperX runs locally on your
    machine; your own service is billed by whoever provides it). Separately, with no source video the skill can GENERATE a talking-head clip
-   (`veed/generate.ts`), which spends a workspace's AI Playground credits. **Fabric reuses VEED
+   (`npx @veedstudio/openedit-cli generate`), which spends a workspace's AI Playground credits. **Fabric reuses VEED
    transcription's authentication** — same account, same login, same token; no connector, no second sign-in. Generating is TWO charges on two allowances: AI Playground
    credits for Fabric One Lipsync (~4 a second of finished video) and text-to-speech SECONDS for the speech. The
    script sets the duration at roughly 1,080 characters a minute, so a 60-second read is a couple of
@@ -63,7 +69,7 @@ Invoke the `open-edit` skill on a video (pass its path). Outputs land in `runs/<
 `frames/`, `analysis.json` on opt-in style-refine runs, and `final/out.mp4` — the deliverable).
 
 ## Preview
-Nothing extra to install — the preview server (`preview/server.ts`, opened automatically by the skill
+Nothing extra to install — the preview server (`npx @veedstudio/openedit-cli preview`, opened automatically by the skill
 after prep) is stdlib-only and read-only: watch the footage and transcript while the style cooks; the
 player swaps to the render when it lands. Env knobs: `VEED_PREVIEW_PORT` (default 8978),
 `VEED_PREVIEW_NO_OPEN=1` (print the URL instead of opening the browser). The resolved URL is also

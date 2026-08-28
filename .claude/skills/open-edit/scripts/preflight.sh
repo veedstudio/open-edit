@@ -1,15 +1,14 @@
 #!/bin/bash
-# macOS shim. The canonical preflight is preflight.mjs (Node, cross-platform); this wrapper restores
-# the Homebrew PATH for GUI-launched agents and bootstraps Node itself — the one dependency the Node
-# port cannot report on its own. Same contract: exit 10 = approval pending, stdout = OPEN_EDIT_ROOT.
+# macOS shim. The canonical setup is `npx @veedstudio/openedit-cli init` (Node, cross-platform); this
+# wrapper restores the Homebrew PATH for GUI-launched agents and bootstraps Node itself — the one
+# dependency the Node port cannot report on its own. Same contract: exit 10 = approval pending,
+# stdout = OPEN_EDIT_ROOT.
 set -uo pipefail
 
 # GUI-launched agents inherit a minimal PATH that commonly omits Homebrew. Add both standard
 # prefixes before probing node; preserve the caller's remaining PATH.
 HOMEBREW_PATH_PREFIX="${OPEN_EDIT_HOMEBREW_PATH_PREFIX-/opt/homebrew/bin:/usr/local/bin}"
 export PATH="${HOMEBREW_PATH_PREFIX:+$HOMEBREW_PATH_PREFIX:}$PATH"
-
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if ! command -v node >/dev/null 2>&1; then
   MODE=""
@@ -23,4 +22,4 @@ if ! command -v node >/dev/null 2>&1; then
   fi
 fi
 
-exec node "$DIR/preflight.mjs" "$@"
+exec npx --yes @veedstudio/openedit-cli init "$@"

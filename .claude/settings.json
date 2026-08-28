@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \".claude/skills/open-edit/hooks/session-start.mjs\" claude"
+            "command": "npx --yes @veedstudio/openedit-cli session-start claude"
           }
         ]
       }

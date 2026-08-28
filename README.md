@@ -150,7 +150,7 @@ browser login and stores a refreshable token in the platform's per-user app-data
 
 ```sh
 npx @veedstudio/openedit-cli login
-node --import tsx veed/go.ts /path/to/video.mp4
+npx @veedstudio/openedit-cli transcribe --provider veed /path/to/video.mp4
 ```
 
 **WhisperX** — free, local and offline; nothing leaves your machine. Installed on request, and the first
@@ -158,8 +158,8 @@ run also downloads a model. Runs on CPU by default, with two quality tiers; a CU
 override via `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE`.
 
 ```sh
-node pipeline/scripts/install-whisperx.mjs                 # on request, once
-node --import tsx prep/transcribe.ts /path/to/video.mp4    # --model medium for the better tier
+npx @veedstudio/openedit-cli install-whisperx              # on request, once
+npx @veedstudio/openedit-cli transcribe /path/to/video.mp4    # --model medium for the better tier
 ```
 
 **Your own service** — produce a Whisper-family JSON however you like (WhisperX, openai-whisper,
@@ -167,7 +167,7 @@ whisper-timestamped, mlx-whisper, the OpenAI API with `timestamp_granularities=[
 `-oj`) and map it. No credentials pass through OpenEdit.
 
 ```sh
-node --import tsx prep/whisper.ts transcription.json /path/to/video.mp4
+npx @veedstudio/openedit-cli whisper transcription.json /path/to/video.mp4
 ```
 
 Per-word timings are required whichever provider you use: without them the caption reveals drift out of

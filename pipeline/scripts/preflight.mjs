@@ -1,15 +1,20 @@
 #!/usr/bin/env node
-// Compatibility entrypoint (the cross-platform twin of preflight.sh). The installable skill owns
-// the canonical preflight implementation.
+// Compatibility entrypoint (the cross-platform twin of preflight.sh). The canonical setup lives in
+// the published CLI: `npx @veedstudio/openedit-cli init`. This shim only defaults the workspace to
+// this checkout.
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const canonical = path.join(repoRoot, '.claude', 'skills', 'open-edit', 'scripts', 'preflight.mjs');
 
 // Only default the workspace when the caller did not give one, otherwise it is passed twice.
 const args = process.argv.slice(2);
 if (!args.includes('--workspace')) args.unshift('--workspace', repoRoot);
-const result = spawnSync(process.execPath, [canonical, ...args], { stdio: 'inherit' });
+
+// Shell on Windows: npx installs as a .cmd shim Node cannot exec directly.
+const result = spawnSync('npx', ['--yes', '@veedstudio/openedit-cli', 'init', ...args], {
+  stdio: 'inherit',
+  shell: process.platform === 'win32',
+});
 process.exit(result.status ?? 1);
