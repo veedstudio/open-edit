@@ -237,9 +237,13 @@ fps film to 30.
 
 **WHO presents it.** If the user has no opinion about the presenter, do not paste 24 thumbnails at them:
 `npx @veedstudio/openedit-cli sample-presenter --key <key> [--gender male|female] [--locale <locale>] [--portrait|--landscape]`
-PROPOSES one character + voice, prints two or three alternates with thumbnail and audio-preview links, and
-ends with the ready-to-run confirm command carrying that pair. `--portrait`/`--landscape` is how FRAMING gets
-chosen (the character IS the framing — there is no aspect parameter), so pass the one the user's format needs.
+PROPOSES one character + voice, prints two or three alternate PRESENTERS — each a face with a voice already
+suited to it, so a whole row can be swapped in — plus more voices for the chosen face, all with thumbnail and
+audio-preview links, and ends with the ready-to-run confirm command carrying that pair. The voice is drawn
+from what suits the face that won, so a male face never comes back with a female voice; gender-neutral voices
+suit either. `--gender` therefore narrows the FACE, and the voice follows it. `--portrait`/`--landscape` is
+how FRAMING gets chosen (the character IS the framing — there is no aspect parameter), so pass the one the
+user's format needs.
 It proposes, it never decides — it costs 0 credits, writes nothing, and the user overrules it with `--seed N`
 or by editing the two ids. Show them the pick and the alternates and get a yes before you run the confirm
 command.
@@ -322,7 +326,8 @@ running them at the same time is fine.
 
 Defaults produce a 9:16 talking head. `--character` picks the presenter (this is ALSO how framing is
 chosen — there is no aspect parameter) and `--voice` the accent; browse with the Fabric tools only if the
-user asks. Generation takes several MINUTES for a short clip — tell them it is running, then go quiet.
+user asks. Left off, `--voice` follows the character: every preset carries a voice chosen to suit that
+face, so naming a character alone never produces a mismatched pair. Generation takes several MINUTES for a short clip — tell them it is running, then go quiet.
 The credit approval is the only gate here that SPENDS — never pass `--yes` without the user's explicit
 approval — but the footage question and the workspace question are stop-and-ask too: three gates, and nothing
 else in this step stops.
