@@ -282,10 +282,11 @@ the same strips.
 
 ## RENDER + VERIFY (needs the window-server → run OUTSIDE any sandbox)
 **One command drives the whole chain**, and it is the one to use unless you have a reason not to:
-`npx @veedstudio/openedit-cli gates <run-dir> [--doc <subdir>] [--audio <file>] [--no-design] [--no-wcag] [--no-expect] [--no-probe] [--no-mux]`
+`npx @veedstudio/openedit-cli gates <run-dir> [--doc <subdir>] [--audio <file>] [--no-design] [--no-wcag] [--no-expect] [--no-probe] [--no-mux] [--no-loudnorm]`
 It runs design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, stops at the first failure and names
 the gate that failed. `--doc` picks the document under the run — it defaults to `final`, and a film
-gates one chapter at a time (`--doc chapters/act-3`). When every chapter is gated, join them with
+gates one chapter at a time (`--doc chapters/act-3 --no-loudnorm`: the level belongs to the whole film,
+and levelling each chapter on its own is how they end up stepping). When every chapter is gated, join them with
 `npx @veedstudio/openedit-cli concat-chapters`, which stream-copies and refuses parts whose format differs —
 NOT `concat-videos.ts`, which re-encodes and normalises the frame rate because its inputs are
 generated clips that disagree by nature. `--no-design` only when a compiled recipe IS the

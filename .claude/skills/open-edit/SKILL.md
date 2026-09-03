@@ -90,9 +90,13 @@ Init names which of the two it resolved (`reusing the local checkout at …` or 
 at …`); read that line before trusting a run to be testing your changes. Resolve the supplied video to an
 absolute path from WORKSPACE before changing working directories.
 
-At the start of EVERY session, before doing Open Edit work, report what setup would do (init also keeps
-the workspace's SessionStart hooks current when it applies — idempotent, and a hook problem never blocks
-a run):
+**If the session opened with a note saying preflight is ready AND naming `OPEN_EDIT_ROOT`, that note IS
+the preflight** — the hook ran it. Take the root from the note, read `AGENTS.md`, and start work. Running
+init again only repeats what has already been answered.
+
+Otherwise, at the start of the session, before doing Open Edit work, report what setup would do (init also
+keeps the workspace's SessionStart hooks current when it applies — idempotent, and a hook problem never
+blocks a run):
 ```
 npx --yes @veedstudio/openedit-cli init --dry --workspace "$WORKSPACE"
 ```
@@ -133,13 +137,76 @@ client discovering instructions inside the newly cloned runtime automatically.
 Written for the footage case. PREFLIGHT, FOOTAGE, DESIGN + RENDER and PREVIEW hold for every run; **PREP**
 (transcript, frames, meta), **SAMPLE ONE STYLE** (the style draw) and **MUX AUDIO** derive from a source
 file, so a run with no video simply has no subject for them — see INPUTS: authoring, lint, `--verify` and
-`--record` are unchanged.
+`--record` are unchanged. **CUT** runs only when there is an edit to make, and it splits PREP: the sources
+are transcribed, the cut is assembled, and everything downstream then sees the edited timeline.
 
 ### PREFLIGHT — completed above  · SCRIPT
 Do not run a second dependency implementation. `pipeline/scripts/preflight.mjs` (and its `.sh` twin) is only a compatibility wrapper
 around the init command. If `node` itself is missing, treat installing it as an APPROVAL REQUIRED action
 (macOS: `brew install node` — the shim reports this itself; Windows: `winget install --id OpenJS.NodeJS.LTS`). The provider choice — and any sign-in or install it implies —
 remains the interactive PREP step.
+
+### CUT — assemble the footage you actually want  · SCRIPT (only when there is an edit to make; splits PREP)
+Applies whenever the deliverable is not simply one source file played end to end: something to REMOVE
+(dead air, filler, a weak take), something to REORDER, or several clips to JOIN into one piece. When the
+ask is a single clip captioned as-is, this step has no subject — skip it and run the PREP step normally.
+
+**Where it sits.** `retime-transcript` needs the SOURCES already transcribed, so this step splits PREP
+rather than preceding it: transcribe the sources (the PREP step's own batch — one command, all files),
+then CUT, then run `prep` on the assembled file. Never transcribe the assembled file.
+
+**Measure the cut points; do not take them from the transcript.**
+```
+npx @veedstudio/openedit-cli speech-probe <video> [--range a:b] [--gap 250] [--window 10] [--json]
+```
+Reports the measured noise floor, the speech onset and decay, and every sub-threshold gap at least
+`--gap` long. `--gap` and `--window` are MILLISECONDS; `--range` and every number in the EDL are seconds.
+A transcript's word boundaries are not cut points: ASR can report a gap between two words where the
+waveform shows unbroken voicing, and cutting there slices a phoneme. When the probe finds no gap at a
+boundary, there is no cut there: keep the filler word rather than make an audible seam. Optional when
+the in- and out-points come from somewhere else entirely — a storyboard, or the user naming the takes.
+
+**Write the edit down, then apply it.**
+```json
+{ "sources":     { "<id>": "<path to video>" },
+  "transcripts": { "<id>": "<path to that source's transcript.json>" },
+  "ranges":      [ { "source": "<id>", "start": 1.6, "end": 7.05, "note": "free text, ignored" } ] }
+```
+`transcripts` is optional — without it each source's transcript is read from where the transcribe command
+wrote it (`runs/<key>/transcript.json` under the runtime root, `<key>` from the source video's filename).
+`note` is optional. Every source path must exist for both tools: the ranges are snapped to each source's
+frame grid, and the grid comes from the file. Ranges play in the order written: reorder them freely, a
+beat does not have to keep its chronological place.
+```
+npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20]
+```
+One encode, one canvas (the first range's source's), joins crossfaded so the room tone carries across them, and
+the sources' colour tags kept — sources that disagree on colour or frame rate are refused rather than
+relabelled. `--crossfade` is milliseconds. Each range is snapped to the frame grid, so the assembled
+timeline is exactly the sum of the snapped ranges, and the retimed transcript below lands on the same
+instants: picture, sound and captions agree to the frame.
+
+This is the joiner for an EDIT — parts of clips, in an order you chose. The FOOTAGE step's joiner is for
+whole generated clips whose shapes disagree, and it hands back an ordinary source file you then
+transcribe; this one hands back a cut whose transcript you RETIME instead.
+
+**Move the timings; do not buy them again.**
+```
+npx @veedstudio/openedit-cli retime-transcript --edl edl.json --out "$OPEN_EDIT_ROOT/runs/cut/transcript.json"
+```
+A cut changes WHEN words were said, never WHICH, so the per-word timings you already have are the timings
+of the new file. Write it where `prep` will look for it: `$OPEN_EDIT_ROOT/runs/<key>/transcript.json`,
+where `$OPEN_EDIT_ROOT` is the runtime root preflight printed (NOT the project directory under a managed
+clone) and `<key>` is the assembled file's name without its extension, whitespace turned into
+underscores — `runs/cut/` for `cut.mp4`. Skipped when there is no transcript at all: a run with no
+speech has nothing to retime.
+
+**Never transcribe the assembled cut.** It is the most expensive mistake available in this flow, and it
+buys nothing the arithmetic above does not already give you. Every transcription route — hosted, local
+and the mapper for your own service — refuses to overwrite an existing `transcript.json` without
+`--force`, and checks before it uploads or runs anything, so a stray one costs nothing.
+
+Then continue with the PREP step, giving it `cut.mp4`.
 
 ### FOOTAGE — a video to work from, generate one, or none  · SCRIPT (only when the user brought none; runs before PREP)
 This step is about VIDEO only — stills, screenshots, slides, images and audio are inputs too, and a run can
@@ -404,8 +471,9 @@ The transcript comes from the provider the user chose, and either way lands at
 video's filename without its extension, whitespace replaced by `_`** — every step below takes the same
 `runs/<key>`, and each entry point prints the path it wrote.
 
-For a batch (see INPUTS above), pass every video to ONE call: a failure stops the batch with the finished
-transcripts left in place.
+For a batch (see INPUTS above), pass every video to ONE call. The hosted batch runs four at a time,
+finishes every file it can, and exits non-zero naming the ones that failed; the local batch stops at the
+first failure. Either way the finished transcripts stay in place and a re-run skips them.
 
 PROVIDER CHOICE — this whole question exists to caption speech, so **when nothing has to be transcribed
 (no footage, silent source, a graphics-only ask) do not ask it at all** and do not record anything.
@@ -932,6 +1000,8 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs a real desktop session; binary = 
      offers only shadow and background; when nothing reaches AA it says that too. Say `background` to the user as "a solid box" — the rung NAMES are the choice file's
      own values, so copy them across verbatim and never translate one into another word.
      - `status: pass` → all caption text clears AA. Note it and move on.
+     - `status: attention` with the note `0 runs audited` → the audit examined nothing: the statistics
+       file names no text elements. Say so plainly and offer no fixes — there is no class to choose at.
      - `status: attention` → some caption text is below AA. Speak it in PLAIN PRODUCT TERMS, briefly,
        for someone who does not know what a CSS class is. Head it `Text contrast audit — target rating:
        WCAG AA`, give the count, then ONE line per class: the class label (the `propose:` selector with
@@ -1019,7 +1089,10 @@ apply, re-run the chain so the record is made from the promoted template.
 
 ### MUX AUDIO — restore the soundtrack  · SCRIPT
 the engine renders video only. When the run's audio IS the source clip's, `npx @veedstudio/openedit-cli mux-audio runs/<key>` muxes it onto
-`final/out.silent.mp4` → **`runs/<key>/final/out.mp4`** (the deliverable). `-map 1:a:0?` tolerates a source with
+`final/out.silent.mp4` → **`runs/<key>/final/out.mp4`** (the deliverable), levelled to the delivery target
+(-14 LUFS / -1 dBTP); the command prints which correction actually ran, and `--no-loudnorm` keeps the
+source level (`gates` forwards it; pass it when gating one chapter of a longer piece, whose level belongs
+to the whole film). `-map 1:a:0?` tolerates a source with
 no audio track, and the deliverable takes the PICTURE's length, so a built mix shorter than the render cannot truncate it. Deliver `out.mp4` to the user — this is the FIRST
 moment the run is presented as done (never announce the silent render or muxing separately).
 When the audio is BUILT rather than restored — narration, music, effects, anything with more than one
@@ -1034,7 +1107,8 @@ piece — write `runs/<key>/audio/mix.json`, build the track, and mux THAT:
 npx @veedstudio/openedit-cli mix-audio runs/<key>          # → runs/<key>/audio/mix.m4a
 npx @veedstudio/openedit-cli mux-audio runs/<key> --audio runs/<key>/audio/mix.m4a
 ```
-`durationSec` is required and is the FILM's length — anything past it is trimmed, so one long cue
+The mix is levelled as a whole at mux, like a source track; set the pieces' relative gains in
+`mix.json` and leave the overall level to it. `durationSec` is required and is the FILM's length — anything past it is trimmed, so one long cue
 cannot lengthen the deliverable. A bed marked `duck` is opened by the voice itself rather than by a
 gain you guessed at; a fade-out is measured from the end of the film, because a cue's own length is not
 in the spec. `--print-graph` shows the filtergraph without running ffmpeg.
@@ -1092,8 +1166,10 @@ Kill the server(s) when the session wraps up.
   `Library not loaded: @rpath/libavutil.<N>.dylib` for several FFmpeg majors, plus a Lightning
   checkpoint-upgrade notice (Windows builds print an equivalent DLL-probing wall). Those are pyannote probing FFmpeg builds it cannot find and are HARMLESS —
   they look fatal and are not. The signal that transcription actually worked is the line
-  `[transcribe] whisperx: <N> words -> <path>`: if it appears, the transcript is written and you continue.
-  If it does NOT appear, the run failed for a real reason — read the last error, not the dlopen wall.
+  `[transcribe] whisperx: <N> words -> <path>` (it ran) or `[transcribe] cached: <path> already exists
+  (--force to transcribe it again)` (a transcript was already there and was left alone — that is a
+  success, not a skip). If NEITHER appears, the run failed for a real reason — read the last error,
+  not the dlopen wall.
 - Rendering fetches Google Fonts over the network (the .wv documents use a `<link>` to `fonts.googleapis.com`);
   an offline box = font fallback.
   FONT WARNINGS — read them precisely, don't chase noise: `no data/font-cache seed found`, generic-keyword
