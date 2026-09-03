@@ -86,7 +86,8 @@ fast-path/refinement switch.
 - `npx @veedstudio/openedit-cli mix-audio` — one soundtrack out of many pieces, for a run whose audio is not
   simply the source clip's. Each track states where it starts and how loud it sits; a bed marked
   `duck` is ducked by the `voice` tracks themselves rather than by a guessed gain. The mux-audio command
-  still restores a single source track; this is what a film needs instead.
+  restores a single source track and levels whichever track it is given to the delivery loudness; this
+  is what a film needs instead.
 - `veed/` — VEED-native transcription + login (one writer of `transcript.json`; real per-word timings), plus Fabric generation and video background removal on the same login. `npx @veedstudio/openedit-cli background-removal` reaches the live free VEED route by default, or fal's own `--fast` model when that variant is wanted; `npx @veedstudio/openedit-cli lipsync` (video + new audio -> re-lipsynced video) has no VEED-hosted route at all and always goes through fal. Both fal-charged paths still use the VEED login to host the local file for a URL, but the generation call itself bills the user's own fal key (the CLI's fal BYOK rail), never a VEED workspace. `npx @veedstudio/openedit-cli prep` — `meta.json` + `word-timings.json` + base frames (needs a transcript from any provider). `refs/` — `html/` refs + `tags.json` (v3, the RUNTIME INDEX — recipes only, facet taxonomy, `fit` = aspect SOT) + per-ref `recipe.md` (the prose recipe sheet a compiled recipe is derived from — the fast path runs the compiled module, never the sheet; the creative pass reads sheets as craft substrate and REMIX donors).
 - `config.ts` — all machine paths (ffmpeg / ffprobe / veed-engine). `docs/` — FLOW (orchestration) · recipe-format (the recipe law). Engine support matrix = the `feature-support.md` asset downloaded with the engine release into `.veed-engine/` (not vendored here).
 
@@ -159,8 +160,9 @@ than by hand. An absent, corrupt or unrecognised file reads as a cold start with
 a recorded `model` becomes the default tier for later runs.
 
 Every provider entry point takes `<video.mp4> [...]`, like the prep command, and writes one `runs/<key>` per
-video — so a batch asks the provider question, signs in, and installs once. A failure stops the batch and
-leaves the transcripts already written in place.
+video — so a batch asks the provider question, signs in, and installs once. The hosted batch finishes
+every file it can and exits non-zero naming the failures; the local batch stops at the first. Either way
+the transcripts already written stay in place, and a re-run skips them.
 
 ```sh
 # whisperx, installed on request only — isolated uv/pipx environment, ~2 GB with weights,
