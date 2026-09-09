@@ -1,0 +1,210 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.24,
+      "endSec": 2.52,
+      "cueDelayMs": 240,
+      "cueDurMs": 2280,
+      "words": [
+        {
+          "w": "Two",
+          "delayMs": 240
+        },
+        {
+          "w": "kids,",
+          "delayMs": 400
+        },
+        {
+          "w": "two",
+          "delayMs": 760
+        },
+        {
+          "w": "jobs,",
+          "delayMs": 1040
+        },
+        {
+          "w": "zero",
+          "delayMs": 1480
+        },
+        {
+          "w": "free",
+          "delayMs": 1800
+        },
+        {
+          "w": "evenings.",
+          "delayMs": 2080
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 2.52,
+      "endSec": 4.16,
+      "cueDelayMs": 2520,
+      "cueDurMs": 1640,
+      "words": [
+        {
+          "w": "I",
+          "delayMs": 2520
+        },
+        {
+          "w": "was",
+          "delayMs": 2720
+        },
+        {
+          "w": "skeptical",
+          "delayMs": 2840
+        },
+        {
+          "w": "about",
+          "delayMs": 3240
+        },
+        {
+          "w": "this",
+          "delayMs": 3440
+        },
+        {
+          "w": "app.",
+          "delayMs": 3640
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 4.16,
+      "endSec": 5.88,
+      "cueDelayMs": 4160,
+      "cueDurMs": 1720,
+      "words": [
+        {
+          "w": "Now",
+          "delayMs": 4160
+        },
+        {
+          "w": "meal",
+          "delayMs": 4480
+        },
+        {
+          "w": "plans",
+          "delayMs": 4760
+        },
+        {
+          "w": "take",
+          "delayMs": 5080
+        },
+        {
+          "w": "10",
+          "delayMs": 5240
+        },
+        {
+          "w": "minutes",
+          "delayMs": 5400
+        },
+        {
+          "w": "on",
+          "delayMs": 5720
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 5.88,
+      "endSec": 8.16,
+      "cueDelayMs": 5880,
+      "cueDurMs": 2280,
+      "words": [
+        {
+          "w": "Sunday",
+          "delayMs": 5880
+        },
+        {
+          "w": "and",
+          "delayMs": 6120
+        },
+        {
+          "w": "the",
+          "delayMs": 6360
+        },
+        {
+          "w": "week",
+          "delayMs": 6520
+        },
+        {
+          "w": "just",
+          "delayMs": 6720
+        },
+        {
+          "w": "runs",
+          "delayMs": 6960
+        },
+        {
+          "w": "itself.",
+          "delayMs": 7320
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 8.16,
+      "endSec": 9.76,
+      "cueDelayMs": 8160,
+      "cueDurMs": 1600,
+      "words": [
+        {
+          "w": "My",
+          "delayMs": 8160
+        },
+        {
+          "w": "kids",
+          "delayMs": 8440
+        },
+        {
+          "w": "even",
+          "delayMs": 8680
+        },
+        {
+          "w": "eat",
+          "delayMs": 8840
+        },
+        {
+          "w": "the",
+          "delayMs": 9040
+        },
+        {
+          "w": "vegetables.",
+          "delayMs": 9120
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 9.76,
+      "endSec": 11.7,
+      "cueDelayMs": 9760,
+      "cueDurMs": 1940,
+      "words": [
+        {
+          "w": "Mostly",
+          "delayMs": 9760
+        },
+        {
+          "w": "I",
+          "delayMs": 10480
+        },
+        {
+          "w": "am",
+          "delayMs": 10760
+        },
+        {
+          "w": "keeping",
+          "delayMs": 10960
+        },
+        {
+          "w": "it.",
+          "delayMs": 11240
+        }
+      ]
+    }
+  ]
+}

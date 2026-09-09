@@ -1,0 +1,360 @@
+{
+  "text": "i deleted every productivity app on my phone except this one. hear me out. it plans my week in one tap. and it does not shame me when i fall behind. first month is free. worst case, you go back to your chaos.",
+  "chunks": [
+    {
+      "text": "i deleted every productivity app on",
+      "timestamp": [
+        0.16,
+        1.92
+      ],
+      "words": [
+        {
+          "text": "i",
+          "timestamp": [
+            0.16,
+            0.28
+          ]
+        },
+        {
+          "text": "deleted",
+          "timestamp": [
+            0.28,
+            0.72
+          ]
+        },
+        {
+          "text": "every",
+          "timestamp": [
+            0.72,
+            0.96
+          ]
+        },
+        {
+          "text": "productivity",
+          "timestamp": [
+            0.96,
+            1.6
+          ]
+        },
+        {
+          "text": "app",
+          "timestamp": [
+            1.6,
+            1.8
+          ]
+        },
+        {
+          "text": "on",
+          "timestamp": [
+            1.8,
+            1.92
+          ]
+        }
+      ]
+    },
+    {
+      "text": "my phone except this one. hear me out.",
+      "timestamp": [
+        1.92,
+        4.16
+      ],
+      "words": [
+        {
+          "text": "my",
+          "timestamp": [
+            1.92,
+            2.04
+          ]
+        },
+        {
+          "text": "phone",
+          "timestamp": [
+            2.04,
+            2.32
+          ]
+        },
+        {
+          "text": "except",
+          "timestamp": [
+            2.32,
+            2.64
+          ]
+        },
+        {
+          "text": "this",
+          "timestamp": [
+            2.64,
+            2.8
+          ]
+        },
+        {
+          "text": "one.",
+          "timestamp": [
+            2.8,
+            3.36
+          ]
+        },
+        {
+          "text": "hear",
+          "timestamp": [
+            3.36,
+            3.64
+          ]
+        },
+        {
+          "text": "me",
+          "timestamp": [
+            3.64,
+            3.8
+          ]
+        },
+        {
+          "text": "out.",
+          "timestamp": [
+            3.8,
+            4.16
+          ]
+        }
+      ]
+    },
+    {
+      "text": "it plans my week in one tap.",
+      "timestamp": [
+        4.16,
+        6.08
+      ],
+      "words": [
+        {
+          "text": "it",
+          "timestamp": [
+            4.16,
+            4.44
+          ]
+        },
+        {
+          "text": "plans",
+          "timestamp": [
+            4.44,
+            4.76
+          ]
+        },
+        {
+          "text": "my",
+          "timestamp": [
+            4.76,
+            4.92
+          ]
+        },
+        {
+          "text": "week",
+          "timestamp": [
+            4.92,
+            5.08
+          ]
+        },
+        {
+          "text": "in",
+          "timestamp": [
+            5.08,
+            5.28
+          ]
+        },
+        {
+          "text": "one",
+          "timestamp": [
+            5.28,
+            5.48
+          ]
+        },
+        {
+          "text": "tap.",
+          "timestamp": [
+            5.48,
+            6.08
+          ]
+        }
+      ]
+    },
+    {
+      "text": "and it does not shame me when i fall behind.",
+      "timestamp": [
+        6.08,
+        8.39
+      ],
+      "words": [
+        {
+          "text": "and",
+          "timestamp": [
+            6.08,
+            6.36
+          ]
+        },
+        {
+          "text": "it",
+          "timestamp": [
+            6.36,
+            6.48
+          ]
+        },
+        {
+          "text": "does",
+          "timestamp": [
+            6.48,
+            6.6
+          ]
+        },
+        {
+          "text": "not",
+          "timestamp": [
+            6.6,
+            6.76
+          ]
+        },
+        {
+          "text": "shame",
+          "timestamp": [
+            6.76,
+            7.04
+          ]
+        },
+        {
+          "text": "me",
+          "timestamp": [
+            7.04,
+            7.2
+          ]
+        },
+        {
+          "text": "when",
+          "timestamp": [
+            7.2,
+            7.32
+          ]
+        },
+        {
+          "text": "i",
+          "timestamp": [
+            7.32,
+            7.44
+          ]
+        },
+        {
+          "text": "fall",
+          "timestamp": [
+            7.44,
+            7.6
+          ]
+        },
+        {
+          "text": "behind.",
+          "timestamp": [
+            7.6,
+            8.39
+          ]
+        }
+      ]
+    },
+    {
+      "text": "first month is free.",
+      "timestamp": [
+        8.4,
+        9.76
+      ],
+      "words": [
+        {
+          "text": "first",
+          "timestamp": [
+            8.4,
+            8.72
+          ]
+        },
+        {
+          "text": "month",
+          "timestamp": [
+            8.72,
+            8.96
+          ]
+        },
+        {
+          "text": "is",
+          "timestamp": [
+            8.96,
+            9.16
+          ]
+        },
+        {
+          "text": "free.",
+          "timestamp": [
+            9.16,
+            9.76
+          ]
+        }
+      ]
+    },
+    {
+      "text": "worst case, you go back to your chaos.",
+      "timestamp": [
+        9.76,
+        11.89
+      ],
+      "words": [
+        {
+          "text": "worst",
+          "timestamp": [
+            9.76,
+            10.12
+          ]
+        },
+        {
+          "text": "case,",
+          "timestamp": [
+            10.12,
+            10.4
+          ]
+        },
+        {
+          "text": "you",
+          "timestamp": [
+            10.4,
+            10.68
+          ]
+        },
+        {
+          "text": "go",
+          "timestamp": [
+            10.68,
+            10.84
+          ]
+        },
+        {
+          "text": "back",
+          "timestamp": [
+            10.84,
+            11
+          ]
+        },
+        {
+          "text": "to",
+          "timestamp": [
+            11,
+            11.12
+          ]
+        },
+        {
+          "text": "your",
+          "timestamp": [
+            11.12,
+            11.24
+          ]
+        },
+        {
+          "text": "chaos.",
+          "timestamp": [
+            11.24,
+            11.89
+          ]
+        }
+      ]
+    }
+  ]
+}

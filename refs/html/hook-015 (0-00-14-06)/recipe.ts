@@ -126,8 +126,8 @@ export function heroIndex(words: WordTiming[], isLastBeat: boolean): number {
 // beat and points toward the second one (the old fixed positions pointed at nothing). Slot tops and
 // sides mirror the CSS slot table below (kept in one place via these consts).
 export const SLOT_TOPS_015: Record<'A' | 'B', number[]> = {
-  A: [145, 300, 665, 820, 1005],
-  B: [160, 315, 680, 835, 1020],
+  A: [145, 300, 665, 820, 955],
+  B: [160, 315, 680, 835, 970],
 };
 export const SLOT_SIDE_015: Record<'A' | 'B', Array<'l' | 'r'>> = {
   A: ['l', 'r', 'l', 'r', 'l'],

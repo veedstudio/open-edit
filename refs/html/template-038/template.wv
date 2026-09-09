@@ -1,0 +1,95 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600&family=Anton&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; opacity:0; z-index:1; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  @keyframes pgMid { 0%{opacity:0} 0.01%,99.99%{opacity:1} 100%{opacity:0} }
+
+  .blk { width:632px; z-index:2; }
+  .ln { display:block; height:69px; line-height:69px; }
+  .w { display:inline-block; vertical-align:top; opacity:0; white-space:pre; font-family:'IBM Plex Mono'; font-weight:600; letter-spacing:0.06em;
+       line-height:1; color:#1A1512; background:#F0E6D2; padding:14px 15px; margin-right:11px;
+       box-shadow:0 5px 15px rgba(24,23,21,0.32);
+       animation-name:chipIn; animation-duration:190ms; animation-timing-function:cubic-bezier(.2,.7,.3,1); animation-fill-mode:both; }
+  @keyframes chipIn { from{opacity:0; transform:translateY(11px)} to{opacity:1; transform:translateY(0)} }
+  .wall { position:absolute; z-index:3; opacity:0; white-space:nowrap; line-height:1; padding:0.1em 0 0.15em; font-family:'Anton'; font-weight:400; letter-spacing:-0.02em; color:#F0E6D2;
+          text-shadow:0 5px 34px rgba(24,23,21,0.55), 0 2px 8px rgba(24,23,21,0.40);
+          animation-name:wallIn; animation-duration:340ms; animation-timing-function:cubic-bezier(.16,1,.3,1); animation-fill-mode:both; }
+  @keyframes wallIn { from{opacity:0; transform:translateY(28px)} to{opacity:1; transform:translateY(0)} }
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:320ms;animation-duration:1560ms;">
+  <div class="wall" id="b1x" style="left:37px;top:65px;font-size:166px;animation-delay:1120ms">BUILDING</div>
+  <div class="pg blk" id="b1p1" style="left:52px;top:925px;opacity:1;">
+      <div class="ln" id="b1p1l1"><span class="w" id="b1w1" style="font-size:41px;animation-delay:320ms">MONTH</span><span class="w" id="b1w2" style="font-size:41px;animation-delay:520ms">THREE</span></div>
+      <div class="ln" id="b1p1l2" style="margin-top:8px"><span class="w" id="b1w3" style="font-size:41px;animation-delay:840ms">OF</span><span class="w" id="b1w4" style="font-size:41px;animation-delay:1400ms">IN</span><span class="w" id="b1w5" style="font-size:41px;animation-delay:1640ms">PUBLIC</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:1880ms;animation-duration:760ms;">
+  <div class="wall" id="b2x" style="left:37px;top:65px;font-size:189px;animation-delay:2360ms">NUMBERS</div>
+  <div class="pg blk" id="b2p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b2p1l1"><span class="w" id="b2w6" style="font-size:41px;animation-delay:1880ms">HERE</span><span class="w" id="b2w7" style="font-size:41px;animation-delay:2120ms">ARE</span><span class="w" id="b2w8" style="font-size:41px;animation-delay:2240ms">THE</span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:2640ms;animation-duration:1040ms;">
+  <div class="wall" id="b3x" style="left:37px;top:65px;font-size:221px;animation-delay:2640ms">NOBODY</div>
+  <div class="pg blk" id="b3p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b3p1l1"><span class="w" id="b3w9" style="font-size:41px;animation-delay:3040ms">POSTS</span></div>
+  </div>
+</div>
+<div class="cue" id="cue4" style="z-index:14;animation-delay:3680ms;animation-duration:1110ms;">
+  <div class="wall" id="b4x" style="left:37px;top:36px;font-size:345px;animation-delay:3680ms">400</div>
+  <div class="pg blk" id="b4p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b4p1l1"><span class="w" id="b4w10" style="font-size:41px;animation-delay:4160ms">IN</span><span class="w" id="b4w11" style="font-size:41px;animation-delay:4360ms">REVENUE</span></div>
+  </div>
+</div>
+<div class="cue" id="cue5" style="z-index:15;animation-delay:4790ms;animation-duration:770ms;">
+  <div class="wall" id="b5x" style="left:37px;top:36px;font-size:345px;animation-delay:4800ms">200</div>
+  <div class="pg blk" id="b5p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b5p1l1"><span class="w" id="b5w12" style="font-size:41px;animation-delay:5200ms">USERS</span></div>
+  </div>
+</div>
+<div class="cue" id="cue6" style="z-index:16;animation-delay:5560ms;animation-duration:1000ms;">
+  <div class="wall" id="b6x" style="left:37px;top:65px;font-size:132px;animation-delay:6120ms">DEFINITELY</div>
+  <div class="pg blk" id="b6p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b6p1l1"><span class="w" id="b6w13" style="font-size:41px;animation-delay:5560ms">AND</span><span class="w" id="b6w14" style="font-size:41px;animation-delay:5720ms">RENT</span><span class="w" id="b6w15" style="font-size:41px;animation-delay:5960ms">IS</span></div>
+  </div>
+</div>
+<div class="cue" id="cue7" style="z-index:17;animation-delay:6560ms;animation-duration:880ms;">
+  <div class="wall" id="b7x" style="left:37px;top:65px;font-size:189px;animation-delay:6800ms">COVERED</div>
+  <div class="pg blk" id="b7p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b7p1l1"><span class="w" id="b7w16" style="font-size:41px;animation-delay:6560ms">NOT</span></div>
+  </div>
+</div>
+<div class="cue" id="cue8" style="z-index:18;animation-delay:7440ms;animation-duration:1240ms;">
+  <div class="wall" id="b8x" style="left:37px;top:65px;font-size:221px;animation-delay:8160ms">CHURNS</div>
+  <div class="pg blk" id="b8p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b8p1l1"><span class="w" id="b8w17" style="font-size:41px;animation-delay:7440ms">BUT</span><span class="w" id="b8w18" style="font-size:41px;animation-delay:7720ms">NOBODY</span></div>
+  </div>
+</div>
+<div class="cue" id="cue9" style="z-index:19;animation-delay:8680ms;animation-duration:1280ms;">
+  <div class="wall" id="b9x" style="left:37px;top:65px;font-size:166px;animation-delay:8680ms">EVERYONE</div>
+  <div class="pg blk" id="b9p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b9p1l1"><span class="w" id="b9w19" style="font-size:41px;animation-delay:8960ms">WHO</span><span class="w" id="b9w20" style="font-size:41px;animation-delay:9160ms">SIGNS</span><span class="w" id="b9w21" style="font-size:41px;animation-delay:9440ms">UP</span><span class="w" id="b9w22" style="font-size:41px;animation-delay:9600ms">STAYS</span></div>
+  </div>
+</div>
+<div class="cue" id="cue10" style="z-index:20;animation-delay:9960ms;animation-duration:760ms;">
+  <div class="wall" id="b10x" style="left:37px;top:36px;font-size:331px;animation-delay:9960ms">THAT</div>
+  <div class="pg blk" id="b10p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b10p1l1"><span class="w" id="b10w23" style="font-size:41px;animation-delay:10120ms">IS</span><span class="w" id="b10w24" style="font-size:41px;animation-delay:10240ms">WHY</span><span class="w" id="b10w25" style="font-size:41px;animation-delay:10360ms">I</span><span class="w" id="b10w26" style="font-size:41px;animation-delay:10520ms">AM</span></div>
+  </div>
+</div>
+<div class="cue" id="cue11" style="z-index:21;animation-delay:10720ms;animation-duration:7280ms;">
+  <div class="wall" id="b11x" style="left:37px;top:65px;font-size:265px;animation-delay:10720ms">STILL</div>
+  <div class="pg blk" id="b11p1" style="left:52px;top:963px;opacity:1;">
+      <div class="ln" id="b11p1l1"><span class="w" id="b11w27" style="font-size:41px;animation-delay:10920ms">HERE</span></div>
+  </div>
+</div>

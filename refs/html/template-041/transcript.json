@@ -1,0 +1,325 @@
+{
+  "text": "Two kids, two jobs, zero free evenings. I was skeptical about this app. Now meal plans take 10 minutes on Sunday and the week just runs itself. My kids even eat the vegetables. Mostly I am keeping it.",
+  "chunks": [
+    {
+      "text": "Two kids, two jobs, zero free evenings.",
+      "timestamp": [
+        0.24,
+        2.52
+      ],
+      "words": [
+        {
+          "text": "Two",
+          "timestamp": [
+            0.24,
+            0.4
+          ]
+        },
+        {
+          "text": "kids,",
+          "timestamp": [
+            0.4,
+            0.76
+          ]
+        },
+        {
+          "text": "two",
+          "timestamp": [
+            0.76,
+            1.04
+          ]
+        },
+        {
+          "text": "jobs,",
+          "timestamp": [
+            1.04,
+            1.48
+          ]
+        },
+        {
+          "text": "zero",
+          "timestamp": [
+            1.48,
+            1.8
+          ]
+        },
+        {
+          "text": "free",
+          "timestamp": [
+            1.8,
+            2.08
+          ]
+        },
+        {
+          "text": "evenings.",
+          "timestamp": [
+            2.08,
+            2.52
+          ]
+        }
+      ]
+    },
+    {
+      "text": "I was skeptical about this app.",
+      "timestamp": [
+        2.52,
+        4.16
+      ],
+      "words": [
+        {
+          "text": "I",
+          "timestamp": [
+            2.52,
+            2.72
+          ]
+        },
+        {
+          "text": "was",
+          "timestamp": [
+            2.72,
+            2.84
+          ]
+        },
+        {
+          "text": "skeptical",
+          "timestamp": [
+            2.84,
+            3.24
+          ]
+        },
+        {
+          "text": "about",
+          "timestamp": [
+            3.24,
+            3.44
+          ]
+        },
+        {
+          "text": "this",
+          "timestamp": [
+            3.44,
+            3.64
+          ]
+        },
+        {
+          "text": "app.",
+          "timestamp": [
+            3.64,
+            4.16
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Now meal plans take 10 minutes on",
+      "timestamp": [
+        4.16,
+        5.88
+      ],
+      "words": [
+        {
+          "text": "Now",
+          "timestamp": [
+            4.16,
+            4.48
+          ]
+        },
+        {
+          "text": "meal",
+          "timestamp": [
+            4.48,
+            4.76
+          ]
+        },
+        {
+          "text": "plans",
+          "timestamp": [
+            4.76,
+            5.08
+          ]
+        },
+        {
+          "text": "take",
+          "timestamp": [
+            5.08,
+            5.24
+          ]
+        },
+        {
+          "text": "10",
+          "timestamp": [
+            5.24,
+            5.4
+          ]
+        },
+        {
+          "text": "minutes",
+          "timestamp": [
+            5.4,
+            5.72
+          ]
+        },
+        {
+          "text": "on",
+          "timestamp": [
+            5.72,
+            5.88
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Sunday and the week just runs itself.",
+      "timestamp": [
+        5.88,
+        8.16
+      ],
+      "words": [
+        {
+          "text": "Sunday",
+          "timestamp": [
+            5.88,
+            6.12
+          ]
+        },
+        {
+          "text": "and",
+          "timestamp": [
+            6.12,
+            6.36
+          ]
+        },
+        {
+          "text": "the",
+          "timestamp": [
+            6.36,
+            6.52
+          ]
+        },
+        {
+          "text": "week",
+          "timestamp": [
+            6.52,
+            6.72
+          ]
+        },
+        {
+          "text": "just",
+          "timestamp": [
+            6.72,
+            6.96
+          ]
+        },
+        {
+          "text": "runs",
+          "timestamp": [
+            6.96,
+            7.32
+          ]
+        },
+        {
+          "text": "itself.",
+          "timestamp": [
+            7.32,
+            8.16
+          ]
+        }
+      ]
+    },
+    {
+      "text": "My kids even eat the vegetables.",
+      "timestamp": [
+        8.16,
+        9.76
+      ],
+      "words": [
+        {
+          "text": "My",
+          "timestamp": [
+            8.16,
+            8.44
+          ]
+        },
+        {
+          "text": "kids",
+          "timestamp": [
+            8.44,
+            8.68
+          ]
+        },
+        {
+          "text": "even",
+          "timestamp": [
+            8.68,
+            8.84
+          ]
+        },
+        {
+          "text": "eat",
+          "timestamp": [
+            8.84,
+            9.04
+          ]
+        },
+        {
+          "text": "the",
+          "timestamp": [
+            9.04,
+            9.12
+          ]
+        },
+        {
+          "text": "vegetables.",
+          "timestamp": [
+            9.12,
+            9.76
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Mostly I am keeping it.",
+      "timestamp": [
+        9.76,
+        11.7
+      ],
+      "words": [
+        {
+          "text": "Mostly",
+          "timestamp": [
+            9.76,
+            10.48
+          ]
+        },
+        {
+          "text": "I",
+          "timestamp": [
+            10.48,
+            10.76
+          ]
+        },
+        {
+          "text": "am",
+          "timestamp": [
+            10.76,
+            10.96
+          ]
+        },
+        {
+          "text": "keeping",
+          "timestamp": [
+            10.96,
+            11.24
+          ]
+        },
+        {
+          "text": "it.",
+          "timestamp": [
+            11.24,
+            11.7
+          ]
+        }
+      ]
+    }
+  ]
+}

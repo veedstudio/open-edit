@@ -24,18 +24,25 @@ OpenEdit is an open-source, agent-driven editing pipeline that ships with VEED's
 source, but free to use.
 
 There is no GUI and no timeline. The pipeline is driven entirely through your coding agent — edit,
-cut, and reframe footage; layer motion graphics and visual elements; turn
-slides or websites into video; capture web pages; and pull in any video/image generating service
+cut, and reframe footage; layer motion graphics and visual elements; turn slides or websites into
+video; capture web pages; and pull in any [AI video/image generator](https://www.veed.io/tools/ai-video)
 or MCP server when it helps. Source video is optional: stills, slides, generated media, or pure
 motion graphics are enough when the brief calls for it. Be creative and fluid — try new ideas
 rather than collapsing every ask onto captions.
 
 OpenEdit edits footage. Supply your own source files, or ask it to generate a talking-head clip with
-VEED Fabric when you have none — that spends credits, and never without your approval.
+[VEED Fabric](https://www.veed.io/ai/fabric-1-0) when you have none — that spends credits, and never
+without your approval.
 
 <a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/OpenEdit-4x3-trim.mp4"><img src="docs/examples/openedit-launch.webp" alt="OpenEdit launch video" width="100%"></a>
 
 *This launch video was made in OpenEdit — click it to watch with sound.*
+
+<a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/openedit-astra.mp4"><img src="docs/examples/openedit-astra.webp" alt="GPT-6 Astra title sequence made in OpenEdit" width="100%"></a>
+
+*Also made in OpenEdit, with GPT-6 Astra driving the pipeline — pure motion graphics, no source
+footage. Its prompt was written against the [OpenAI Brand Film](https://vimeo.com/1122006941) as a
+visual reference.*
 
 ## Requirements
 
@@ -98,7 +105,8 @@ Real outputs, each with the prompt that produced it. Click any example to watch 
 create viral subtitles with /open-edit and translate my video to 5 languages using VEED Lipsync 2.0 on Fal
 ```
 
-One source clip, three languages, three caption styles:
+One source clip, three languages, three caption styles — translated and re-lipsynced through
+[VEED's Lip Sync API](https://www.veed.io/tools/lip-sync-api):
 
 | Spanish | French | German |
 | --- | --- | --- |
@@ -108,7 +116,8 @@ One source clip, three languages, three caption styles:
 generate 3 viral hooks in Seedance 2.0 on Fal and create dynamic motion graphics using /open-edit
 ```
 
-Three AI-generated hooks, three motion-graphic treatments:
+Three hooks generated with [Seedance](https://www.veed.io/tools/ai-video/seedance), three
+motion-graphic treatments:
 
 | | | |
 | --- | --- | --- |

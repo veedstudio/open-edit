@@ -1,0 +1,93 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700&family=Bodoni+Moda:wght@700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; opacity:0; z-index:1; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  @keyframes pgMid { 0%{opacity:0} 0.01%,99.99%{opacity:1} 100%{opacity:0} }
+
+  .cap { left:37px; right:37px; bottom:228px; text-align:center;
+         font-family:'Space Grotesk'; font-weight:700; letter-spacing:0.05em; color:#F5EFE3; line-height:1.25;
+         text-shadow:0 2px 0 rgba(11,14,24,0.62), 0 5px 21px rgba(11,14,24,0.52); }
+  .cl { display:block; }
+  .u { display:inline-block; white-space:pre; }
+  .sp { display:inline-block; white-space:pre; }
+  .g { display:inline-block; opacity:0; animation:capRise 150ms cubic-bezier(0.16,0.84,0.32,1) both; }
+  @keyframes capRise { 0%{opacity:0; transform:translateY(0.42em)} 100%{opacity:1; transform:none} }
+  .hw { position:absolute; left:37px; right:37px; z-index:3; text-align:center; white-space:nowrap; line-height:1.2;
+        font-family:'Bodoni Moda'; font-weight:700; color:#FFFFFF;
+        text-shadow:0 3px 0 rgba(11,14,24,0.26), 0 18px 46px rgba(11,14,24,0.30);
+        opacity:0; animation-name:cueWin, heroDrift; animation-timing-function:linear, linear; animation-fill-mode:forwards, forwards; }
+  .hx { display:inline-block; opacity:0; animation:heroIn 300ms cubic-bezier(0.16,0.84,0.32,1) both; }
+  .rg { position:absolute; left:0; width:736px; height:5px; z-index:2; opacity:0; animation:cueWin linear forwards; }
+  .rb { display:block; width:736px; height:5px; background:rgba(255,255,255,0.92); box-shadow:0 2px 5px rgba(11,14,24,0.34);
+        transform-origin:0 50%; animation:ruleIn 460ms cubic-bezier(0.16,0.84,0.32,1) both; }
+  @keyframes heroIn { 0%{opacity:0; transform:translateY(28px) scale(0.955)} 100%{opacity:1; transform:none} }
+  @keyframes heroDrift { 0%{transform:scale(1)} 100%{transform:scale(1.035)} }
+  @keyframes ruleIn { 0%{transform:scaleX(0)} 100%{transform:scaleX(1)} }
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:160ms;animation-duration:1520ms;">
+  <div class="rg" id="b1r" style="top:179px;animation-delay:650ms;animation-duration:1030ms"><span class="rb" style="animation-delay:690ms"></span></div>
+  <div class="hw" style="top:18px;font-size:153px;letter-spacing:-0.015em;animation-delay:650ms,650ms;animation-duration:1030ms,1030ms"><span class="hx" id="b1h" style="animation-delay:680ms">SPENDS</span></div>
+  <div class="pg cap" id="b1p1" style="font-size:43px;opacity:1;">
+      <div class="cl" id="b1p1l1"><span class="u"><span class="g" style="animation-delay:160ms;">Y</span><span class="g" style="animation-delay:182ms;">O</span><span class="g" style="animation-delay:204ms;">U</span><span class="g" style="animation-delay:226ms;">R</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:360ms;">T</span><span class="g" style="animation-delay:382ms;">E</span><span class="g" style="animation-delay:404ms;">A</span><span class="g" style="animation-delay:426ms;">M</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:1270ms;">H</span><span class="g" style="animation-delay:1292ms;">O</span><span class="g" style="animation-delay:1314ms;">U</span><span class="g" style="animation-delay:1336ms;">R</span><span class="g" style="animation-delay:1358ms;">S</span></span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:1680ms;animation-duration:1920ms;">
+  <div class="rg" id="b2r" style="top:179px;animation-delay:2890ms;animation-duration:710ms"><span class="rb" style="animation-delay:2930ms"></span></div>
+  <div class="hw" style="top:18px;font-size:153px;letter-spacing:-0.015em;animation-delay:2890ms,2890ms;animation-duration:710ms,710ms"><span class="hx" id="b2h" style="animation-delay:2920ms">SLIDES</span></div>
+  <div class="pg cap" id="b2p1" style="font-size:43px;opacity:1;">
+      <div class="cl" id="b2p1l1"><span class="u"><span class="g" style="animation-delay:1680ms;">T</span><span class="g" style="animation-delay:1702ms;">U</span><span class="g" style="animation-delay:1724ms;">R</span><span class="g" style="animation-delay:1746ms;">N</span><span class="g" style="animation-delay:1768ms;">I</span><span class="g" style="animation-delay:1790ms;">N</span><span class="g" style="animation-delay:1812ms;">G</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:2200ms;">D</span><span class="g" style="animation-delay:2222ms;">A</span><span class="g" style="animation-delay:2244ms;">T</span><span class="g" style="animation-delay:2266ms;">A</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:2560ms;">I</span><span class="g" style="animation-delay:2582ms;">N</span><span class="g" style="animation-delay:2604ms;">T</span><span class="g" style="animation-delay:2626ms;">O</span></span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:3600ms;animation-duration:2480ms;">
+  <div class="rg" id="b3r" style="top:179px;animation-delay:4960ms;animation-duration:1120ms"><span class="rb" style="animation-delay:5000ms"></span></div>
+  <div class="hw" style="top:18px;font-size:153px;letter-spacing:-0.015em;animation-delay:4960ms,4960ms;animation-duration:1120ms,1120ms"><span class="hx" id="b3h" style="animation-delay:4990ms">CLICK</span></div>
+  <div class="pg cap" id="b3p1" style="font-size:43px;opacity:1;">
+      <div class="cl" id="b3p1l1"><span class="u"><span class="g" style="animation-delay:3600ms;">W</span><span class="g" style="animation-delay:3622ms;">E</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:3880ms;">J</span><span class="g" style="animation-delay:3902ms;">U</span><span class="g" style="animation-delay:3924ms;">S</span><span class="g" style="animation-delay:3946ms;">T</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:4080ms;">M</span><span class="g" style="animation-delay:4102ms;">A</span><span class="g" style="animation-delay:4124ms;">D</span><span class="g" style="animation-delay:4146ms;">E</span></span></div>
+      <div class="cl" id="b3p1l2"><span class="u"><span class="g" style="animation-delay:4320ms;">T</span><span class="g" style="animation-delay:4342ms;">H</span><span class="g" style="animation-delay:4364ms;">A</span><span class="g" style="animation-delay:4386ms;">T</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:4600ms;">O</span><span class="g" style="animation-delay:4622ms;">N</span><span class="g" style="animation-delay:4644ms;">E</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:5790ms;">N</span><span class="g" style="animation-delay:5812ms;">E</span><span class="g" style="animation-delay:5834ms;">W</span></span></div>
+  </div>
+</div>
+<div class="cue" id="cue4" style="z-index:14;animation-delay:6080ms;animation-duration:1200ms;">
+  <div class="rg" id="b4r" style="top:131px;animation-delay:6490ms;animation-duration:790ms"><span class="rb" style="animation-delay:6530ms"></span></div>
+  <div class="hw" style="top:38px;font-size:80px;letter-spacing:0.03em;animation-delay:6490ms,6490ms;animation-duration:790ms,790ms"><span class="hx" id="b4h" style="animation-delay:6520ms">RELEASE</span></div>
+  <div class="pg cap" id="b4p1" style="font-size:43px;opacity:1;">
+      <div class="cl" id="b4p1l1"><span class="u"><span class="g" style="animation-delay:6080ms;">I</span><span class="g" style="animation-delay:6102ms;">N</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:6280ms;">T</span><span class="g" style="animation-delay:6302ms;">H</span><span class="g" style="animation-delay:6324ms;">I</span><span class="g" style="animation-delay:6346ms;">S</span></span></div>
+  </div>
+</div>
+<div class="cue" id="cue5" style="z-index:15;animation-delay:7280ms;animation-duration:3520ms;">
+  <div class="rg" id="b5r" style="top:131px;animation-delay:9200ms;animation-duration:1600ms"><span class="rb" style="animation-delay:9240ms"></span></div>
+  <div class="hw" style="top:38px;font-size:80px;letter-spacing:0.03em;animation-delay:9200ms,9200ms;animation-duration:1600ms,1600ms"><span class="hx" id="b5h" style="animation-delay:9230ms">DASHBOARDS</span></div>
+  <div class="pg cap" id="b5p1" style="font-size:43px;opacity:1;">
+      <div class="cl" id="b5p1l1"><span class="u"><span class="g" style="animation-delay:7280ms;">R</span><span class="g" style="animation-delay:7302ms;">E</span><span class="g" style="animation-delay:7324ms;">P</span><span class="g" style="animation-delay:7346ms;">O</span><span class="g" style="animation-delay:7368ms;">R</span><span class="g" style="animation-delay:7390ms;">T</span><span class="g" style="animation-delay:7412ms;">S</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:7920ms;">B</span><span class="g" style="animation-delay:7942ms;">E</span><span class="g" style="animation-delay:7964ms;">C</span><span class="g" style="animation-delay:7986ms;">O</span><span class="g" style="animation-delay:8008ms;">M</span><span class="g" style="animation-delay:8030ms;">E</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:8400ms;">S</span><span class="g" style="animation-delay:8422ms;">H</span><span class="g" style="animation-delay:8444ms;">A</span><span class="g" style="animation-delay:8466ms;">R</span><span class="g" style="animation-delay:8488ms;">E</span></span></div>
+      <div class="cl" id="b5p1l2"><span class="u"><span class="g" style="animation-delay:8720ms;">R</span><span class="g" style="animation-delay:8742ms;">E</span><span class="g" style="animation-delay:8764ms;">A</span><span class="g" style="animation-delay:8786ms;">D</span><span class="g" style="animation-delay:8808ms;">Y</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:9950ms;">O</span><span class="g" style="animation-delay:9972ms;">N</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:10070ms;">B</span><span class="g" style="animation-delay:10092ms;">R</span><span class="g" style="animation-delay:10114ms;">A</span><span class="g" style="animation-delay:10136ms;">N</span><span class="g" style="animation-delay:10158ms;">D</span></span></div>
+  </div>
+</div>
+<div class="cue" id="cue6" style="z-index:16;animation-delay:10800ms;animation-duration:1520ms;">
+  <div class="pg cap" id="b6p1" style="font-size:43px;opacity:1;">
+      <div class="cl" id="b6p1l1"><span class="u"><span class="g" style="animation-delay:10800ms;">A</span><span class="g" style="animation-delay:10822ms;">U</span><span class="g" style="animation-delay:10844ms;">T</span><span class="g" style="animation-delay:10866ms;">O</span><span class="g" style="animation-delay:10888ms;">M</span><span class="g" style="animation-delay:10910ms;">A</span><span class="g" style="animation-delay:10932ms;">T</span><span class="g" style="animation-delay:10954ms;">I</span><span class="g" style="animation-delay:10976ms;">C</span><span class="g" style="animation-delay:10998ms;">A</span><span class="g" style="animation-delay:11020ms;">L</span><span class="g" style="animation-delay:11042ms;">L</span><span class="g" style="animation-delay:11064ms;">Y</span><span class="g" style="animation-delay:11086ms;">.</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:11910ms;">E</span><span class="g" style="animation-delay:11932ms;">A</span><span class="g" style="animation-delay:11954ms;">R</span><span class="g" style="animation-delay:11976ms;">L</span><span class="g" style="animation-delay:11998ms;">Y</span></span></div>
+  </div>
+</div>
+<div class="cue" id="cue7" style="z-index:17;animation-delay:12320ms;animation-duration:1920ms;">
+  <div class="rg" id="b7r" style="top:179px;animation-delay:12320ms;animation-duration:1920ms"><span class="rb" style="animation-delay:12360ms"></span></div>
+  <div class="hw" style="top:18px;font-size:153px;letter-spacing:-0.015em;animation-delay:12320ms,12320ms;animation-duration:1920ms,1920ms"><span class="hx" id="b7h" style="animation-delay:12320ms">ACCESS</span></div>
+  <div class="pg cap" id="b7p1" style="font-size:43px;opacity:1;">
+      <div class="cl" id="b7p1l1"><span class="u"><span class="g" style="animation-delay:12800ms;">I</span><span class="g" style="animation-delay:12822ms;">S</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:13120ms;">O</span><span class="g" style="animation-delay:13142ms;">P</span><span class="g" style="animation-delay:13164ms;">E</span><span class="g" style="animation-delay:13186ms;">N</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:13520ms;">T</span><span class="g" style="animation-delay:13542ms;">H</span><span class="g" style="animation-delay:13564ms;">I</span><span class="g" style="animation-delay:13586ms;">S</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:13840ms;">W</span><span class="g" style="animation-delay:13862ms;">E</span><span class="g" style="animation-delay:13884ms;">E</span><span class="g" style="animation-delay:13906ms;">K</span><span class="g" style="animation-delay:13928ms;">.</span></span></div>
+  </div>
+</div>
+<div class="cue" id="cue8" style="z-index:18;animation-delay:14240ms;animation-duration:3760ms;">
+  <div class="rg" id="b8r" style="top:131px;animation-delay:14770ms;animation-duration:3230ms"><span class="rb" style="animation-delay:14810ms"></span></div>
+  <div class="hw" style="top:38px;font-size:80px;letter-spacing:0.03em;animation-delay:14770ms,14770ms;animation-duration:3230ms,3230ms"><span class="hx" id="b8h" style="animation-delay:14800ms">MESSIEST</span></div>
+  <div class="pg cap" id="b8p1" style="font-size:43px;opacity:1;">
+      <div class="cl" id="b8p1l1"><span class="u"><span class="g" style="animation-delay:14240ms;">B</span><span class="g" style="animation-delay:14262ms;">R</span><span class="g" style="animation-delay:14284ms;">I</span><span class="g" style="animation-delay:14306ms;">N</span><span class="g" style="animation-delay:14328ms;">G</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:14560ms;">Y</span><span class="g" style="animation-delay:14582ms;">O</span><span class="g" style="animation-delay:14604ms;">U</span><span class="g" style="animation-delay:14626ms;">R</span></span></div>
+      <div class="cl" id="b8p1l2"><span class="u"><span class="g" style="animation-delay:15440ms;">R</span><span class="g" style="animation-delay:15462ms;">E</span><span class="g" style="animation-delay:15484ms;">P</span><span class="g" style="animation-delay:15506ms;">O</span><span class="g" style="animation-delay:15528ms;">R</span><span class="g" style="animation-delay:15550ms;">T</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:15919ms;">A</span><span class="g" style="animation-delay:15941ms;">N</span><span class="g" style="animation-delay:15963ms;">D</span></span><span class="sp"> </span><span class="u"><span class="g" style="animation-delay:16350ms;">W</span><span class="g" style="animation-delay:16372ms;">A</span><span class="g" style="animation-delay:16394ms;">T</span><span class="g" style="animation-delay:16416ms;">C</span><span class="g" style="animation-delay:16438ms;">H</span></span></div>
+  </div>
+</div>

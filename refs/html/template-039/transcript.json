@@ -1,0 +1,363 @@
+{
+  "text": "I FIRED OUR BIGGEST CLIENT TWO YEARS AGO BEST DECISION WE EVER MADE THEY WERE 40% OF REVENUE AND 100% OF OUR STRESS WE REBUILT AROUND CUSTOMERS WE LOVE THAT IS THE COMPANY YOU ARE LOOKING AT",
+  "chunks": [
+    {
+      "text": "I FIRED OUR BIGGEST",
+      "timestamp": [
+        0.16,
+        1.04
+      ],
+      "words": [
+        {
+          "text": "I",
+          "timestamp": [
+            0.16,
+            0.28
+          ]
+        },
+        {
+          "text": "FIRED",
+          "timestamp": [
+            0.28,
+            0.6
+          ]
+        },
+        {
+          "text": "OUR",
+          "timestamp": [
+            0.6,
+            0.76
+          ]
+        },
+        {
+          "text": "BIGGEST",
+          "timestamp": [
+            0.76,
+            1.04
+          ]
+        }
+      ]
+    },
+    {
+      "text": "CLIENT TWO YEARS AGO",
+      "timestamp": [
+        1.04,
+        2.32
+      ],
+      "words": [
+        {
+          "text": "CLIENT",
+          "timestamp": [
+            1.04,
+            1.36
+          ]
+        },
+        {
+          "text": "TWO",
+          "timestamp": [
+            1.36,
+            1.6
+          ]
+        },
+        {
+          "text": "YEARS",
+          "timestamp": [
+            1.6,
+            1.8
+          ]
+        },
+        {
+          "text": "AGO",
+          "timestamp": [
+            1.8,
+            2.32
+          ]
+        }
+      ]
+    },
+    {
+      "text": "BEST DECISION",
+      "timestamp": [
+        2.32,
+        2.99
+      ],
+      "words": [
+        {
+          "text": "BEST",
+          "timestamp": [
+            2.32,
+            2.68
+          ]
+        },
+        {
+          "text": "DECISION",
+          "timestamp": [
+            2.68,
+            2.99
+          ]
+        }
+      ]
+    },
+    {
+      "text": "WE EVER MADE",
+      "timestamp": [
+        3,
+        3.92
+      ],
+      "words": [
+        {
+          "text": "WE",
+          "timestamp": [
+            3,
+            3.28
+          ]
+        },
+        {
+          "text": "EVER",
+          "timestamp": [
+            3.28,
+            3.48
+          ]
+        },
+        {
+          "text": "MADE",
+          "timestamp": [
+            3.48,
+            3.92
+          ]
+        }
+      ]
+    },
+    {
+      "text": "THEY WERE 40%",
+      "timestamp": [
+        3.92,
+        5.12
+      ],
+      "words": [
+        {
+          "text": "THEY",
+          "timestamp": [
+            3.92,
+            4.24
+          ]
+        },
+        {
+          "text": "WERE",
+          "timestamp": [
+            4.24,
+            4.48
+          ]
+        },
+        {
+          "text": "40%",
+          "timestamp": [
+            4.48,
+            5.12
+          ]
+        }
+      ]
+    },
+    {
+      "text": "OF REVENUE",
+      "timestamp": [
+        5.12,
+        6.39
+      ],
+      "words": [
+        {
+          "text": "OF",
+          "timestamp": [
+            5.12,
+            5.4
+          ]
+        },
+        {
+          "text": "REVENUE",
+          "timestamp": [
+            5.4,
+            6.39
+          ]
+        }
+      ]
+    },
+    {
+      "text": "AND 100%",
+      "timestamp": [
+        6.4,
+        8.08
+      ],
+      "words": [
+        {
+          "text": "AND",
+          "timestamp": [
+            6.4,
+            6.96
+          ]
+        },
+        {
+          "text": "100%",
+          "timestamp": [
+            6.96,
+            8.08
+          ]
+        }
+      ]
+    },
+    {
+      "text": "OF OUR STRESS",
+      "timestamp": [
+        8.08,
+        9.28
+      ],
+      "words": [
+        {
+          "text": "OF",
+          "timestamp": [
+            8.08,
+            8.36
+          ]
+        },
+        {
+          "text": "OUR",
+          "timestamp": [
+            8.36,
+            8.56
+          ]
+        },
+        {
+          "text": "STRESS",
+          "timestamp": [
+            8.56,
+            9.28
+          ]
+        }
+      ]
+    },
+    {
+      "text": "WE REBUILT AROUND",
+      "timestamp": [
+        9.28,
+        10.48
+      ],
+      "words": [
+        {
+          "text": "WE",
+          "timestamp": [
+            9.28,
+            9.6
+          ]
+        },
+        {
+          "text": "REBUILT",
+          "timestamp": [
+            9.6,
+            10.2
+          ]
+        },
+        {
+          "text": "AROUND",
+          "timestamp": [
+            10.2,
+            10.48
+          ]
+        }
+      ]
+    },
+    {
+      "text": "CUSTOMERS WE LOVE",
+      "timestamp": [
+        10.48,
+        12.08
+      ],
+      "words": [
+        {
+          "text": "CUSTOMERS",
+          "timestamp": [
+            10.48,
+            11.12
+          ]
+        },
+        {
+          "text": "WE",
+          "timestamp": [
+            11.12,
+            11.32
+          ]
+        },
+        {
+          "text": "LOVE",
+          "timestamp": [
+            11.32,
+            12.08
+          ]
+        }
+      ]
+    },
+    {
+      "text": "THAT IS THE COMPANY YOU ARE LOOKING AT",
+      "timestamp": [
+        12.08,
+        14.26
+      ],
+      "words": [
+        {
+          "text": "THAT",
+          "timestamp": [
+            12.08,
+            12.36
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            12.36,
+            12.52
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            12.52,
+            12.68
+          ]
+        },
+        {
+          "text": "COMPANY",
+          "timestamp": [
+            12.68,
+            12.96
+          ]
+        },
+        {
+          "text": "YOU",
+          "timestamp": [
+            12.96,
+            13.24
+          ]
+        },
+        {
+          "text": "ARE",
+          "timestamp": [
+            13.24,
+            13.44
+          ]
+        },
+        {
+          "text": "LOOKING",
+          "timestamp": [
+            13.44,
+            13.68
+          ]
+        },
+        {
+          "text": "AT",
+          "timestamp": [
+            13.68,
+            14.26
+          ]
+        }
+      ]
+    }
+  ]
+}

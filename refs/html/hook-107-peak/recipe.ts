@@ -43,12 +43,15 @@ export const PAPER_SHAPES_107 = [
 ];
 export const PAPER_ROT_107 = [-3, 2.5, 2];
 export const SLOTS: SlotDef[] = [
-  { anchor: 'left:61px;   top:85px;', font: 'sans', sizes: [162, 120, 92, 72, 58, 46, 38], budget: 594 },
-  { anchor: 'left:169px;  top:245px;', font: 'sans', sizes: [72, 58, 46, 38, 32], budget: 486 },
-  { anchor: 'right:81px;  top:315px;', font: 'serif', sizes: [90, 72, 58, 46, 38, 32], budget: 480 },
-  { anchor: 'right:81px;  top:875px;', font: 'serif', sizes: [86, 70, 58, 46, 38, 32], budget: 480 },
-  { anchor: 'left:119px;  top:985px;', font: 'serif', sizes: [92, 74, 60, 48, 40, 32], budget: 536 },
-  { anchor: 'right:81px;  top:1040px;', font: 'sans', sizes: [80, 64, 52, 42, 34, 28], budget: 486 },
+// safe-zone pass 2026-09-03: tops compressed toward the middle, t' = 148 + (t - 85) × 0.87 — slot 1 ran
+// ~18px above the 11% top margin and slots 5/6 up to ~67px under the 17% bottom one
+  { anchor: 'left:61px;   top:148px;', font: 'sans', sizes: [162, 120, 92, 72, 58, 46, 38], budget: 594 },
+  { anchor: 'left:169px;  top:287px;', font: 'sans', sizes: [72, 58, 46, 38, 32], budget: 486 },
+// (right anchors 81 → 92: 81 IS the 11% right margin, and the italic serif overshoots it by up to 10px)
+  { anchor: 'right:92px;  top:348px;', font: 'serif', sizes: [90, 72, 58, 46, 38, 32], budget: 480 },
+  { anchor: 'right:92px;  top:835px;', font: 'serif', sizes: [86, 70, 58, 46, 38, 32], budget: 480 },
+  { anchor: 'left:119px;  top:931px;', font: 'serif', sizes: [92, 74, 60, 48, 40, 32], budget: 536 },
+  { anchor: 'right:92px;  top:979px;', font: 'sans', sizes: [80, 64, 52, 42, 34, 28], budget: 486 },
 ];
 export const STICKER_SIZES = [57, 48, 40, 34, 29, 25];
 const STICKER_BUDGET = 330;
@@ -224,7 +227,7 @@ ${SLOTS.map((s, i) => `  .p${i + 1} { ${s.anchor.replace(/(\d+)px/g, (_, n) => `
      animate. v3: the pop runs 120%→100% with a fade-in — the paper LANDS on the frame instead of
      inflating from nothing. Gradient calibrated through the engine (fallback: flat #e2140c). */
   /* v4: 40px left of the v3 spot — at 192 the plate cut through the right-anchored slot words */
-  .stkr { position:absolute; left:${p(152)}px; top:${p(810)}px; width:${p(368)}px; height:${p(143)}px;
+  .stkr { position:absolute; left:${p(152)}px; top:${p(779)}px; width:${p(368)}px; height:${p(143)}px; /* 810, compressed with the slots */
           transform-origin:center center; z-index:3; }
   .paper { position:absolute; inset:0; z-index:1;
            background:linear-gradient(135deg, #ff2a1c 0%, #e2140c 55%, #c20f08 100%);

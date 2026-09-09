@@ -66,7 +66,11 @@ fix loop · DO NOT → simply how the code behaves.
 6. **VERIFY LOOP** — verbatim commands:
    `{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify` → per failure class a MECHANICAL fix
    (bounds → which value to change by how much; never-visible → what to check; occluded → z rule), re-run
-   to exit 0, ≤2 fix cycles → `--record`. Manifest line included verbatim.
+   to exit 0, ≤2 fix cycles → `--record`. Manifest line included verbatim. Ids: the engine labels a text run by
+   its DIRECT parent's id, so the id goes on the element that wraps the text. Dressing text (kickers, credits,
+   labels, marks, stickers) ends its id in `-chrome`; the safe-zone check reports those but never fixes them, so
+   only the spoken line is ever moved. The bounds ladder's demotion key stops at the hyphen (`b1p2mk` for
+   `#b1p2mk-chrome`), so a recipe keys its demotion on the bare id.
 7. **DO NOT** — no fonts/colors/keyframes beyond the sheet; no invented timing; no reading the frames; no
    redesign.
 

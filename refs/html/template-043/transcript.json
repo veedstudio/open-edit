@@ -1,0 +1,318 @@
+{
+  "text": "MY MOTHER WROTE HER RECIPES ON WHATEVER PAPER THE KITCHEN HAD THAT DAY. 60 YEARS LATER, WE STILL BAKE FROM THOSE PAGES, STAINS AND ALL. WE COULD MODERNIZE IT. WE NEVER WILL. THAT IS THE WHOLE POINT.",
+  "chunks": [
+    {
+      "text": "MY MOTHER WROTE HER RECIPES ON WHATEVER",
+      "timestamp": [
+        0.16,
+        2.32
+      ],
+      "words": [
+        {
+          "text": "MY",
+          "timestamp": [
+            0.16,
+            0.28
+          ]
+        },
+        {
+          "text": "MOTHER",
+          "timestamp": [
+            0.28,
+            0.52
+          ]
+        },
+        {
+          "text": "WROTE",
+          "timestamp": [
+            0.52,
+            0.76
+          ]
+        },
+        {
+          "text": "HER",
+          "timestamp": [
+            0.76,
+            0.92
+          ]
+        },
+        {
+          "text": "RECIPES",
+          "timestamp": [
+            0.92,
+            1.44
+          ]
+        },
+        {
+          "text": "ON",
+          "timestamp": [
+            1.44,
+            1.84
+          ]
+        },
+        {
+          "text": "WHATEVER",
+          "timestamp": [
+            1.84,
+            2.32
+          ]
+        }
+      ]
+    },
+    {
+      "text": "PAPER THE KITCHEN HAD THAT DAY.",
+      "timestamp": [
+        2.32,
+        4.387
+      ],
+      "words": [
+        {
+          "text": "PAPER",
+          "timestamp": [
+            2.32,
+            2.64
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            2.64,
+            2.84
+          ]
+        },
+        {
+          "text": "KITCHEN",
+          "timestamp": [
+            2.84,
+            3.2
+          ]
+        },
+        {
+          "text": "HAD",
+          "timestamp": [
+            3.2,
+            3.44
+          ]
+        },
+        {
+          "text": "THAT",
+          "timestamp": [
+            3.44,
+            3.64
+          ]
+        },
+        {
+          "text": "DAY.",
+          "timestamp": [
+            3.64,
+            4.387
+          ]
+        }
+      ]
+    },
+    {
+      "text": "60 YEARS LATER, WE STILL BAKE",
+      "timestamp": [
+        4.4,
+        5.987
+      ],
+      "words": [
+        {
+          "text": "60",
+          "timestamp": [
+            4.4,
+            4.76
+          ]
+        },
+        {
+          "text": "YEARS",
+          "timestamp": [
+            4.76,
+            5.04
+          ]
+        },
+        {
+          "text": "LATER,",
+          "timestamp": [
+            5.04,
+            5.28
+          ]
+        },
+        {
+          "text": "WE",
+          "timestamp": [
+            5.28,
+            5.52
+          ]
+        },
+        {
+          "text": "STILL",
+          "timestamp": [
+            5.52,
+            5.72
+          ]
+        },
+        {
+          "text": "BAKE",
+          "timestamp": [
+            5.72,
+            5.987
+          ]
+        }
+      ]
+    },
+    {
+      "text": "FROM THOSE PAGES, STAINS AND ALL.",
+      "timestamp": [
+        6,
+        8.16
+      ],
+      "words": [
+        {
+          "text": "FROM",
+          "timestamp": [
+            6,
+            6.2
+          ]
+        },
+        {
+          "text": "THOSE",
+          "timestamp": [
+            6.2,
+            6.44
+          ]
+        },
+        {
+          "text": "PAGES,",
+          "timestamp": [
+            6.44,
+            7.04
+          ]
+        },
+        {
+          "text": "STAINS",
+          "timestamp": [
+            7.04,
+            7.52
+          ]
+        },
+        {
+          "text": "AND",
+          "timestamp": [
+            7.52,
+            7.72
+          ]
+        },
+        {
+          "text": "ALL.",
+          "timestamp": [
+            7.72,
+            8.16
+          ]
+        }
+      ]
+    },
+    {
+      "text": "WE COULD MODERNIZE IT. WE NEVER WILL.",
+      "timestamp": [
+        8.16,
+        10.48
+      ],
+      "words": [
+        {
+          "text": "WE",
+          "timestamp": [
+            8.16,
+            8.44
+          ]
+        },
+        {
+          "text": "COULD",
+          "timestamp": [
+            8.44,
+            8.6
+          ]
+        },
+        {
+          "text": "MODERNIZE",
+          "timestamp": [
+            8.6,
+            9.16
+          ]
+        },
+        {
+          "text": "IT.",
+          "timestamp": [
+            9.16,
+            9.44
+          ]
+        },
+        {
+          "text": "WE",
+          "timestamp": [
+            9.44,
+            9.72
+          ]
+        },
+        {
+          "text": "NEVER",
+          "timestamp": [
+            9.72,
+            9.96
+          ]
+        },
+        {
+          "text": "WILL.",
+          "timestamp": [
+            9.96,
+            10.48
+          ]
+        }
+      ]
+    },
+    {
+      "text": "THAT IS THE WHOLE POINT.",
+      "timestamp": [
+        10.48,
+        12.033
+      ],
+      "words": [
+        {
+          "text": "THAT",
+          "timestamp": [
+            10.48,
+            10.76
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            10.76,
+            10.92
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            10.92,
+            11.08
+          ]
+        },
+        {
+          "text": "WHOLE",
+          "timestamp": [
+            11.08,
+            11.36
+          ]
+        },
+        {
+          "text": "POINT.",
+          "timestamp": [
+            11.36,
+            12.033
+          ]
+        }
+      ]
+    }
+  ]
+}

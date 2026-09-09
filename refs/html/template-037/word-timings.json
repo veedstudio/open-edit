@@ -1,0 +1,219 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 3.44,
+      "cueDelayMs": 160,
+      "cueDurMs": 3280,
+      "words": [
+        {
+          "w": "I",
+          "delayMs": 160
+        },
+        {
+          "w": "HAVE",
+          "delayMs": 240
+        },
+        {
+          "w": "WATCHED",
+          "delayMs": 360
+        },
+        {
+          "w": "FIVE",
+          "delayMs": 720
+        },
+        {
+          "w": "TECHNOLOGY",
+          "delayMs": 1000
+        },
+        {
+          "w": "WAVES",
+          "delayMs": 1520
+        },
+        {
+          "w": "HIT",
+          "delayMs": 1960
+        },
+        {
+          "w": "THIS",
+          "delayMs": 2200
+        },
+        {
+          "w": "INDUSTRY.",
+          "delayMs": 2400
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 3.44,
+      "endSec": 4.8,
+      "cueDelayMs": 3440,
+      "cueDurMs": 1360,
+      "words": [
+        {
+          "w": "THIS",
+          "delayMs": 3440
+        },
+        {
+          "w": "ONE",
+          "delayMs": 3760
+        },
+        {
+          "w": "IS",
+          "delayMs": 4000
+        },
+        {
+          "w": "DIFFERENT",
+          "delayMs": 4200
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 4.8,
+      "endSec": 7.44,
+      "cueDelayMs": 4800,
+      "cueDurMs": 2640,
+      "words": [
+        {
+          "w": "THE",
+          "delayMs": 4800
+        },
+        {
+          "w": "SCARCE",
+          "delayMs": 5080
+        },
+        {
+          "w": "THING",
+          "delayMs": 5520
+        },
+        {
+          "w": "IS",
+          "delayMs": 5720
+        },
+        {
+          "w": "NO",
+          "delayMs": 5920
+        },
+        {
+          "w": "LONGER",
+          "delayMs": 6120
+        },
+        {
+          "w": "PRODUCTION.",
+          "delayMs": 6480
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 7.44,
+      "endSec": 9.04,
+      "cueDelayMs": 7440,
+      "cueDurMs": 1600,
+      "words": [
+        {
+          "w": "IT",
+          "delayMs": 7440
+        },
+        {
+          "w": "IS",
+          "delayMs": 7720
+        },
+        {
+          "w": "ATTENTION",
+          "delayMs": 7920
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 9.04,
+      "endSec": 10.48,
+      "cueDelayMs": 9040,
+      "cueDurMs": 1440,
+      "words": [
+        {
+          "w": "AND",
+          "delayMs": 9040
+        },
+        {
+          "w": "IT",
+          "delayMs": 9320
+        },
+        {
+          "w": "ALWAYS",
+          "delayMs": 9520
+        },
+        {
+          "w": "WAS.",
+          "delayMs": 9800
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 10.48,
+      "endSec": 14.24,
+      "cueDelayMs": 10480,
+      "cueDurMs": 3760,
+      "words": [
+        {
+          "w": "MAKE",
+          "delayMs": 10480
+        },
+        {
+          "w": "FEWER",
+          "delayMs": 10840
+        },
+        {
+          "w": "THINGS,",
+          "delayMs": 11240
+        },
+        {
+          "w": "MAKE",
+          "delayMs": 12400
+        },
+        {
+          "w": "THEM",
+          "delayMs": 12680
+        },
+        {
+          "w": "MATTER",
+          "delayMs": 12920
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "startSec": 14.24,
+      "endSec": 16.233,
+      "cueDelayMs": 14240,
+      "cueDurMs": 1993,
+      "words": [
+        {
+          "w": "THAT",
+          "delayMs": 14240
+        },
+        {
+          "w": "ADVICE",
+          "delayMs": 14560
+        },
+        {
+          "w": "HAS",
+          "delayMs": 15080
+        },
+        {
+          "w": "NEVER",
+          "delayMs": 15320
+        },
+        {
+          "w": "LOST.",
+          "delayMs": 15560
+        }
+      ]
+    }
+  ]
+}

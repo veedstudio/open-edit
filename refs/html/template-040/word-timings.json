@@ -1,0 +1,222 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 1.4,
+      "cueDelayMs": 160,
+      "cueDurMs": 1240,
+      "words": [
+        {
+          "w": "I",
+          "delayMs": 160
+        },
+        {
+          "w": "BOUGHT",
+          "delayMs": 240
+        },
+        {
+          "w": "THIS",
+          "delayMs": 440
+        },
+        {
+          "w": "JACKET",
+          "delayMs": 600
+        },
+        {
+          "w": "FOR",
+          "delayMs": 1000
+        },
+        {
+          "w": "ONE",
+          "delayMs": 1160
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 1.4,
+      "endSec": 3.12,
+      "cueDelayMs": 1400,
+      "cueDurMs": 1720,
+      "words": [
+        {
+          "w": "HIKE",
+          "delayMs": 1400
+        },
+        {
+          "w": "JUST",
+          "delayMs": 1920
+        },
+        {
+          "w": "TO",
+          "delayMs": 2200
+        },
+        {
+          "w": "LOOK",
+          "delayMs": 2360
+        },
+        {
+          "w": "THE",
+          "delayMs": 2560
+        },
+        {
+          "w": "PART.",
+          "delayMs": 2760
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 3.12,
+      "endSec": 6.08,
+      "cueDelayMs": 3120,
+      "cueDurMs": 2960,
+      "words": [
+        {
+          "w": "HONESTLY,",
+          "delayMs": 3120
+        },
+        {
+          "w": "TWO",
+          "delayMs": 4080
+        },
+        {
+          "w": "MONTHS",
+          "delayMs": 4360
+        },
+        {
+          "w": "LATER,",
+          "delayMs": 4600
+        },
+        {
+          "w": "IT",
+          "delayMs": 4840
+        },
+        {
+          "w": "HAS",
+          "delayMs": 5000
+        },
+        {
+          "w": "DONE",
+          "delayMs": 5200
+        },
+        {
+          "w": "RAIN,",
+          "delayMs": 5440
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 6.08,
+      "endSec": 9.92,
+      "cueDelayMs": 6080,
+      "cueDurMs": 3840,
+      "words": [
+        {
+          "w": "WIND,",
+          "delayMs": 6080
+        },
+        {
+          "w": "THREE",
+          "delayMs": 6800
+        },
+        {
+          "w": "SUMMITS",
+          "delayMs": 7160
+        },
+        {
+          "w": "AND",
+          "delayMs": 7920
+        },
+        {
+          "w": "ONE",
+          "delayMs": 8200
+        },
+        {
+          "w": "VERY",
+          "delayMs": 8440
+        },
+        {
+          "w": "MUDDY",
+          "delayMs": 8720
+        },
+        {
+          "w": "FESTIVAL.",
+          "delayMs": 9160
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 9.92,
+      "endSec": 10.8,
+      "cueDelayMs": 9920,
+      "cueDurMs": 880,
+      "words": [
+        {
+          "w": "STILL",
+          "delayMs": 9920
+        },
+        {
+          "w": "LOOKS",
+          "delayMs": 10240
+        },
+        {
+          "w": "NEW.",
+          "delayMs": 10520
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 10.8,
+      "endSec": 13.067,
+      "cueDelayMs": 10800,
+      "cueDurMs": 2267,
+      "words": [
+        {
+          "w": "I",
+          "delayMs": 10800
+        },
+        {
+          "w": "GET",
+          "delayMs": 11080
+        },
+        {
+          "w": "WHY",
+          "delayMs": 11240
+        },
+        {
+          "w": "PEOPLE",
+          "delayMs": 11400
+        },
+        {
+          "w": "WOULD",
+          "delayMs": 11600
+        },
+        {
+          "w": "NOT",
+          "delayMs": 11800
+        },
+        {
+          "w": "SHUT",
+          "delayMs": 12000
+        },
+        {
+          "w": "UP",
+          "delayMs": 12240
+        },
+        {
+          "w": "ABOUT",
+          "delayMs": 12360
+        },
+        {
+          "w": "IT.",
+          "delayMs": 12520
+        }
+      ]
+    }
+  ]
+}

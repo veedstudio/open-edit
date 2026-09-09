@@ -1,0 +1,68 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,500;1,500&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; opacity:0; z-index:1; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  @keyframes pgMid { 0%{opacity:0} 0.01%,99.99%{opacity:1} 100%{opacity:0} }
+
+  .cap { left:52px; right:52px; bottom:176px; text-align:center;
+         font-family:'Newsreader'; font-weight:500; letter-spacing:0.0038em; line-height:1.34; color:#F5EFE4;
+         text-shadow:0 0.05em 0.42em rgba(26,18,11,0.62); }
+  .cl { display:block; white-space:nowrap; }
+  .w { display:inline-block; margin-right:0.26em; opacity:0.42;
+       animation-name:wLight; animation-timing-function:cubic-bezier(0.22,0.61,0.36,1); animation-fill-mode:forwards; }
+  .e { margin-right:0; }
+  .i { font-style:italic; }
+  @keyframes wLight { 0%{opacity:0.42} 100%{opacity:1} }
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:160ms;animation-duration:1600ms;">
+  <div class="pg cap" id="b1p1" style="font-size:61px;opacity:1;">
+      <div class="cl" id="b1p1l1"><span class="w" id="b1w1" style="animation-delay:160ms;animation-duration:260ms">You</span><span class="w i" id="b1w2" style="animation-delay:280ms;animation-duration:260ms">forget</span><span class="w e" id="b1w3" style="animation-delay:560ms;animation-duration:260ms">facts</span></div>
+      <div class="cl" id="b1p1l2"><span class="w" id="b1w4" style="animation-delay:920ms;animation-duration:260ms">in</span><span class="w" id="b1w5" style="animation-delay:1120ms;animation-duration:260ms">days,</span><span class="w e" id="b1w6" style="animation-delay:1440ms;animation-duration:260ms">but</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:1760ms;animation-duration:1840ms;">
+  <div class="pg cap" id="b2p1" style="font-size:61px;opacity:1;">
+      <div class="cl" id="b2p1l1"><span class="w" id="b2w7" style="animation-delay:1760ms;animation-duration:260ms">you</span><span class="w" id="b2w8" style="animation-delay:1960ms;animation-duration:260ms">remember</span><span class="w e" id="b2w9" style="animation-delay:2320ms;animation-duration:260ms">stories</span></div>
+      <div class="cl" id="b2p1l2"><span class="w" id="b2w10" style="animation-delay:2720ms;animation-duration:260ms">for</span><span class="w e i" id="b2w11" style="animation-delay:2920ms;animation-duration:260ms">decades.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:3600ms;animation-duration:1600ms;">
+  <div class="pg cap" id="b3p1" style="font-size:61px;opacity:1;">
+      <div class="cl" id="b3p1l1"><span class="w" id="b3w12" style="animation-delay:3600ms;animation-duration:260ms">There</span><span class="w" id="b3w13" style="animation-delay:3880ms;animation-duration:260ms">is</span><span class="w e" id="b3w14" style="animation-delay:4040ms;animation-duration:260ms">a</span></div>
+      <div class="cl" id="b3p1l2"><span class="w i" id="b3w15" style="animation-delay:4200ms;animation-duration:260ms">reason.</span><span class="w" id="b3w16" style="animation-delay:4720ms;animation-duration:260ms">A</span><span class="w e" id="b3w17" style="animation-delay:5000ms;animation-duration:200ms">story</span></div>
+  </div>
+</div>
+<div class="cue" id="cue4" style="z-index:14;animation-delay:5200ms;animation-duration:1760ms;">
+  <div class="pg cap" id="b4p1" style="font-size:61px;opacity:1;">
+      <div class="cl" id="b4p1l1"><span class="w" id="b4w18" style="animation-delay:5200ms;animation-duration:260ms">links</span><span class="w" id="b4w19" style="animation-delay:5560ms;animation-duration:260ms">each</span><span class="w e" id="b4w20" style="animation-delay:5760ms;animation-duration:260ms">fact</span></div>
+      <div class="cl" id="b4p1l2"><span class="w" id="b4w21" style="animation-delay:6000ms;animation-duration:260ms">to</span><span class="w" id="b4w22" style="animation-delay:6200ms;animation-duration:260ms">an</span><span class="w e i" id="b4w23" style="animation-delay:6360ms;animation-duration:260ms">emotion.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue5" style="z-index:15;animation-delay:6960ms;animation-duration:2560ms;">
+  <div class="pg cap" id="b5p1" style="font-size:61px;opacity:1;">
+      <div class="cl" id="b5p1l1"><span class="w" id="b5w24" style="animation-delay:6960ms;animation-duration:260ms">An</span><span class="w" id="b5w25" style="animation-delay:7240ms;animation-duration:260ms">emotion</span><span class="w" id="b5w26" style="animation-delay:7640ms;animation-duration:260ms">is</span><span class="w" id="b5w27" style="animation-delay:7760ms;animation-duration:260ms">how</span><span class="w e" id="b5w28" style="animation-delay:7960ms;animation-duration:260ms">the</span></div>
+      <div class="cl" id="b5p1l2"><span class="w" id="b5w29" style="animation-delay:8160ms;animation-duration:260ms">brain</span><span class="w" id="b5w30" style="animation-delay:8440ms;animation-duration:260ms">files</span><span class="w e i" id="b5w31" style="animation-delay:8880ms;animation-duration:260ms">things.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue6" style="z-index:16;animation-delay:9520ms;animation-duration:840ms;">
+  <div class="pg cap" id="b6p1" style="font-size:61px;opacity:1;">
+      <div class="cl" id="b6p1l1"><span class="w" id="b6w32" style="animation-delay:9520ms;animation-duration:260ms">So</span><span class="w" id="b6w33" style="animation-delay:9760ms;animation-duration:260ms">if</span><span class="w" id="b6w34" style="animation-delay:9840ms;animation-duration:260ms">you</span><span class="w i" id="b6w35" style="animation-delay:9960ms;animation-duration:260ms">want</span><span class="w" id="b6w36" style="animation-delay:10120ms;animation-duration:240ms">to</span><span class="w e" id="b6w37" style="animation-delay:10240ms;animation-duration:120ms">be</span></div>
+  </div>
+</div>
+<div class="cue" id="cue7" style="z-index:17;animation-delay:10360ms;animation-duration:7640ms;">
+  <div class="pg cap" id="b7p1" style="font-size:61px;opacity:1;">
+      <div class="cl" id="b7p1l1"><span class="w i" id="b7w38" style="animation-delay:10360ms;animation-duration:260ms">remembered,</span><span class="w e" id="b7w39" style="animation-delay:11040ms;animation-duration:260ms">stop</span></div>
+      <div class="cl" id="b7p1l2"><span class="w" id="b7w40" style="animation-delay:11440ms;animation-duration:260ms">listing.</span><span class="w e" id="b7w41" style="animation-delay:12240ms;animation-duration:260ms">Start</span></div>
+      <div class="cl" id="b7p1l3"><span class="w e" id="b7w42" style="animation-delay:12640ms;animation-duration:260ms">telling.</span></div>
+  </div>
+</div>

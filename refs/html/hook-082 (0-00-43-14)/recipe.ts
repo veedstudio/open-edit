@@ -149,9 +149,10 @@ ${lines.join('\n')}
   @keyframes cueGate { 0%, 94% { opacity: 1; } 100% { opacity: 0; } }
   @keyframes cueHold { 0%, 100% { opacity: 1; } }        /* FINAL beat only — rides the video end, no fade */
   .cue { position: absolute; top: ${p(740)}px; width: ${p(580)}px; height: ${p(336)}px;
-         display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+         display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; /* was center: the stack now sits on the box's bottom edge (1076), clear of the face */
          opacity: 0; animation-timing-function: linear; animation-fill-mode: both; }
-  /* cue anchor — the ONLY thing that varies horizontally per beat; top/height never move.
+  /* cue anchor — the ONLY thing that varies horizontally per beat; top/height never move (the stack's
+     BOTTOM is the fixed edge now, so a taller beat grows upward).
      text-align is set HERE and inherited down into .line (which sets none of its own). */
   .aL { left: ${p(64)}px; right: auto; text-align: left; }
   .aR { left: auto; right: ${p(100)}px; text-align: right; }

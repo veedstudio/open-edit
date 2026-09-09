@@ -1,0 +1,224 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.23,
+      "endSec": 2.32,
+      "cueDelayMs": 230,
+      "cueDurMs": 2090,
+      "words": [
+        {
+          "w": "Einstein",
+          "delayMs": 230
+        },
+        {
+          "w": "supposedly",
+          "delayMs": 640
+        },
+        {
+          "w": "called",
+          "delayMs": 1240
+        },
+        {
+          "w": "compound",
+          "delayMs": 1480
+        },
+        {
+          "w": "interest.",
+          "delayMs": 2000
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 2.32,
+      "endSec": 4.32,
+      "cueDelayMs": 2320,
+      "cueDurMs": 2000,
+      "words": [
+        {
+          "w": "The",
+          "delayMs": 2320
+        },
+        {
+          "w": "eighth",
+          "delayMs": 2640
+        },
+        {
+          "w": "wonder",
+          "delayMs": 3030
+        },
+        {
+          "w": "of",
+          "delayMs": 3280
+        },
+        {
+          "w": "the",
+          "delayMs": 3480
+        },
+        {
+          "w": "world.",
+          "delayMs": 3640
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 4.32,
+      "endSec": 5.68,
+      "cueDelayMs": 4320,
+      "cueDurMs": 1360,
+      "words": [
+        {
+          "w": "The",
+          "delayMs": 4320
+        },
+        {
+          "w": "idea",
+          "delayMs": 4600
+        },
+        {
+          "w": "is",
+          "delayMs": 5000
+        },
+        {
+          "w": "simple.",
+          "delayMs": 5350
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 5.68,
+      "endSec": 6.76,
+      "cueDelayMs": 5680,
+      "cueDurMs": 1080,
+      "words": [
+        {
+          "w": "Your",
+          "delayMs": 5680
+        },
+        {
+          "w": "money",
+          "delayMs": 5920
+        },
+        {
+          "w": "earns.",
+          "delayMs": 6240
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 6.76,
+      "endSec": 8.88,
+      "cueDelayMs": 6760,
+      "cueDurMs": 2120,
+      "words": [
+        {
+          "w": "Then",
+          "delayMs": 6760
+        },
+        {
+          "w": "those",
+          "delayMs": 7040
+        },
+        {
+          "w": "earnings",
+          "delayMs": 7240
+        },
+        {
+          "w": "start",
+          "delayMs": 7640
+        },
+        {
+          "w": "earning",
+          "delayMs": 7950
+        },
+        {
+          "w": "too.",
+          "delayMs": 8280
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 8.88,
+      "endSec": 11.2,
+      "cueDelayMs": 8880,
+      "cueDurMs": 2320,
+      "words": [
+        {
+          "w": "At",
+          "delayMs": 8880
+        },
+        {
+          "w": "10%",
+          "delayMs": 9200
+        },
+        {
+          "w": "a",
+          "delayMs": 9720
+        },
+        {
+          "w": "year,",
+          "delayMs": 9960
+        },
+        {
+          "w": "your",
+          "delayMs": 10200
+        },
+        {
+          "w": "money",
+          "delayMs": 10440
+        },
+        {
+          "w": "doubles",
+          "delayMs": 10750
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "startSec": 11.2,
+      "endSec": 12.88,
+      "cueDelayMs": 11200,
+      "cueDurMs": 1680,
+      "words": [
+        {
+          "w": "roughly",
+          "delayMs": 11200
+        },
+        {
+          "w": "every",
+          "delayMs": 11600
+        },
+        {
+          "w": "seven",
+          "delayMs": 11880
+        },
+        {
+          "w": "years.",
+          "delayMs": 12160
+        }
+      ]
+    },
+    {
+      "i": 8,
+      "startSec": 12.88,
+      "endSec": 14,
+      "cueDelayMs": 12880,
+      "cueDurMs": 1120,
+      "words": [
+        {
+          "w": "Start",
+          "delayMs": 12880
+        },
+        {
+          "w": "early.",
+          "delayMs": 13350
+        }
+      ]
+    }
+  ]
+}

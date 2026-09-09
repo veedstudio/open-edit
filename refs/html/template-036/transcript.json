@@ -1,0 +1,371 @@
+{
+  "text": "EVERY TOOL YOUR TEAM USES, YOUR COMPETITORS USE TOO, SO THE TOOLS ARE NOT THE EDGE WHEN EVERYONE CAN MAKE EVERYTHING, TASTE BECOMES THE ONLY REAL MOAT. HIRE PEOPLE WHO CAN TELL GOOD FROM ALMOST GOOD THAT GAP IS THE WHOLE BUSINESS.",
+  "chunks": [
+    {
+      "text": "EVERY TOOL YOUR TEAM USES,",
+      "timestamp": [
+        0.16,
+        1.743
+      ],
+      "words": [
+        {
+          "text": "EVERY",
+          "timestamp": [
+            0.16,
+            0.32
+          ]
+        },
+        {
+          "text": "TOOL",
+          "timestamp": [
+            0.32,
+            0.56
+          ]
+        },
+        {
+          "text": "YOUR",
+          "timestamp": [
+            0.56,
+            0.76
+          ]
+        },
+        {
+          "text": "TEAM",
+          "timestamp": [
+            0.76,
+            1
+          ]
+        },
+        {
+          "text": "USES,",
+          "timestamp": [
+            1,
+            1.743
+          ]
+        }
+      ]
+    },
+    {
+      "text": "YOUR COMPETITORS USE TOO,",
+      "timestamp": [
+        1.76,
+        4.303
+      ],
+      "words": [
+        {
+          "text": "YOUR",
+          "timestamp": [
+            1.76,
+            2.08
+          ]
+        },
+        {
+          "text": "COMPETITORS",
+          "timestamp": [
+            2.08,
+            2.68
+          ]
+        },
+        {
+          "text": "USE",
+          "timestamp": [
+            2.68,
+            2.92
+          ]
+        },
+        {
+          "text": "TOO,",
+          "timestamp": [
+            2.92,
+            4.303
+          ]
+        }
+      ]
+    },
+    {
+      "text": "SO THE TOOLS ARE NOT THE EDGE",
+      "timestamp": [
+        4.32,
+        6.143
+      ],
+      "words": [
+        {
+          "text": "SO",
+          "timestamp": [
+            4.32,
+            4.56
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            4.56,
+            4.68
+          ]
+        },
+        {
+          "text": "TOOLS",
+          "timestamp": [
+            4.68,
+            5
+          ]
+        },
+        {
+          "text": "ARE",
+          "timestamp": [
+            5,
+            5.16
+          ]
+        },
+        {
+          "text": "NOT",
+          "timestamp": [
+            5.16,
+            5.32
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            5.32,
+            5.48
+          ]
+        },
+        {
+          "text": "EDGE",
+          "timestamp": [
+            5.48,
+            6.143
+          ]
+        }
+      ]
+    },
+    {
+      "text": "WHEN EVERYONE CAN MAKE EVERYTHING, TASTE",
+      "timestamp": [
+        6.16,
+        8.84
+      ],
+      "words": [
+        {
+          "text": "WHEN",
+          "timestamp": [
+            6.16,
+            6.48
+          ]
+        },
+        {
+          "text": "EVERYONE",
+          "timestamp": [
+            6.48,
+            6.76
+          ]
+        },
+        {
+          "text": "CAN",
+          "timestamp": [
+            6.76,
+            7
+          ]
+        },
+        {
+          "text": "MAKE",
+          "timestamp": [
+            7,
+            7.2
+          ]
+        },
+        {
+          "text": "EVERYTHING,",
+          "timestamp": [
+            7.2,
+            8.32
+          ]
+        },
+        {
+          "text": "TASTE",
+          "timestamp": [
+            8.32,
+            8.84
+          ]
+        }
+      ]
+    },
+    {
+      "text": "BECOMES THE ONLY REAL MOAT.",
+      "timestamp": [
+        8.84,
+        10.383
+      ],
+      "words": [
+        {
+          "text": "BECOMES",
+          "timestamp": [
+            8.84,
+            9.16
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            9.16,
+            9.32
+          ]
+        },
+        {
+          "text": "ONLY",
+          "timestamp": [
+            9.32,
+            9.52
+          ]
+        },
+        {
+          "text": "REAL",
+          "timestamp": [
+            9.52,
+            9.8
+          ]
+        },
+        {
+          "text": "MOAT.",
+          "timestamp": [
+            9.8,
+            10.383
+          ]
+        }
+      ]
+    },
+    {
+      "text": "HIRE PEOPLE WHO CAN TELL",
+      "timestamp": [
+        10.4,
+        11.743
+      ],
+      "words": [
+        {
+          "text": "HIRE",
+          "timestamp": [
+            10.4,
+            10.84
+          ]
+        },
+        {
+          "text": "PEOPLE",
+          "timestamp": [
+            10.84,
+            11.16
+          ]
+        },
+        {
+          "text": "WHO",
+          "timestamp": [
+            11.16,
+            11.4
+          ]
+        },
+        {
+          "text": "CAN",
+          "timestamp": [
+            11.4,
+            11.56
+          ]
+        },
+        {
+          "text": "TELL",
+          "timestamp": [
+            11.56,
+            11.743
+          ]
+        }
+      ]
+    },
+    {
+      "text": "GOOD FROM ALMOST GOOD",
+      "timestamp": [
+        11.76,
+        13.24
+      ],
+      "words": [
+        {
+          "text": "GOOD",
+          "timestamp": [
+            11.76,
+            12.04
+          ]
+        },
+        {
+          "text": "FROM",
+          "timestamp": [
+            12.04,
+            12.28
+          ]
+        },
+        {
+          "text": "ALMOST",
+          "timestamp": [
+            12.28,
+            12.64
+          ]
+        },
+        {
+          "text": "GOOD",
+          "timestamp": [
+            12.64,
+            13.24
+          ]
+        }
+      ]
+    },
+    {
+      "text": "THAT GAP IS THE WHOLE BUSINESS.",
+      "timestamp": [
+        13.84,
+        15.633
+      ],
+      "words": [
+        {
+          "text": "THAT",
+          "timestamp": [
+            13.84,
+            14.12
+          ]
+        },
+        {
+          "text": "GAP",
+          "timestamp": [
+            14.12,
+            14.4
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            14.4,
+            14.6
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            14.6,
+            14.76
+          ]
+        },
+        {
+          "text": "WHOLE",
+          "timestamp": [
+            14.76,
+            15
+          ]
+        },
+        {
+          "text": "BUSINESS.",
+          "timestamp": [
+            15,
+            15.633
+          ]
+        }
+      ]
+    }
+  ]
+}

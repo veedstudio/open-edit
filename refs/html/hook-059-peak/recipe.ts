@@ -44,7 +44,9 @@ const BALOO_MID = 0.5925;
 const DESC_RE = /[QJ,;]/;
 
 export const W_REF = 1088; // displayed row width (the prefab fills ~85% of its canvas)
-const CY1 = 181, CY2 = 537, CYH = 298, CYC = 81; // ink-band centers measured off the prefab render
+// ink-band centers measured off the prefab render; safe-zone pass 2026-09-03 pulled the two-row pair
+// in by 20 each (181/537 → 201/517): the stretched caps overshot the 6% inset by ~17px top and bottom
+const CY1 = 201, CY2 = 517, CYH = 298, CYC = 81;
 const CREDITS_TOP = 506;
 // scaleY stretches; layout-font caps give the prefab's visual cap sizes (366 / 356 / 321).
 const K_TOP = 2.27, K_BOT = 2.17, K_HEAD = 1.56;
@@ -59,16 +61,17 @@ const GAP_MIN = 0.18, GAP_MAX = 2.6, LS_MAX = 2.6;
 // Ink bands by ROW COUNT. The beat splits at its accent — words before it, the accent, words after —
 // so the rows always run in the sentence's own order top to bottom. A 3-row beat needs tighter bands,
 // so its rows start further down the ladder (LADDER_START) to keep the stretched ink from colliding.
-const BANDS: Record<number, number[]> = { 1: [360], 2: [CY1, CY2], 3: [140, 360, 580] };
+// (3-row bands 140/360/580 → 158/360/560, safe-zone pass: the bottom row overshot the 6% inset by ~15px)
+const BANDS: Record<number, number[]> = { 1: [360], 2: [CY1, CY2], 3: [158, 360, 560] };
 const LADDER_START: Record<number, number> = { 1: 0, 2: 0, 3: 7 };
 
 // Ordered layout-font ladders (×0.95 steps off each cap). The rung a row may take is filtered by its
-// BAND at fit time (see fitAnton) — a descender tail must stay inside the 720 canvas.
+// BAND at fit time (see fitAnton) — a descender tail must stay inside the 6% bottom inset.
 export const TOP_FS = [161, 153, 145, 138, 131, 125, 118, 112, 107, 101, 96, 92, 87, 83, 79, 75, 71, 67, 64, 61, 58, 55, 52, 49, 47, 45, 42, 40, 38, 36];
 export const BOT_FS = [164, 156, 148, 141, 134, 127, 121, 115, 109, 103, 98, 93, 89, 84, 80, 76, 72, 69, 65, 62, 59, 56, 53, 50, 48, 45, 43, 41, 39, 37];
 export const HEAD_FS = [206, 196, 186, 177, 168, 159, 151, 144, 137, 130, 123, 117, 111, 106, 100, 95, 91, 86, 82, 78, 74, 70, 67, 63, 60, 57, 54, 52, 49, 47];
 export const CFS = [58, 52, 47, 42, 38, 34, 31, 28, 25, 23, 21]; // Baloo counter-line ladder
-const CANVAS_H = 720;
+const SAFE_BOT = 677; // the 6% bottom inset of the 720 canvas — the tail guard's floor (was the canvas edge)
 
 type RowKind = 'top' | 'bottom' | 'head';
 const KIND = {
@@ -106,10 +109,10 @@ export function fitAnton(units: Unit[], kind: RowKind, demote = 0, cy?: number, 
   // The tail budget comes from the BAND, never from the row's ROLE. The reading-order split can put
   // any role in any band — an accent spoken first leaves a 'top' row sitting in the low band — and a
   // role-keyed guard let that row take the full ladder with the guard permanently off, hanging its
-  // Q/J/comma tails past the canvas (verify cannot see it: the stretch lives in scaleY and glyph ink
-  // is measured PRE-transform). Ink below the band centre is 0.545·f·k with a tail, 0.435 without.
+  // Q/J/comma tails past the safe bottom (bounds cannot see it: the stretch lives in scaleY and glyph
+  // ink is measured PRE-transform). Ink below the band centre is 0.545·f·k with a tail, 0.435 without.
   const reach = units.some((u) => u.spans.some((s) => DESC_RE.test(s.text))) ? 0.545 : 0.435;
-  const sizes = cfg.fs.slice(start).filter((f) => band + reach * f * cfg.k <= CANVAS_H);
+  const sizes = cfg.fs.slice(start).filter((f) => band + reach * f * cfg.k <= SAFE_BOT);
   const ladder = ladderFor(sizes.length ? sizes : [cfg.fs[cfg.fs.length - 1]], cfg.avg);
   const budget = W_REF * 0.96 ** demote; // layout px — the row's displayed width
   const sumAdv = units.reduce((s, u) => s + unitAdv(u), 0);

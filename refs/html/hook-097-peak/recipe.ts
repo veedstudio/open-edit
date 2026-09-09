@@ -27,6 +27,10 @@ const STRIP_W = 818;
 const FR_H2 = 150; // frame height when a page has a two-line frame
 const FR_H1 = 108; // …when every frame is single-line
 const BAND_CHROME = 62; // lab above + marks below
+// safe-zone pass 2026-09-03: 800/960 → 700/860 — the bottom band (up to 212px tall, tilted) ran ~90px
+// past the 17% bottom margin
+const STRIP_TOP_T = 700;
+const STRIP_TOP_B = 860;
 export const ANGLES_097: Array<[number, number]> = [[-3, 5.5], [4, -2.5], [-5, 2.5]];
 const LINE_EM = 1.24; // span box: line-height 1 + 0.06/0.18em descender padding
 const STACK2_EM = 2.14; // two stacked lines (.ln2 pulls -0.34em)
@@ -151,6 +155,8 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
       const ids = frames.map((_, f) => `${key}f${f + 1}`);
       const row = sizeRow097(
         normC097(sumMax097(frames), F),
+        // lab/mk ids end in -chrome (safe-zone dressing); a bounds FAIL on them still names the bare
+        // `${key}lab` / `${key}mk` (the ladder's id shape stops at the hyphen), which is the key here
         demotionFor(demote, key, ...ids, `${key}lab`, `${key}mk`),
       );
       const fs = fsOf097(row);
@@ -179,17 +185,17 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
       const anim = j === 0
         ? `${top ? 'seT' : 'seB'}${beat.i} ${SLIDE_MS}ms cubic-bezier(.2,.7,.3,1) ${beat.cueDelayMs}ms both`
         : `${top ? 'slT' : 'slB'}${beat.i} ${SLIDE_MS}ms cubic-bezier(.2,.7,.3,1) ${pgStarts[j] - SLIDE_MS}ms both`;
-      const rotStyle = ` style="top:${p(top ? 800 : 960)}px; height:${p(frH + BAND_CHROME)}px; transform:rotate(${ang}deg); animation:${anim}"`;
+      const rotStyle = ` style="top:${p(top ? STRIP_TOP_T : STRIP_TOP_B)}px; height:${p(frH + BAND_CHROME)}px; transform:rotate(${ang}deg); animation:${anim}"`;
 
       // lower-third layout: a bottom-anchor band overlaps the TOP band's lower edge (by design), which
       // would fully cover the top band's bottom marks row → verify FAIL[occluded]. Multi-page beats
       // therefore omit the marks on top-anchored strips; a beat's lone strip keeps its full chrome.
       const mksRow = top && pages.length > 1
         ? ''
-        : `\n      <div class="mks" id="${key}mk" data-node-id="${key}mk" data-node-role="text" style="animation-delay:${pgStarts[j]}ms">${top ? MK_T : MK_B}</div>`;
+        : `\n      <div class="mks" id="${key}mk-chrome" data-node-id="${key}mk-chrome" data-node-role="text" style="animation-delay:${pgStarts[j]}ms">${top ? MK_T : MK_B}</div>`;
       return `  <div class="spg ${top ? 'sT' : 'sB'}" style="${spgStyle}">
     <div class="rot${top ? '' : ' shB'}" id="${key}rot" data-node-id="${key}rot"${rotStyle}>
-      <div class="lab" id="${key}lab" data-node-id="${key}lab" data-node-role="text" style="animation-delay:${pgStarts[j]}ms">${top ? LAB_T : LAB_B}</div>
+      <div class="lab" id="${key}lab-chrome" data-node-id="${key}lab-chrome" data-node-role="text" style="animation-delay:${pgStarts[j]}ms">${top ? LAB_T : LAB_B}</div>
 ${frHtml}${mksRow}
     </div>
   </div>`;
@@ -247,7 +253,9 @@ ${slideKfs.join('\n')}
          font-family: "Roboto Mono", monospace; font-weight: 600; font-size: ${p(14)}px;
          letter-spacing: ${p(3)}px; line-height: 1.3; color: #b9b8b4; white-space: nowrap;
          opacity: 0; animation-name: labIn; animation-duration: ${POP_MS}ms; animation-fill-mode: both; }
-  .mks { position: absolute; left: ${p(72)}px; bottom: ${p(8)}px;
+  /* safe-zone pass: left 72 → 110 — the band starts at -41, so the marks began at x=31 against the 44px (6%)
+     left margin, and the tilt pushes the low corner further out */
+  .mks { position: absolute; left: ${p(110)}px; bottom: ${p(8)}px;
          font-family: "Roboto Mono", monospace; font-weight: 600; font-size: ${p(14)}px;
          letter-spacing: ${p(2)}px; line-height: 1.3; color: #cfcecb; white-space: nowrap;
          opacity: 0; animation-name: labIn; animation-duration: ${POP_MS}ms; animation-fill-mode: both; }

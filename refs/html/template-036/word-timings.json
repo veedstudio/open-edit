@@ -1,0 +1,244 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 1.743,
+      "cueDelayMs": 160,
+      "cueDurMs": 1583,
+      "words": [
+        {
+          "w": "EVERY",
+          "delayMs": 160
+        },
+        {
+          "w": "TOOL",
+          "delayMs": 320
+        },
+        {
+          "w": "YOUR",
+          "delayMs": 560
+        },
+        {
+          "w": "TEAM",
+          "delayMs": 760
+        },
+        {
+          "w": "USES,",
+          "delayMs": 1000
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 1.76,
+      "endSec": 4.303,
+      "cueDelayMs": 1760,
+      "cueDurMs": 2543,
+      "words": [
+        {
+          "w": "YOUR",
+          "delayMs": 1760
+        },
+        {
+          "w": "COMPETITORS",
+          "delayMs": 2080
+        },
+        {
+          "w": "USE",
+          "delayMs": 2680
+        },
+        {
+          "w": "TOO,",
+          "delayMs": 2920
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 4.32,
+      "endSec": 6.143,
+      "cueDelayMs": 4320,
+      "cueDurMs": 1823,
+      "words": [
+        {
+          "w": "SO",
+          "delayMs": 4320
+        },
+        {
+          "w": "THE",
+          "delayMs": 4560
+        },
+        {
+          "w": "TOOLS",
+          "delayMs": 4680
+        },
+        {
+          "w": "ARE",
+          "delayMs": 5000
+        },
+        {
+          "w": "NOT",
+          "delayMs": 5160
+        },
+        {
+          "w": "THE",
+          "delayMs": 5320
+        },
+        {
+          "w": "EDGE",
+          "delayMs": 5480
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 6.16,
+      "endSec": 8.84,
+      "cueDelayMs": 6160,
+      "cueDurMs": 2680,
+      "words": [
+        {
+          "w": "WHEN",
+          "delayMs": 6160
+        },
+        {
+          "w": "EVERYONE",
+          "delayMs": 6480
+        },
+        {
+          "w": "CAN",
+          "delayMs": 6760
+        },
+        {
+          "w": "MAKE",
+          "delayMs": 7000
+        },
+        {
+          "w": "EVERYTHING,",
+          "delayMs": 7200
+        },
+        {
+          "w": "TASTE",
+          "delayMs": 8320
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 8.84,
+      "endSec": 10.383,
+      "cueDelayMs": 8840,
+      "cueDurMs": 1543,
+      "words": [
+        {
+          "w": "BECOMES",
+          "delayMs": 8840
+        },
+        {
+          "w": "THE",
+          "delayMs": 9160
+        },
+        {
+          "w": "ONLY",
+          "delayMs": 9320
+        },
+        {
+          "w": "REAL",
+          "delayMs": 9520
+        },
+        {
+          "w": "MOAT.",
+          "delayMs": 9800
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 10.4,
+      "endSec": 11.743,
+      "cueDelayMs": 10400,
+      "cueDurMs": 1343,
+      "words": [
+        {
+          "w": "HIRE",
+          "delayMs": 10400
+        },
+        {
+          "w": "PEOPLE",
+          "delayMs": 10840
+        },
+        {
+          "w": "WHO",
+          "delayMs": 11160
+        },
+        {
+          "w": "CAN",
+          "delayMs": 11400
+        },
+        {
+          "w": "TELL",
+          "delayMs": 11560
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "startSec": 11.76,
+      "endSec": 13.24,
+      "cueDelayMs": 11760,
+      "cueDurMs": 1480,
+      "words": [
+        {
+          "w": "GOOD",
+          "delayMs": 11760
+        },
+        {
+          "w": "FROM",
+          "delayMs": 12040
+        },
+        {
+          "w": "ALMOST",
+          "delayMs": 12280
+        },
+        {
+          "w": "GOOD",
+          "delayMs": 12640
+        }
+      ]
+    },
+    {
+      "i": 8,
+      "startSec": 13.84,
+      "endSec": 15.633,
+      "cueDelayMs": 13840,
+      "cueDurMs": 1793,
+      "words": [
+        {
+          "w": "THAT",
+          "delayMs": 13840
+        },
+        {
+          "w": "GAP",
+          "delayMs": 14120
+        },
+        {
+          "w": "IS",
+          "delayMs": 14400
+        },
+        {
+          "w": "THE",
+          "delayMs": 14600
+        },
+        {
+          "w": "WHOLE",
+          "delayMs": 14760
+        },
+        {
+          "w": "BUSINESS.",
+          "delayMs": 15000
+        }
+      ]
+    }
+  ]
+}

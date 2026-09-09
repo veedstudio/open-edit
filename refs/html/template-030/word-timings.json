@@ -1,0 +1,230 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 1.92,
+      "cueDelayMs": 160,
+      "cueDurMs": 1760,
+      "words": [
+        {
+          "w": "i",
+          "delayMs": 160
+        },
+        {
+          "w": "deleted",
+          "delayMs": 280
+        },
+        {
+          "w": "every",
+          "delayMs": 720
+        },
+        {
+          "w": "productivity",
+          "delayMs": 960
+        },
+        {
+          "w": "app",
+          "delayMs": 1600
+        },
+        {
+          "w": "on",
+          "delayMs": 1800
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 1.92,
+      "endSec": 4.16,
+      "cueDelayMs": 1920,
+      "cueDurMs": 2240,
+      "words": [
+        {
+          "w": "my",
+          "delayMs": 1920
+        },
+        {
+          "w": "phone",
+          "delayMs": 2040
+        },
+        {
+          "w": "except",
+          "delayMs": 2320
+        },
+        {
+          "w": "this",
+          "delayMs": 2640
+        },
+        {
+          "w": "one.",
+          "delayMs": 2800
+        },
+        {
+          "w": "hear",
+          "delayMs": 3360
+        },
+        {
+          "w": "me",
+          "delayMs": 3640
+        },
+        {
+          "w": "out.",
+          "delayMs": 3800
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 4.16,
+      "endSec": 6.08,
+      "cueDelayMs": 4160,
+      "cueDurMs": 1920,
+      "words": [
+        {
+          "w": "it",
+          "delayMs": 4160
+        },
+        {
+          "w": "plans",
+          "delayMs": 4440
+        },
+        {
+          "w": "my",
+          "delayMs": 4760
+        },
+        {
+          "w": "week",
+          "delayMs": 4920
+        },
+        {
+          "w": "in",
+          "delayMs": 5080
+        },
+        {
+          "w": "one",
+          "delayMs": 5280
+        },
+        {
+          "w": "tap.",
+          "delayMs": 5480
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 6.08,
+      "endSec": 8.39,
+      "cueDelayMs": 6080,
+      "cueDurMs": 2310,
+      "words": [
+        {
+          "w": "and",
+          "delayMs": 6080
+        },
+        {
+          "w": "it",
+          "delayMs": 6360
+        },
+        {
+          "w": "does",
+          "delayMs": 6480
+        },
+        {
+          "w": "not",
+          "delayMs": 6600
+        },
+        {
+          "w": "shame",
+          "delayMs": 6760
+        },
+        {
+          "w": "me",
+          "delayMs": 7040
+        },
+        {
+          "w": "when",
+          "delayMs": 7200
+        },
+        {
+          "w": "i",
+          "delayMs": 7320
+        },
+        {
+          "w": "fall",
+          "delayMs": 7440
+        },
+        {
+          "w": "behind.",
+          "delayMs": 7600
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 8.4,
+      "endSec": 9.76,
+      "cueDelayMs": 8400,
+      "cueDurMs": 1360,
+      "words": [
+        {
+          "w": "first",
+          "delayMs": 8400
+        },
+        {
+          "w": "month",
+          "delayMs": 8720
+        },
+        {
+          "w": "is",
+          "delayMs": 8960
+        },
+        {
+          "w": "free.",
+          "delayMs": 9160
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 9.76,
+      "endSec": 11.89,
+      "cueDelayMs": 9760,
+      "cueDurMs": 2130,
+      "words": [
+        {
+          "w": "worst",
+          "delayMs": 9760
+        },
+        {
+          "w": "case,",
+          "delayMs": 10120
+        },
+        {
+          "w": "you",
+          "delayMs": 10400
+        },
+        {
+          "w": "go",
+          "delayMs": 10680
+        },
+        {
+          "w": "back",
+          "delayMs": 10840
+        },
+        {
+          "w": "to",
+          "delayMs": 11000
+        },
+        {
+          "w": "your",
+          "delayMs": 11120
+        },
+        {
+          "w": "chaos.",
+          "delayMs": 11240
+        }
+      ]
+    }
+  ]
+}

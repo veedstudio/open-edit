@@ -1,0 +1,189 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.24,
+      "endSec": 3.12,
+      "cueDelayMs": 240,
+      "cueDurMs": 2880,
+      "words": [
+        {
+          "w": "THREE",
+          "delayMs": 240
+        },
+        {
+          "w": "WAYS",
+          "delayMs": 360
+        },
+        {
+          "w": "TO",
+          "delayMs": 640
+        },
+        {
+          "w": "MAKE",
+          "delayMs": 720
+        },
+        {
+          "w": "A",
+          "delayMs": 840
+        },
+        {
+          "w": "SMALL",
+          "delayMs": 1000
+        },
+        {
+          "w": "ROOM",
+          "delayMs": 1200
+        },
+        {
+          "w": "FEEL",
+          "delayMs": 1440
+        },
+        {
+          "w": "TWICE",
+          "delayMs": 1680
+        },
+        {
+          "w": "AS",
+          "delayMs": 1960
+        },
+        {
+          "w": "BIG.",
+          "delayMs": 2120
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 3.12,
+      "endSec": 4.96,
+      "cueDelayMs": 3120,
+      "cueDurMs": 1840,
+      "words": [
+        {
+          "w": "MIRRORS",
+          "delayMs": 3120
+        },
+        {
+          "w": "OPPOSITE",
+          "delayMs": 3600
+        },
+        {
+          "w": "WINDOWS.",
+          "delayMs": 3960
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 4.96,
+      "endSec": 6.96,
+      "cueDelayMs": 4960,
+      "cueDurMs": 2000,
+      "words": [
+        {
+          "w": "CURTAINS",
+          "delayMs": 4960
+        },
+        {
+          "w": "HUNG",
+          "delayMs": 5520
+        },
+        {
+          "w": "HIGH",
+          "delayMs": 5720
+        },
+        {
+          "w": "RIGHT",
+          "delayMs": 5880
+        },
+        {
+          "w": "UNDER",
+          "delayMs": 6040
+        },
+        {
+          "w": "THE",
+          "delayMs": 6200
+        },
+        {
+          "w": "CEILING.",
+          "delayMs": 6360
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 6.96,
+      "endSec": 10.32,
+      "cueDelayMs": 6960,
+      "cueDurMs": 3360,
+      "words": [
+        {
+          "w": "ONE",
+          "delayMs": 7920
+        },
+        {
+          "w": "BIG",
+          "delayMs": 8200
+        },
+        {
+          "w": "PIECE",
+          "delayMs": 8400
+        },
+        {
+          "w": "INSTEAD",
+          "delayMs": 8680
+        },
+        {
+          "w": "OF",
+          "delayMs": 9000
+        },
+        {
+          "w": "FIVE",
+          "delayMs": 9160
+        },
+        {
+          "w": "SMALL",
+          "delayMs": 9360
+        },
+        {
+          "w": "ONES.",
+          "delayMs": 9600
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 10.32,
+      "endSec": 13.399,
+      "cueDelayMs": 10320,
+      "cueDurMs": 3079,
+      "words": [
+        {
+          "w": "CLUTTER",
+          "delayMs": 10320
+        },
+        {
+          "w": "SHRINKS",
+          "delayMs": 10840
+        },
+        {
+          "w": "A",
+          "delayMs": 11160
+        },
+        {
+          "w": "ROOM.",
+          "delayMs": 11320
+        },
+        {
+          "w": "SAVE",
+          "delayMs": 12160
+        },
+        {
+          "w": "THIS.",
+          "delayMs": 12640
+        }
+      ]
+    }
+  ]
+}

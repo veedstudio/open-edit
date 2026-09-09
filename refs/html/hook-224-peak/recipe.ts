@@ -167,7 +167,7 @@ ${lines.join('\n')}
 
   /* beat gate — the one safe reveal recipe; delay+duration + z-index come inline per cue */
   @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
-  .cue { position: absolute; left: ${p(79)}px; top: ${p(683)}px; width: ${p(574)}px;
+  .cue { position: absolute; left: ${p(79)}px; top: ${p(803)}px; width: ${p(574)}px; /* 683 → 803: the three-line stack sits on the bottom safe margin */
          display: flex; flex-direction: column; align-items: flex-start;
          opacity: 0; animation-name: cueWin; animation-timing-function: linear;
          animation-fill-mode: forwards; }

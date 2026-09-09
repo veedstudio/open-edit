@@ -133,7 +133,7 @@ function lineDiv(ws: WordTiming[], id: string, rowCls: string, p: (n: number) =>
 function beatHtml(beat: BeatTiming, isLast: boolean, p: (n: number) => number, demote: Record<string, number>): string {
   const N = beat.i;
   const clamp = clampMsFor(beat.cueDelayMs, beat.cueDurMs);
-  const top = N % 2 === 1 ? 165 : 800;
+  const top = N % 2 === 1 ? 165 : 850; // lower slot 800 → 850 (nearer the bottom safe margin)
   let ln = 0;
   const supportDivs = (group: WordTiming[]): string[] => {
     if (!group.length) return [];

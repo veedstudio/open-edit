@@ -52,6 +52,11 @@ export const CAP_LADDER: LadderRow[] = [
   { cls: 's22', maxC: Infinity },
 ];
 
+// safe-zone pass 2026-09-03: the ladder's fs values are rendered ×BIG_SCALE. The ladder was measured
+// against a 704px centred ink budget, but the 9:16 safe zone is 611px wide (6..89%), so a full-width
+// word at any rung overshot both sides; 0.84 puts the budget inside the zone with ~8px to spare.
+// The rows and their maxC stay as measured.
+const BIG_SCALE = 0.84;
 const MAX_CHARS = 26;
 const MAX_UNITS = 6;
 const FADE_MS = 250;
@@ -174,7 +179,7 @@ ${pgs}
 </div>`;
   });
 
-  const bigRows = BIG_LADDER.map((r) => `  .${r.cls} { font-size: ${p(fsOf(r))}px; }`).join('\n');
+  const bigRows = BIG_LADDER.map((r) => `  .${r.cls} { font-size: ${p(fsOf(r) * BIG_SCALE)}px; }`).join('\n');
   const capRows = CAP_LADDER.map((r) => `  .${r.cls} { font-size: ${p(fsOf(r))}px; }`).join('\n');
 
   const wv = `<!DOCTYPE html>
@@ -200,7 +205,9 @@ ${pgs}
      centered by text-align (never shrink-to-fit flex); NO scaleX squeeze (--verify measures glyph
      ink pre-transform — parent-scaled monumental text false-fails and shears). The dark shadow is
      grounding: pure off-white glyphs vanish over light footage. */
-  .big { position: absolute; left: 0; top: ${p(95)}px; width: ${p(736)}px; text-align: center; /* v3: same headline height as hook-210 */
+  /* safe-zone pass: top 95 → 150; left -18 centres the word on the ZONE (6% left / 11% right margins put
+     its centre 18px left of the canvas's), so a full-budget word clears both sides */
+  .big { position: absolute; left: ${p(-18)}px; top: ${p(150)}px; width: ${p(736)}px; text-align: center;
          font-family: 'League Gothic', sans-serif; font-weight: 400;
          line-height: 0.72; letter-spacing: 0.004em; color: #f6f3f7; white-space: nowrap;
          text-shadow: 0 ${p(4)}px ${p(28)}px rgba(0,0,0,0.40); }

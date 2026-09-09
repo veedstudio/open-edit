@@ -1,0 +1,228 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 1.68,
+      "cueDelayMs": 160,
+      "cueDurMs": 1520,
+      "words": [
+        {
+          "w": "YOUR",
+          "delayMs": 160
+        },
+        {
+          "w": "TEAM",
+          "delayMs": 360
+        },
+        {
+          "w": "SPENDS",
+          "delayMs": 680
+        },
+        {
+          "w": "HOURS",
+          "delayMs": 1270
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 1.68,
+      "endSec": 3.58,
+      "cueDelayMs": 1680,
+      "cueDurMs": 1900,
+      "words": [
+        {
+          "w": "TURNING",
+          "delayMs": 1680
+        },
+        {
+          "w": "DATA",
+          "delayMs": 2200
+        },
+        {
+          "w": "INTO",
+          "delayMs": 2560
+        },
+        {
+          "w": "SLIDES.",
+          "delayMs": 2920
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 3.6,
+      "endSec": 6.08,
+      "cueDelayMs": 3600,
+      "cueDurMs": 2480,
+      "words": [
+        {
+          "w": "WE",
+          "delayMs": 3600
+        },
+        {
+          "w": "JUST",
+          "delayMs": 3880
+        },
+        {
+          "w": "MADE",
+          "delayMs": 4080
+        },
+        {
+          "w": "THAT",
+          "delayMs": 4320
+        },
+        {
+          "w": "ONE",
+          "delayMs": 4600
+        },
+        {
+          "w": "CLICK",
+          "delayMs": 4990
+        },
+        {
+          "w": "NEW",
+          "delayMs": 5790
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 6.08,
+      "endSec": 7.26,
+      "cueDelayMs": 6080,
+      "cueDurMs": 1180,
+      "words": [
+        {
+          "w": "IN",
+          "delayMs": 6080
+        },
+        {
+          "w": "THIS",
+          "delayMs": 6280
+        },
+        {
+          "w": "RELEASE,",
+          "delayMs": 6520
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 7.28,
+      "endSec": 10.67,
+      "cueDelayMs": 7280,
+      "cueDurMs": 3390,
+      "words": [
+        {
+          "w": "REPORTS",
+          "delayMs": 7280
+        },
+        {
+          "w": "BECOME",
+          "delayMs": 7920
+        },
+        {
+          "w": "SHARE",
+          "delayMs": 8400
+        },
+        {
+          "w": "READY",
+          "delayMs": 8720
+        },
+        {
+          "w": "DASHBOARDS",
+          "delayMs": 9230
+        },
+        {
+          "w": "ON",
+          "delayMs": 9950
+        },
+        {
+          "w": "BRAND",
+          "delayMs": 10070
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 10.8,
+      "endSec": 12.32,
+      "cueDelayMs": 10800,
+      "cueDurMs": 1520,
+      "words": [
+        {
+          "w": "AUTOMATICALLY.",
+          "delayMs": 10800
+        },
+        {
+          "w": "EARLY",
+          "delayMs": 11910
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "startSec": 12.32,
+      "endSec": 14.22,
+      "cueDelayMs": 12320,
+      "cueDurMs": 1900,
+      "words": [
+        {
+          "w": "ACCESS",
+          "delayMs": 12320
+        },
+        {
+          "w": "IS",
+          "delayMs": 12800
+        },
+        {
+          "w": "OPEN",
+          "delayMs": 13120
+        },
+        {
+          "w": "THIS",
+          "delayMs": 13520
+        },
+        {
+          "w": "WEEK.",
+          "delayMs": 13840
+        }
+      ]
+    },
+    {
+      "i": 8,
+      "startSec": 14.24,
+      "endSec": 16.95,
+      "cueDelayMs": 14240,
+      "cueDurMs": 2710,
+      "words": [
+        {
+          "w": "BRING",
+          "delayMs": 14240
+        },
+        {
+          "w": "YOUR",
+          "delayMs": 14560
+        },
+        {
+          "w": "MESSIEST",
+          "delayMs": 14800
+        },
+        {
+          "w": "REPORT",
+          "delayMs": 15440
+        },
+        {
+          "w": "AND",
+          "delayMs": 15919
+        },
+        {
+          "w": "WATCH",
+          "delayMs": 16350
+        }
+      ]
+    }
+  ]
+}

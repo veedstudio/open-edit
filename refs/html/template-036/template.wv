@@ -1,0 +1,82 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&family=Bodoni+Moda:wght@900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; opacity:0; z-index:1; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  @keyframes pgMid { 0%{opacity:0} 0.01%,99.99%{opacity:1} 100%{opacity:0} }
+
+  .cap { left:61px; top:826px; width:589px; text-align:left; z-index:2;
+         font-family:'IBM Plex Mono'; font-weight:400; letter-spacing:0.09em; line-height:1.45; color:#F6EDDF;
+         text-shadow:0 5px 21px rgba(4,2,4,0.38), 0 3px 5px rgba(4,2,4,0.3); }
+  .cl { display:block; white-space:pre; }
+  .w { display:inline-block; white-space:pre; opacity:0; animation-name:wIn; animation-duration:260ms; animation-fill-mode:forwards; animation-timing-function:cubic-bezier(.2,.7,.3,1); }
+  .sp { display:inline-block; white-space:pre; }
+  .pve { font-weight:700; color:#B25430; background:#F6EDDF; border-radius:5px; line-height:1; padding:0.13em 0.20em 0.03em; margin:0 -0.06em; text-shadow:none; }
+  @keyframes wIn { from{opacity:0; transform:translateY(11px)} to{opacity:1; transform:translateY(0)} }
+  .mon { position:absolute; z-index:3; white-space:pre; opacity:0; animation:cueWin linear forwards; }
+  .moni { display:inline-block; opacity:0; font-family:'Bodoni Moda'; font-weight:900; line-height:1; letter-spacing:0.015em; padding:0.06em 0 0.18em; color:#25192B;
+          animation-name:monIn; animation-duration:540ms; animation-fill-mode:both; animation-timing-function:cubic-bezier(.16,.84,.3,1); }
+  @keyframes monIn { from{opacity:0; transform:translateY(31px)} to{opacity:1; transform:translateY(0)} }
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:160ms;animation-duration:1600ms;">
+  <div class="mon" style="left:58px;top:194px;animation-delay:1000ms;animation-duration:760ms"><span class="moni" id="b1m" style="font-size:194px;animation-delay:1000ms">USES</span></div>
+  <div class="pg cap" id="b1p1" style="font-size:46px;opacity:1;">
+      <div class="cl" id="b1p1l1"><span class="w pve" id="b1w1" style="animation-delay:160ms">EVERY</span><span class="sp"> </span><span class="w" id="b1w2" style="animation-delay:320ms">TOOL</span></div>
+      <div class="cl" id="b1p1l2"><span class="w" id="b1w3" style="animation-delay:560ms">YOUR</span><span class="sp"> </span><span class="w" id="b1w4" style="animation-delay:760ms">TEAM</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:1760ms;animation-duration:2560ms;">
+  <div class="mon" style="left:58px;top:194px;animation-delay:2080ms;animation-duration:2240ms"><span class="moni" id="b2m" style="font-size:70px;animation-delay:2080ms">COMPETITORS</span></div>
+  <div class="pg cap" id="b2p1" style="font-size:46px;opacity:1;">
+      <div class="cl" id="b2p1l1"><span class="w" id="b2w5" style="animation-delay:1760ms">YOUR</span><span class="sp"> </span><span class="w" id="b2w6" style="animation-delay:2680ms">USE</span><span class="sp"> </span><span class="w pve" id="b2w7" style="animation-delay:2920ms">TOO,</span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:4320ms;animation-duration:1840ms;">
+  <div class="mon" style="left:58px;top:194px;animation-delay:4680ms;animation-duration:1480ms"><span class="moni" id="b3m" style="font-size:155px;animation-delay:4680ms">TOOLS</span></div>
+  <div class="pg cap" id="b3p1" style="font-size:46px;opacity:1;">
+      <div class="cl" id="b3p1l1"><span class="w" id="b3w8" style="animation-delay:4320ms">SO</span><span class="sp"> </span><span class="w" id="b3w9" style="animation-delay:4560ms">THE</span><span class="sp"> </span><span class="w" id="b3w10" style="animation-delay:5000ms">ARE</span></div>
+      <div class="cl" id="b3p1l2"><span class="w" id="b3w11" style="animation-delay:5160ms">NOT</span><span class="sp"> </span><span class="w" id="b3w12" style="animation-delay:5320ms">THE</span><span class="sp"> </span><span class="w pve" id="b3w13" style="animation-delay:5480ms">EDGE</span></div>
+  </div>
+</div>
+<div class="cue" id="cue4" style="z-index:14;animation-delay:6160ms;animation-duration:2680ms;">
+  <div class="mon" style="left:58px;top:194px;animation-delay:7200ms;animation-duration:1640ms"><span class="moni" id="b4m" style="font-size:77px;animation-delay:7200ms">EVERYTHING</span></div>
+  <div class="pg cap" id="b4p1" style="font-size:46px;opacity:1;">
+      <div class="cl" id="b4p1l1"><span class="w" id="b4w14" style="animation-delay:6160ms">WHEN</span><span class="sp"> </span><span class="w pve" id="b4w15" style="animation-delay:6480ms">EVERYONE</span></div>
+      <div class="cl" id="b4p1l2"><span class="w" id="b4w16" style="animation-delay:6760ms">CAN</span><span class="sp"> </span><span class="w" id="b4w17" style="animation-delay:7000ms">MAKE</span><span class="sp"> </span><span class="w" id="b4w18" style="animation-delay:8320ms">TASTE</span></div>
+  </div>
+</div>
+<div class="cue" id="cue5" style="z-index:15;animation-delay:8840ms;animation-duration:1560ms;">
+  <div class="mon" style="left:58px;top:194px;animation-delay:8840ms;animation-duration:1560ms"><span class="moni" id="b5m" style="font-size:111px;animation-delay:8840ms">BECOMES</span></div>
+  <div class="pg cap" id="b5p1" style="font-size:46px;opacity:1;">
+      <div class="cl" id="b5p1l1"><span class="w" id="b5w19" style="animation-delay:9160ms">THE</span><span class="sp"> </span><span class="w" id="b5w20" style="animation-delay:9320ms">ONLY</span></div>
+      <div class="cl" id="b5p1l2"><span class="w" id="b5w21" style="animation-delay:9520ms">REAL</span><span class="sp"> </span><span class="w pve" id="b5w22" style="animation-delay:9800ms">MOAT.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue6" style="z-index:16;animation-delay:10400ms;animation-duration:1360ms;">
+  <div class="mon" style="left:58px;top:194px;animation-delay:10840ms;animation-duration:920ms"><span class="moni" id="b6m" style="font-size:129px;animation-delay:10840ms">PEOPLE</span></div>
+  <div class="pg cap" id="b6p1" style="font-size:46px;opacity:1;">
+      <div class="cl" id="b6p1l1"><span class="w" id="b6w23" style="animation-delay:10400ms">HIRE</span><span class="sp"> </span><span class="w" id="b6w24" style="animation-delay:11160ms">WHO</span><span class="sp"> </span><span class="w" id="b6w25" style="animation-delay:11400ms">CAN</span><span class="sp"> </span><span class="w pve" id="b6w26" style="animation-delay:11560ms">TELL</span></div>
+  </div>
+</div>
+<div class="cue" id="cue7" style="z-index:17;animation-delay:11760ms;animation-duration:2080ms;">
+  <div class="mon" style="left:58px;top:194px;animation-delay:12280ms;animation-duration:1560ms"><span class="moni" id="b7m" style="font-size:129px;animation-delay:12280ms">ALMOST</span></div>
+  <div class="pg cap" id="b7p1" style="font-size:46px;opacity:1;">
+      <div class="cl" id="b7p1l1"><span class="w" id="b7w27" style="animation-delay:11760ms">GOOD</span><span class="sp"> </span><span class="w" id="b7w28" style="animation-delay:12040ms">FROM</span><span class="sp"> </span><span class="w pve" id="b7w29" style="animation-delay:12640ms">GOOD</span></div>
+  </div>
+</div>
+<div class="cue" id="cue8" style="z-index:18;animation-delay:13840ms;animation-duration:4160ms;">
+  <div class="mon" style="left:58px;top:194px;animation-delay:15000ms;animation-duration:3000ms"><span class="moni" id="b8m" style="font-size:97px;animation-delay:15000ms">BUSINESS</span></div>
+  <div class="pg cap" id="b8p1" style="font-size:46px;opacity:1;">
+      <div class="cl" id="b8p1l1"><span class="w" id="b8w30" style="animation-delay:13840ms">THAT</span><span class="sp"> </span><span class="w" id="b8w31" style="animation-delay:14120ms">GAP</span><span class="sp"> </span><span class="w" id="b8w32" style="animation-delay:14400ms">IS</span></div>
+      <div class="cl" id="b8p1l2"><span class="w" id="b8w33" style="animation-delay:14600ms">THE</span><span class="sp"> </span><span class="w pve" id="b8w34" style="animation-delay:14760ms">WHOLE</span></div>
+  </div>
+</div>

@@ -201,7 +201,7 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
      (never flex around animated children). Last shadow layer = the dark ground. */
   .head { position: absolute; left: 0; width: ${p(736)}px; }
   .top { top: ${p(250)}px; } /* upper block — the arc's old zone, now a straight title */
-  .bot { top: ${p(880)}px; } /* lower block — the body in the lower third */
+  .bot { top: ${p(930)}px; } /* lower block — the body in the lower third (880 → 930, nearer the bottom safe margin; 3 lines still clear it) */
   .hl { display: block; white-space: nowrap; line-height: 1; text-align: center;
         font-family: 'Archivo Narrow', 'Archivo', sans-serif; font-weight: 500; letter-spacing: 0;
         color: #f8f6f4;
