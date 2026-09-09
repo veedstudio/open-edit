@@ -1,0 +1,255 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.32,
+      "endSec": 1.88,
+      "cueDelayMs": 320,
+      "cueDurMs": 1560,
+      "words": [
+        {
+          "w": "MONTH",
+          "delayMs": 320
+        },
+        {
+          "w": "THREE",
+          "delayMs": 520
+        },
+        {
+          "w": "OF",
+          "delayMs": 840
+        },
+        {
+          "w": "BUILDING",
+          "delayMs": 1120
+        },
+        {
+          "w": "IN",
+          "delayMs": 1400
+        },
+        {
+          "w": "PUBLIC",
+          "delayMs": 1640
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 1.88,
+      "endSec": 2.64,
+      "cueDelayMs": 1880,
+      "cueDurMs": 760,
+      "words": [
+        {
+          "w": "HERE",
+          "delayMs": 1880
+        },
+        {
+          "w": "ARE",
+          "delayMs": 2120
+        },
+        {
+          "w": "THE",
+          "delayMs": 2240
+        },
+        {
+          "w": "NUMBERS",
+          "delayMs": 2360
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 2.64,
+      "endSec": 3.68,
+      "cueDelayMs": 2640,
+      "cueDurMs": 1040,
+      "words": [
+        {
+          "w": "NOBODY",
+          "delayMs": 2640
+        },
+        {
+          "w": "POSTS",
+          "delayMs": 3040
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 3.68,
+      "endSec": 4.79,
+      "cueDelayMs": 3680,
+      "cueDurMs": 1110,
+      "words": [
+        {
+          "w": "400",
+          "delayMs": 3680
+        },
+        {
+          "w": "IN",
+          "delayMs": 4160
+        },
+        {
+          "w": "REVENUE",
+          "delayMs": 4360
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 4.79,
+      "endSec": 5.56,
+      "cueDelayMs": 4790,
+      "cueDurMs": 770,
+      "words": [
+        {
+          "w": "200",
+          "delayMs": 4800
+        },
+        {
+          "w": "USERS",
+          "delayMs": 5200
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 5.56,
+      "endSec": 6.56,
+      "cueDelayMs": 5560,
+      "cueDurMs": 1000,
+      "words": [
+        {
+          "w": "AND",
+          "delayMs": 5560
+        },
+        {
+          "w": "RENT",
+          "delayMs": 5720
+        },
+        {
+          "w": "IS",
+          "delayMs": 5960
+        },
+        {
+          "w": "DEFINITELY",
+          "delayMs": 6120
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "startSec": 6.56,
+      "endSec": 7.44,
+      "cueDelayMs": 6560,
+      "cueDurMs": 880,
+      "words": [
+        {
+          "w": "NOT",
+          "delayMs": 6560
+        },
+        {
+          "w": "COVERED",
+          "delayMs": 6800
+        }
+      ]
+    },
+    {
+      "i": 8,
+      "startSec": 7.44,
+      "endSec": 8.68,
+      "cueDelayMs": 7440,
+      "cueDurMs": 1240,
+      "words": [
+        {
+          "w": "BUT",
+          "delayMs": 7440
+        },
+        {
+          "w": "NOBODY",
+          "delayMs": 7720
+        },
+        {
+          "w": "CHURNS",
+          "delayMs": 8160
+        }
+      ]
+    },
+    {
+      "i": 9,
+      "startSec": 8.68,
+      "endSec": 9.96,
+      "cueDelayMs": 8680,
+      "cueDurMs": 1280,
+      "words": [
+        {
+          "w": "EVERYONE",
+          "delayMs": 8680
+        },
+        {
+          "w": "WHO",
+          "delayMs": 8960
+        },
+        {
+          "w": "SIGNS",
+          "delayMs": 9160
+        },
+        {
+          "w": "UP",
+          "delayMs": 9440
+        },
+        {
+          "w": "STAYS",
+          "delayMs": 9600
+        }
+      ]
+    },
+    {
+      "i": 10,
+      "startSec": 9.96,
+      "endSec": 10.72,
+      "cueDelayMs": 9960,
+      "cueDurMs": 760,
+      "words": [
+        {
+          "w": "THAT",
+          "delayMs": 9960
+        },
+        {
+          "w": "IS",
+          "delayMs": 10120
+        },
+        {
+          "w": "WHY",
+          "delayMs": 10240
+        },
+        {
+          "w": "I",
+          "delayMs": 10360
+        },
+        {
+          "w": "AM",
+          "delayMs": 10520
+        }
+      ]
+    },
+    {
+      "i": 11,
+      "startSec": 10.72,
+      "endSec": 11.38,
+      "cueDelayMs": 10720,
+      "cueDurMs": 660,
+      "words": [
+        {
+          "w": "STILL",
+          "delayMs": 10720
+        },
+        {
+          "w": "HERE",
+          "delayMs": 10920
+        }
+      ]
+    }
+  ]
+}

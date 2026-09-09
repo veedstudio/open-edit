@@ -28,8 +28,11 @@ import type { WordTiming, WordTimings } from '../../../pipeline/scripts/synth-wo
 // Slot geometry (reference px): the prefab's five words re-composed as SIDE-EDGE offsets that hug the
 // anchored frame edge — the offset family IS the ragged outer edge of the scatter.
 export const BASES = [108, 76, 86, 76, 80];
-export const OFFSETS = [40, 132, 24, 100, 60]; // L ≥ 3 — the staircase
-export const OFFSETS_EDGE = [24, 72];          // L ≤ 2 — short beats go right out to the edge
+// Safe-zone pass 2026-09-03: every offset +60 — the 16:9 safe zone is a 6% inset (77px), and the
+// old family started 24px from the frame edge. The ragged shape is unchanged; INNER_RUN is measured
+// from the same edge, so the inward budget shrinks by the same 60 and the centre band stays clear.
+export const OFFSETS = [100, 192, 84, 160, 120]; // L ≥ 3 — the staircase
+export const OFFSETS_EDGE = [84, 132];           // L ≤ 2 — short beats take the tighter family
 const TOP1 = 48;
 // The composition lives in the outer band: a line runs at most INNER_RUN px in from its anchored
 // edge, so the 160px band across frame centre (560…720) never carries caption ink.

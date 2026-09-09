@@ -1,0 +1,68 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@800&family=Fraunces:ital,wght@1,900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; opacity:0; z-index:1; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  @keyframes pgMid { 0%{opacity:0} 0.01%,99.99%{opacity:1} 100%{opacity:0} }
+
+  .cl { display:block; line-height:1; margin-bottom:12px; }
+  .w { display:inline-block; opacity:0; font-family:'Baloo 2'; font-weight:800; letter-spacing:0.012em;
+       color:#472B3F; background:#FFF4E1; border-radius:15px;
+       padding:5px 15px 11px; margin:0 5px;
+       box-shadow:0 5px 18px rgba(71,43,63,0.4);
+       animation:wIn 240ms cubic-bezier(.2,.7,.3,1) both; }
+  .kw { font-family:'Fraunces'; font-style:italic; font-weight:900; letter-spacing:0.0065em;
+        color:#FFFFFF; background:#7C5FC9; padding:5px 20px 12px; }
+  .pay { font-family:'Fraunces'; font-style:italic; font-weight:900; letter-spacing:0.0016em;
+         color:#FFFFFF; background:#7C5FC9; padding:6px 25px 15px; }
+  @keyframes wIn { 0%{opacity:0; transform:translateY(0.35em) scale(1.08)} 100%{opacity:1; transform:translateY(0) scale(1)} }
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:160ms;animation-duration:1760ms;">
+  <div class="pg" id="b1p1" style="left:0;right:0;text-align:center;bottom:258px;opacity:1;">
+      <div class="cl" id="b1p1l1" style=""><span class="w" id="b1w1" style="font-size:46px;animation-delay:160ms">i</span><span class="w" id="b1w2" style="font-size:46px;animation-delay:280ms">deleted</span><span class="w" id="b1w3" style="font-size:46px;animation-delay:720ms">every</span></div>
+      <div class="cl" id="b1p1l2" style=""><span class="w kw" id="b1w4" style="font-size:55px;animation-delay:960ms">productivity</span><span class="w" id="b1w5" style="font-size:46px;animation-delay:1600ms">app</span></div>
+      <div class="cl" id="b1p1l3" style=""><span class="w" id="b1w6" style="font-size:46px;animation-delay:1800ms">on</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:1920ms;animation-duration:2240ms;">
+  <div class="pg" id="b2p1" style="left:67px;right:0;text-align:left;bottom:296px;opacity:1;">
+      <div class="cl" id="b2p1l1" style="margin-left:0px;"><span class="w" id="b2w7" style="font-size:46px;animation-delay:1920ms">my</span><span class="w" id="b2w8" style="font-size:46px;animation-delay:2040ms">phone</span><span class="w kw" id="b2w9" style="font-size:55px;animation-delay:2320ms">except</span></div>
+      <div class="cl" id="b2p1l2" style="margin-left:31px;"><span class="w" id="b2w10" style="font-size:46px;animation-delay:2640ms">this</span><span class="w" id="b2w11" style="font-size:46px;animation-delay:2800ms">one.</span><span class="w" id="b2w12" style="font-size:46px;animation-delay:3360ms">hear</span><span class="w" id="b2w13" style="font-size:46px;animation-delay:3640ms">me</span></div>
+      <div class="cl" id="b2p1l3" style="margin-left:61px;"><span class="w" id="b2w14" style="font-size:46px;animation-delay:3800ms">out.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:4160ms;animation-duration:1920ms;">
+  <div class="pg" id="b3p1" style="left:0;right:0;text-align:center;bottom:433px;opacity:1;">
+      <div class="cl" id="b3p1l1" style=""><span class="w" id="b3w15" style="font-size:46px;animation-delay:4160ms">it</span><span class="w kw" id="b3w16" style="font-size:55px;animation-delay:4440ms">plans</span><span class="w" id="b3w17" style="font-size:46px;animation-delay:4760ms">my</span><span class="w" id="b3w18" style="font-size:46px;animation-delay:4920ms">week</span></div>
+      <div class="cl" id="b3p1l2" style=""><span class="w" id="b3w19" style="font-size:46px;animation-delay:5080ms">in</span><span class="w" id="b3w20" style="font-size:46px;animation-delay:5280ms">one</span><span class="w" id="b3w21" style="font-size:46px;animation-delay:5480ms">tap.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue4" style="z-index:14;animation-delay:6080ms;animation-duration:2320ms;">
+  <div class="pg" id="b4p1" style="left:0;right:86px;text-align:right;bottom:357px;opacity:1;">
+      <div class="cl" id="b4p1l1" style=""><span class="w" id="b4w22" style="font-size:46px;animation-delay:6080ms">and</span><span class="w" id="b4w23" style="font-size:46px;animation-delay:6360ms">it</span><span class="w" id="b4w24" style="font-size:46px;animation-delay:6480ms">does</span><span class="w" id="b4w25" style="font-size:46px;animation-delay:6600ms">not</span></div>
+      <div class="cl" id="b4p1l2" style=""><span class="w" id="b4w26" style="font-size:46px;animation-delay:6760ms">shame</span><span class="w" id="b4w27" style="font-size:46px;animation-delay:7040ms">me</span><span class="w" id="b4w28" style="font-size:46px;animation-delay:7200ms">when</span><span class="w" id="b4w29" style="font-size:46px;animation-delay:7320ms">i</span></div>
+      <div class="cl" id="b4p1l3" style=""><span class="w" id="b4w30" style="font-size:46px;animation-delay:7440ms">fall</span><span class="w kw" id="b4w31" style="font-size:55px;animation-delay:7600ms">behind.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue5" style="z-index:15;animation-delay:8400ms;animation-duration:1360ms;">
+  <div class="pg" id="b5p1" style="left:0;right:0;text-align:center;bottom:395px;opacity:1;">
+      <div class="cl" id="b5p1l1" style=""><span class="w" id="b5w32" style="font-size:46px;animation-delay:8400ms">first</span><span class="w" id="b5w33" style="font-size:46px;animation-delay:8720ms">month</span></div>
+      <div class="cl" id="b5p1l2" style=""><span class="w" id="b5w34" style="font-size:46px;animation-delay:8960ms">is</span><span class="w kw" id="b5w35" style="font-size:55px;animation-delay:9160ms">free.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue6" style="z-index:16;animation-delay:9760ms;animation-duration:8240ms;">
+  <div class="pg" id="b6p1" style="left:67px;right:0;text-align:left;bottom:281px;opacity:1;">
+      <div class="cl" id="b6p1l1" style="margin-left:0px;"><span class="w" id="b6w36" style="font-size:46px;animation-delay:9760ms">worst</span><span class="w" id="b6w37" style="font-size:46px;animation-delay:10120ms">case,</span><span class="w" id="b6w38" style="font-size:46px;animation-delay:10400ms">you</span></div>
+      <div class="cl" id="b6p1l2" style="margin-left:31px;"><span class="w" id="b6w39" style="font-size:46px;animation-delay:10680ms">go</span><span class="w" id="b6w40" style="font-size:46px;animation-delay:10840ms">back</span><span class="w" id="b6w41" style="font-size:46px;animation-delay:11000ms">to</span><span class="w" id="b6w42" style="font-size:46px;animation-delay:11120ms">your</span></div>
+      <div class="cl" id="b6p1l3" style="margin-left:61px;"><span class="w pay" id="b6w43" style="font-size:67px;animation-delay:11240ms">chaos.</span></div>
+  </div>
+</div>

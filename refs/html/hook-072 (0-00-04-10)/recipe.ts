@@ -24,7 +24,7 @@ export const LIMITS: LadderRow[] = [
 const POP_MS = 400;
 const POP_MIN_MS = 250;
 const POP_AVAIL_MS = 500;
-const STACK_TOP = 563; // 640 − 77
+const STACK_TOP = 593; // 670 − 77 (was 640 − 77; safe-zone pass: the stack's foot sits 7px above the 6% bottom inset)
 const PITCH = 87; // 77 + 10 gap
 const ANCHOR = 395;
 

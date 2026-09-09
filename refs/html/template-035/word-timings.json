@@ -1,0 +1,214 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 1.89,
+      "cueDelayMs": 160,
+      "cueDurMs": 1730,
+      "words": [
+        {
+          "w": "EVERY",
+          "delayMs": 160
+        },
+        {
+          "w": "BOTCHED",
+          "delayMs": 360
+        },
+        {
+          "w": "REPAIR",
+          "delayMs": 920
+        },
+        {
+          "w": "I",
+          "delayMs": 1240
+        },
+        {
+          "w": "GET",
+          "delayMs": 1400
+        },
+        {
+          "w": "CALLED",
+          "delayMs": 1640
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 1.92,
+      "endSec": 4.04,
+      "cueDelayMs": 1920,
+      "cueDurMs": 2120,
+      "words": [
+        {
+          "w": "OUT",
+          "delayMs": 1920
+        },
+        {
+          "w": "TO",
+          "delayMs": 2120
+        },
+        {
+          "w": "STARTED",
+          "delayMs": 2360
+        },
+        {
+          "w": "WITH",
+          "delayMs": 2680
+        },
+        {
+          "w": "SOMEBODY",
+          "delayMs": 2920
+        },
+        {
+          "w": "RUSHING",
+          "delayMs": 3280
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 4.08,
+      "endSec": 7.16,
+      "cueDelayMs": 4080,
+      "cueDurMs": 3080,
+      "words": [
+        {
+          "w": "MY",
+          "delayMs": 4080
+        },
+        {
+          "w": "RULE",
+          "delayMs": 4400
+        },
+        {
+          "w": "IS",
+          "delayMs": 4640
+        },
+        {
+          "w": "DIAGNOSE",
+          "delayMs": 4800
+        },
+        {
+          "w": "TWICE",
+          "delayMs": 5400
+        },
+        {
+          "w": "FIX",
+          "delayMs": 5840
+        },
+        {
+          "w": "ONCE",
+          "delayMs": 6240
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 7.2,
+      "endSec": 10.04,
+      "cueDelayMs": 7200,
+      "cueDurMs": 2840,
+      "words": [
+        {
+          "w": "THE",
+          "delayMs": 7200
+        },
+        {
+          "w": "PROBLEM",
+          "delayMs": 7480
+        },
+        {
+          "w": "IS",
+          "delayMs": 7920
+        },
+        {
+          "w": "NEVER",
+          "delayMs": 8200
+        },
+        {
+          "w": "WHERE",
+          "delayMs": 8360
+        },
+        {
+          "w": "THE",
+          "delayMs": 8520
+        },
+        {
+          "w": "NOISE",
+          "delayMs": 8680
+        },
+        {
+          "w": "IS.",
+          "delayMs": 8960
+        },
+        {
+          "w": "SLOW",
+          "delayMs": 9520
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 10.04,
+      "endSec": 13.64,
+      "cueDelayMs": 10040,
+      "cueDurMs": 3600,
+      "words": [
+        {
+          "w": "IS",
+          "delayMs": 10040
+        },
+        {
+          "w": "SMOOTH",
+          "delayMs": 10240
+        },
+        {
+          "w": "AND",
+          "delayMs": 10880
+        },
+        {
+          "w": "SMOOTH",
+          "delayMs": 11240
+        },
+        {
+          "w": "IS",
+          "delayMs": 11680
+        },
+        {
+          "w": "FAST",
+          "delayMs": 11960
+        },
+        {
+          "w": "CHEAPEST",
+          "delayMs": 12720
+        },
+        {
+          "w": "LESSON",
+          "delayMs": 13280
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 13.64,
+      "endSec": 14.56,
+      "cueDelayMs": 13640,
+      "cueDurMs": 920,
+      "words": [
+        {
+          "w": "IN",
+          "delayMs": 13640
+        },
+        {
+          "w": "THIS",
+          "delayMs": 13760
+        },
+        {
+          "w": "TRADE.",
+          "delayMs": 13960
+        }
+      ]
+    }
+  ]
+}

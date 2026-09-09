@@ -311,16 +311,26 @@ The binary is `{run dir}/../../.veed-engine/veed-engine-cli` (the preflight-mana
    — catches the engine-limit anti-patterns above (animated blur, the stacking trap, a multi-value radius, missing
    cue ids) before the slower verify. Exit 1 → fix the flagged rule, re-lint.
 1. VERIFY (analytic, fast, no video — the ONLY self-check you perform by default; reads the manifest render block):
-   `.veed-engine/veed-engine-cli {run}/final --verify`. It replays the whole timeline offscreen and checks the REAL
-   draw list. Exit 0 = clean. Exit 1 = one stdout line per problem, naming the element id, e.g.:
+   `.veed-engine/veed-engine-cli {run}/final --verify=bounds,safezones --verify-report {run}/final/verify.json`. It
+   replays the whole timeline offscreen and checks the REAL draw list. Exit 0 = clean. Exit 1 = one stdout line per
+   problem, naming the element id, e.g.:
      `frame 3 t=0.400s FAIL[bounds] #cap3 glyph 14 right 3.1px outside (8.42% of glyph box) viewport 736x1312`
      `FAIL[never-visible] #cap5 glyph 2 ink in 300 frames, never fully visible (best 0.00% at frame 0 ...)`
      `frame 2 t=0.200s FAIL[occluded] #cap2 glyph 5 fully covered by later opaque rect`
+     `FAIL[safezone] #b4w31 zone generic-9x16 53.5% of ink outside keep-inside, worst frame 314 t=10.5s, window 10.5..11.3s, 24 offending frames (longest run 24)`
    The rules map to the real defects: bounds (type off the viewport), never-visible (type clipped away EVERY frame,
-   e.g. stuck behind a mask/box), occluded (type fully hidden under a later opaque layer — the z-order/opacity trap).
-   Fix ONLY the flagged element (nudge inside the safe zone / fix z-order or the mask) and re-run --verify until exit
-   0. Do NOT change the aesthetic, colours, fonts, device, animation, or timing. (exit 2 = engine render failure = a
-   real authoring error.) Every text layer needs a unique `id` so the failure lines name it. OPTIONAL word-reveal
+   e.g. stuck behind a mask/box), occluded (type fully hidden under a later opaque layer — the z-order/opacity trap),
+   safezone (glyph ink outside the safe margins above — the `safezones` family picks the preset by canvas aspect,
+   and the 9:16 preset IS those margins). Fix ONLY the flagged element (nudge inside the safe zone / fix z-order or
+   the mask) and re-run --verify until exit 0. A safezone line names the WORD span; move the line that positions it,
+   sized from `max_intrusion_px` in verify.json — the skill's SAFE-ZONE CHECK holds the transient/minor/major rule
+   (a slide-in crossing the margin for a few frames is not a placement defect). An engine
+   that prints its usage on `--verify=` predates the rule list: run bare `--verify` and report that safe zones went
+   unchecked. Do NOT change the aesthetic, colours, fonts, device, animation, or timing. (exit 2 = engine render failure = a
+   real authoring error.) Every text layer needs a unique `id` so the failure lines name it — on the element that
+   DIRECTLY wraps the text, since the engine labels a run by its direct parent. Dressing text (kickers, credits,
+   labels, stickers — anything that is not the spoken line) ends its id in `-chrome`, which the safe-zone check
+   reports but never fixes. OPTIONAL word-reveal
    timing: add `"verify":{"expect":[{"element":"cap3","visible":true,"from":2.1,"to":3.4}]}` to manifest.json to make
    --verify FAIL[expect-visible]/[expect-hidden] when a caption is on/off screen at the wrong time.
 2. RECORD the deliverable — ONLY after --verify is clean. --verify and --record are mutually exclusive, so this is a

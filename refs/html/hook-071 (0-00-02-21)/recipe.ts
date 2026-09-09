@@ -36,7 +36,7 @@ const SPLIT_C = 34; // widest 24px Inter BOLD line inside the 536px measure colu
 const HERO_BASE = 560; // the script BASELINE — the composition's one fixed anchor
 const H_MAX = 260; // display size every accent word reaches unless the frame budget bites
 const H_MIN = 88;
-const HERO_W = 1140; // hero ink budget, frame-centered (70px inset each side of 1280)
+const HERO_W = 1120; // hero ink budget, frame-centered (80px inset each side of 1280 — the 6% safe inset is 77)
 const GAP = 12; // ONE rhythm unit (half the body size) — the same clearance above and below the hero
 // A LETTER whose ink drops more than this below the baseline is carrying a TAIL — a script descender
 // or a cap swash. Tails leave the optical band and overhang the gap. Pinyon's letters split cleanly:
@@ -48,7 +48,7 @@ const GAP = 12; // ONE rhythm unit (half the body size) — the same clearance a
 const TAIL_EM = 0.08;
 const LETTER = /\p{L}/u; // an unknown letter takes the fallback's deep descent → tail, like a real one
 const SAFE_TOP = 44;
-const SAFE_BOT = 700;
+const SAFE_BOT = 677; // the 6% bottom inset of the 720 canvas (was 700, which is under the margin)
 const PUNCH = 1.12; // punch-close cap bump
 const DEMOTE_STEP = 0.9; // one verify ladder step
 // Baseline offset from a .hero row box top at line-height 1.2: half-leading + ascent, with Pinyon's

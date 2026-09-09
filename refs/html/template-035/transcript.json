@@ -1,0 +1,332 @@
+{
+  "text": "EVERY BOTCHED REPAIR I GET CALLED OUT TO STARTED WITH SOMEBODY RUSHING MY RULE IS DIAGNOSE TWICE FIX ONCE THE PROBLEM IS NEVER WHERE THE NOISE IS. SLOW IS SMOOTH AND SMOOTH IS FAST CHEAPEST LESSON IN THIS TRADE.",
+  "chunks": [
+    {
+      "text": "EVERY BOTCHED REPAIR I GET CALLED",
+      "timestamp": [
+        0.16,
+        1.89
+      ],
+      "words": [
+        {
+          "text": "EVERY",
+          "timestamp": [
+            0.16,
+            0.36
+          ]
+        },
+        {
+          "text": "BOTCHED",
+          "timestamp": [
+            0.36,
+            0.92
+          ]
+        },
+        {
+          "text": "REPAIR",
+          "timestamp": [
+            0.92,
+            1.24
+          ]
+        },
+        {
+          "text": "I",
+          "timestamp": [
+            1.24,
+            1.4
+          ]
+        },
+        {
+          "text": "GET",
+          "timestamp": [
+            1.4,
+            1.64
+          ]
+        },
+        {
+          "text": "CALLED",
+          "timestamp": [
+            1.64,
+            1.89
+          ]
+        }
+      ]
+    },
+    {
+      "text": "OUT TO STARTED WITH SOMEBODY RUSHING",
+      "timestamp": [
+        1.92,
+        4.04
+      ],
+      "words": [
+        {
+          "text": "OUT",
+          "timestamp": [
+            1.92,
+            2.12
+          ]
+        },
+        {
+          "text": "TO",
+          "timestamp": [
+            2.12,
+            2.36
+          ]
+        },
+        {
+          "text": "STARTED",
+          "timestamp": [
+            2.36,
+            2.68
+          ]
+        },
+        {
+          "text": "WITH",
+          "timestamp": [
+            2.68,
+            2.92
+          ]
+        },
+        {
+          "text": "SOMEBODY",
+          "timestamp": [
+            2.92,
+            3.28
+          ]
+        },
+        {
+          "text": "RUSHING",
+          "timestamp": [
+            3.28,
+            4.04
+          ]
+        }
+      ]
+    },
+    {
+      "text": "MY RULE IS DIAGNOSE TWICE FIX ONCE",
+      "timestamp": [
+        4.08,
+        7.16
+      ],
+      "words": [
+        {
+          "text": "MY",
+          "timestamp": [
+            4.08,
+            4.4
+          ]
+        },
+        {
+          "text": "RULE",
+          "timestamp": [
+            4.4,
+            4.64
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            4.64,
+            4.8
+          ]
+        },
+        {
+          "text": "DIAGNOSE",
+          "timestamp": [
+            4.8,
+            5.4
+          ]
+        },
+        {
+          "text": "TWICE",
+          "timestamp": [
+            5.4,
+            5.84
+          ]
+        },
+        {
+          "text": "FIX",
+          "timestamp": [
+            5.84,
+            6.24
+          ]
+        },
+        {
+          "text": "ONCE",
+          "timestamp": [
+            6.24,
+            7.16
+          ]
+        }
+      ]
+    },
+    {
+      "text": "THE PROBLEM IS NEVER WHERE THE NOISE IS. SLOW",
+      "timestamp": [
+        7.2,
+        10.04
+      ],
+      "words": [
+        {
+          "text": "THE",
+          "timestamp": [
+            7.2,
+            7.48
+          ]
+        },
+        {
+          "text": "PROBLEM",
+          "timestamp": [
+            7.48,
+            7.92
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            7.92,
+            8.2
+          ]
+        },
+        {
+          "text": "NEVER",
+          "timestamp": [
+            8.2,
+            8.36
+          ]
+        },
+        {
+          "text": "WHERE",
+          "timestamp": [
+            8.36,
+            8.52
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            8.52,
+            8.68
+          ]
+        },
+        {
+          "text": "NOISE",
+          "timestamp": [
+            8.68,
+            8.96
+          ]
+        },
+        {
+          "text": "IS.",
+          "timestamp": [
+            8.96,
+            9.52
+          ]
+        },
+        {
+          "text": "SLOW",
+          "timestamp": [
+            9.52,
+            10.04
+          ]
+        }
+      ]
+    },
+    {
+      "text": "IS SMOOTH AND SMOOTH IS FAST CHEAPEST LESSON",
+      "timestamp": [
+        10.04,
+        13.64
+      ],
+      "words": [
+        {
+          "text": "IS",
+          "timestamp": [
+            10.04,
+            10.24
+          ]
+        },
+        {
+          "text": "SMOOTH",
+          "timestamp": [
+            10.24,
+            10.88
+          ]
+        },
+        {
+          "text": "AND",
+          "timestamp": [
+            10.88,
+            11.24
+          ]
+        },
+        {
+          "text": "SMOOTH",
+          "timestamp": [
+            11.24,
+            11.68
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            11.68,
+            11.96
+          ]
+        },
+        {
+          "text": "FAST",
+          "timestamp": [
+            11.96,
+            12.72
+          ]
+        },
+        {
+          "text": "CHEAPEST",
+          "timestamp": [
+            12.72,
+            13.28
+          ]
+        },
+        {
+          "text": "LESSON",
+          "timestamp": [
+            13.28,
+            13.64
+          ]
+        }
+      ]
+    },
+    {
+      "text": "IN THIS TRADE.",
+      "timestamp": [
+        13.64,
+        14.56
+      ],
+      "words": [
+        {
+          "text": "IN",
+          "timestamp": [
+            13.64,
+            13.76
+          ]
+        },
+        {
+          "text": "THIS",
+          "timestamp": [
+            13.76,
+            13.96
+          ]
+        },
+        {
+          "text": "TRADE.",
+          "timestamp": [
+            13.96,
+            14.56
+          ]
+        }
+      ]
+    }
+  ]
+}

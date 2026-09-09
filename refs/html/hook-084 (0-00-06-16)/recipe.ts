@@ -39,7 +39,7 @@ const FS: Record<string, number> = {
 // height caps: the first ladder row a beat with L lines may use (keeps stack + note-b above the credits
 // chrome — the window is now 992−720 = 272px, hence the tighter caps)
 const L_CAP_ROW: Record<number, number> = { 1: 0, 2: 2, 3: 5, 4: 7 };
-const T0 = 720; // title stack top
+const T0 = 780; // title stack top (720 → 780 with the credits, safe-zone pass: off the face; the 272px window is unchanged)
 const ADV = 1.1133; // line advance ×fs (prefab 167px @ fs150·0.8345)
 const INK_H = 1.17; // measured Bodoni ink bottom ×fs (incl old-style digit descenders)
 const CENTER_FACTOR = 498 / 640; // ladder maxC is calibrated to the 498px budget; centered lines get 640px
@@ -189,8 +189,13 @@ ${body}
 // v3: the bottom logos are GONE — a deterministic recipe cannot know whose logo to show. In their
 // place: static IN REAL TIME, styled exactly like the top kickers, revealed once at clip start.
 
-function chromeClusters(text: string, baseMs: number, K: number): string {
-  return clustersOf084(text, 3).map((cl, j) => clusterSpan(cl, baseMs + j * K, false, false, null)).join('');
+// Chrome text wrappers carry a `-chrome` id (the engine labels a run by its DIRECT parent's id), so the
+// safe-zone report can set dressing aside from the spoken line. Unique per span: {owner}-g{j}-chrome.
+function chromeSpan(text: string, delayMs: number, id: string): string {
+  return `<span class="g" id="${id}" data-node-id="${id}" style="animation-delay:${delayMs}ms">${escapeHtml(text)}</span>`;
+}
+function chromeClusters(owner: string, text: string, baseMs: number, K: number): string {
+  return clustersOf084(text, 3).map((cl, j) => chromeSpan(cl, baseMs + j * K, `${owner}-g${j + 1}-chrome`)).join('');
 }
 
 interface Credit { role: string; name: string; }
@@ -202,11 +207,11 @@ const CREDIT_ROWS: Credit[][] = [
 
 function creditHtml(c: Credit, index: number, last: boolean): string {
   const base = creditBaseMs084(index);
-  const roleClusters = clustersOf084(c.role, 3);
-  const roleSpans = roleClusters.map((cl, j) => clusterSpan(cl, base + j * 32, false, false, null)).join('');
-  const nameSpans = clustersOf084(c.name, 3)
-    .map((cl, j) => clusterSpan(cl, base + (roleClusters.length + j) * 32, false, false, null)).join('');
   const id = `cr${index + 1}`;
+  const roleClusters = clustersOf084(c.role, 3);
+  const roleSpans = roleClusters.map((cl, j) => chromeSpan(cl, base + j * 32, `${id}-g${j + 1}-chrome`)).join('');
+  const nameSpans = clustersOf084(c.name, 3)
+    .map((cl, j) => chromeSpan(cl, base + (roleClusters.length + j) * 32, `${id}-g${roleClusters.length + j + 1}-chrome`)).join('');
   return `<span class="credit${last ? ' last' : ''}" id="${id}" data-node-id="${id}" data-node-role="text"><span class="role">${roleSpans}</span><span class="name">${nameSpans}</span></span>`;
 }
 
@@ -255,7 +260,7 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
   #kickr { position: absolute; z-index: 2; right: ${p(52)}px; top: ${p(67)}px; font-family: 'Bodoni Moda', serif; font-weight: 600; font-size: ${p(15)}px; letter-spacing: ${p(1)}px; }
   #tagline { position: absolute; z-index: 2; left: 0; top: ${p(206)}px; width: ${p(736)}px; text-align: center; font-weight: 600; font-size: ${p(23)}px; letter-spacing: ${p(3)}px; } /* v3: a third closer to the kickers */
   .crow { position: absolute; z-index: 2; left: 0; width: ${p(736)}px; text-align: center; font-size: ${p(14)}px; }
-  #crow1 { top: ${p(992)}px; } #crow2 { top: ${p(1019)}px; } #crow3 { top: ${p(1046)}px; }
+  #crow1 { top: ${p(1052)}px; } #crow2 { top: ${p(1079)}px; } #crow3 { top: ${p(1106)}px; } /* 992/1019/1046 + 60 */
   .credit { display: inline-block; white-space: nowrap; margin-right: ${p(38)}px; }
   .credit.last { margin-right: 0; }
   .credit .role { font-weight: 400; opacity: 0.92; }
@@ -283,14 +288,14 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
 <body>
   <video class="vid" src="${meta.videoPath}" muted></video>
 
-  <div id="kickl" class="glow" data-node-id="kickl" data-node-role="text">${chromeClusters('THE INTERNET', ROLE_BASE_MS_084['kicker-left']!, 70)}</div>
-  <div id="kickr" class="glow" data-node-id="kickr" data-node-role="text">${chromeClusters('PRESENTS', ROLE_BASE_MS_084['kicker-right']!, 70)}</div>
+  <div id="kickl" class="glow" data-node-id="kickl" data-node-role="text">${chromeClusters('kickl', 'THE INTERNET', ROLE_BASE_MS_084['kicker-left']!, 70)}</div>
+  <div id="kickr" class="glow" data-node-id="kickr" data-node-role="text">${chromeClusters('kickr', 'PRESENTS', ROLE_BASE_MS_084['kicker-right']!, 70)}</div>
 
-  <div id="tagline" class="glow" data-node-id="tagline" data-node-role="text">${chromeClusters('A CREATOR! JOINT', ROLE_BASE_MS_084.tagline!, 65)}</div>
+  <div id="tagline" class="glow" data-node-id="tagline" data-node-role="text">${chromeClusters('tagline', 'A CREATOR! JOINT', ROLE_BASE_MS_084.tagline!, 65)}</div>
 
 ${crows}
 
-  <div id="footer" class="glow" data-node-id="footer" data-node-role="text">${chromeClusters('IN REAL TIME', ROLE_BASE_MS_084.footer!, 70)}</div>
+  <div id="footer" class="glow" data-node-id="footer" data-node-role="text">${chromeClusters('footer', 'IN REAL TIME', ROLE_BASE_MS_084.footer!, 70)}</div>
 
 ${cues.join('\n')}
 </body>

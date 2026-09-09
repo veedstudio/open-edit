@@ -1,0 +1,336 @@
+{
+  "text": "Einstein supposedly called compound interest. The eighth wonder of the world. The idea is simple. Your money earns. Then those earnings start earning too. At 10% a year, your money doubles roughly every seven years. Start early.",
+  "chunks": [
+    {
+      "text": "Einstein supposedly called compound interest.",
+      "timestamp": [
+        0.23,
+        2.32
+      ],
+      "words": [
+        {
+          "text": "Einstein",
+          "timestamp": [
+            0.23,
+            0.64
+          ]
+        },
+        {
+          "text": "supposedly",
+          "timestamp": [
+            0.64,
+            1.24
+          ]
+        },
+        {
+          "text": "called",
+          "timestamp": [
+            1.24,
+            1.48
+          ]
+        },
+        {
+          "text": "compound",
+          "timestamp": [
+            1.48,
+            2
+          ]
+        },
+        {
+          "text": "interest.",
+          "timestamp": [
+            2,
+            2.32
+          ]
+        }
+      ]
+    },
+    {
+      "text": "The eighth wonder of the world.",
+      "timestamp": [
+        2.32,
+        4.32
+      ],
+      "words": [
+        {
+          "text": "The",
+          "timestamp": [
+            2.32,
+            2.64
+          ]
+        },
+        {
+          "text": "eighth",
+          "timestamp": [
+            2.64,
+            3.03
+          ]
+        },
+        {
+          "text": "wonder",
+          "timestamp": [
+            3.03,
+            3.28
+          ]
+        },
+        {
+          "text": "of",
+          "timestamp": [
+            3.28,
+            3.48
+          ]
+        },
+        {
+          "text": "the",
+          "timestamp": [
+            3.48,
+            3.64
+          ]
+        },
+        {
+          "text": "world.",
+          "timestamp": [
+            3.64,
+            4.32
+          ]
+        }
+      ]
+    },
+    {
+      "text": "The idea is simple.",
+      "timestamp": [
+        4.32,
+        5.68
+      ],
+      "words": [
+        {
+          "text": "The",
+          "timestamp": [
+            4.32,
+            4.6
+          ]
+        },
+        {
+          "text": "idea",
+          "timestamp": [
+            4.6,
+            5
+          ]
+        },
+        {
+          "text": "is",
+          "timestamp": [
+            5,
+            5.35
+          ]
+        },
+        {
+          "text": "simple.",
+          "timestamp": [
+            5.35,
+            5.68
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Your money earns.",
+      "timestamp": [
+        5.68,
+        6.76
+      ],
+      "words": [
+        {
+          "text": "Your",
+          "timestamp": [
+            5.68,
+            5.92
+          ]
+        },
+        {
+          "text": "money",
+          "timestamp": [
+            5.92,
+            6.24
+          ]
+        },
+        {
+          "text": "earns.",
+          "timestamp": [
+            6.24,
+            6.76
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Then those earnings start earning too.",
+      "timestamp": [
+        6.76,
+        8.88
+      ],
+      "words": [
+        {
+          "text": "Then",
+          "timestamp": [
+            6.76,
+            7.04
+          ]
+        },
+        {
+          "text": "those",
+          "timestamp": [
+            7.04,
+            7.24
+          ]
+        },
+        {
+          "text": "earnings",
+          "timestamp": [
+            7.24,
+            7.64
+          ]
+        },
+        {
+          "text": "start",
+          "timestamp": [
+            7.64,
+            7.95
+          ]
+        },
+        {
+          "text": "earning",
+          "timestamp": [
+            7.95,
+            8.28
+          ]
+        },
+        {
+          "text": "too.",
+          "timestamp": [
+            8.28,
+            8.88
+          ]
+        }
+      ]
+    },
+    {
+      "text": "At 10% a year, your money doubles",
+      "timestamp": [
+        8.88,
+        11.2
+      ],
+      "words": [
+        {
+          "text": "At",
+          "timestamp": [
+            8.88,
+            9.2
+          ]
+        },
+        {
+          "text": "10%",
+          "timestamp": [
+            9.2,
+            9.72
+          ]
+        },
+        {
+          "text": "a",
+          "timestamp": [
+            9.72,
+            9.96
+          ]
+        },
+        {
+          "text": "year,",
+          "timestamp": [
+            9.96,
+            10.2
+          ]
+        },
+        {
+          "text": "your",
+          "timestamp": [
+            10.2,
+            10.44
+          ]
+        },
+        {
+          "text": "money",
+          "timestamp": [
+            10.44,
+            10.75
+          ]
+        },
+        {
+          "text": "doubles",
+          "timestamp": [
+            10.75,
+            11.2
+          ]
+        }
+      ]
+    },
+    {
+      "text": "roughly every seven years.",
+      "timestamp": [
+        11.2,
+        12.88
+      ],
+      "words": [
+        {
+          "text": "roughly",
+          "timestamp": [
+            11.2,
+            11.6
+          ]
+        },
+        {
+          "text": "every",
+          "timestamp": [
+            11.6,
+            11.88
+          ]
+        },
+        {
+          "text": "seven",
+          "timestamp": [
+            11.88,
+            12.16
+          ]
+        },
+        {
+          "text": "years.",
+          "timestamp": [
+            12.16,
+            12.88
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Start early.",
+      "timestamp": [
+        12.88,
+        14
+      ],
+      "words": [
+        {
+          "text": "Start",
+          "timestamp": [
+            12.88,
+            13.35
+          ]
+        },
+        {
+          "text": "early.",
+          "timestamp": [
+            13.35,
+            14
+          ]
+        }
+      ]
+    }
+  ]
+}

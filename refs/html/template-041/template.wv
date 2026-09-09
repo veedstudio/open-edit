@@ -1,0 +1,61 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; opacity:0; z-index:1; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  @keyframes pgMid { 0%{opacity:0} 0.01%,99.99%{opacity:1} 100%{opacity:0} }
+
+  .cap { left:86px; top:787px; width:564px; text-align:center; z-index:2;
+         font-family:'Fraunces'; font-weight:600; letter-spacing:0.004em; color:#F7F1E6;
+         text-shadow:0 3px 21px rgba(36,28,21,0.62), 0 2px 5px rgba(36,28,21,0.5); }
+  .cl { display:block; white-space:nowrap; }
+  .sp { display:inline-block; white-space:pre; }
+  .w { display:inline-block; white-space:pre; opacity:0; animation-name:wordIn; animation-duration:260ms; animation-timing-function:cubic-bezier(.2,.7,.3,1); animation-fill-mode:both; }
+  @keyframes wordIn { 0%{opacity:0; transform:translateY(0.22em)} 100%{opacity:1; transform:translateY(0)} }
+  .a { font-style:italic; color:#FEC719; }
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:240ms;animation-duration:2280ms;">
+  <div class="pg cap" id="b1p1" style="font-size:52px;opacity:1;">
+      <div class="cl" id="b1p1l1" style="line-height:80px"><span class="w" id="b1w1" style="line-height:80px;animation-delay:240ms">Two</span><span class="sp"> </span><span class="w" id="b1w2" style="line-height:80px;animation-delay:400ms">kids,</span><span class="sp"> </span><span class="w" id="b1w3" style="line-height:80px;animation-delay:760ms">two</span><span class="sp"> </span><span class="w" id="b1w4" style="line-height:80px;animation-delay:1040ms">jobs,</span></div>
+      <div class="cl" id="b1p1l2" style="line-height:80px"><span class="w" id="b1w5" style="line-height:80px;animation-delay:1480ms">zero</span><span class="sp"> </span><span class="w" id="b1w6" style="line-height:80px;animation-delay:1800ms">free</span><span class="sp"> </span><span class="w a" id="b1w7" style="line-height:80px;animation-delay:2080ms">evenings.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:2520ms;animation-duration:1640ms;">
+  <div class="pg cap" id="b2p1" style="font-size:52px;opacity:1;">
+      <div class="cl" id="b2p1l1" style="line-height:80px"><span class="w" id="b2w8" style="line-height:80px;animation-delay:2520ms">I</span><span class="sp"> </span><span class="w" id="b2w9" style="line-height:80px;animation-delay:2720ms">was</span><span class="sp"> </span><span class="w a" id="b2w10" style="line-height:80px;animation-delay:2840ms">skeptical</span></div>
+      <div class="cl" id="b2p1l2" style="line-height:80px"><span class="w" id="b2w11" style="line-height:80px;animation-delay:3240ms">about</span><span class="sp"> </span><span class="w" id="b2w12" style="line-height:80px;animation-delay:3440ms">this</span><span class="sp"> </span><span class="w" id="b2w13" style="line-height:80px;animation-delay:3640ms">app.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:4160ms;animation-duration:1720ms;">
+  <div class="pg cap" id="b3p1" style="font-size:52px;opacity:1;">
+      <div class="cl" id="b3p1l1" style="line-height:80px"><span class="w" id="b3w14" style="line-height:80px;animation-delay:4160ms">Now</span><span class="sp"> </span><span class="w" id="b3w15" style="line-height:80px;animation-delay:4480ms">meal</span><span class="sp"> </span><span class="w" id="b3w16" style="line-height:80px;animation-delay:4760ms">plans</span></div>
+      <div class="cl" id="b3p1l2" style="line-height:80px"><span class="w" id="b3w17" style="line-height:80px;animation-delay:5080ms">take</span><span class="sp"> </span><span class="w a" id="b3w18" style="line-height:80px;animation-delay:5240ms">10</span><span class="sp"> </span><span class="w" id="b3w19" style="line-height:80px;animation-delay:5400ms">minutes</span><span class="sp"> </span><span class="w" id="b3w20" style="line-height:80px;animation-delay:5720ms">on</span></div>
+  </div>
+</div>
+<div class="cue" id="cue4" style="z-index:14;animation-delay:5880ms;animation-duration:2280ms;">
+  <div class="pg cap" id="b4p1" style="font-size:52px;opacity:1;">
+      <div class="cl" id="b4p1l1" style="line-height:80px"><span class="w" id="b4w21" style="line-height:80px;animation-delay:5880ms">Sunday</span><span class="sp"> </span><span class="w" id="b4w22" style="line-height:80px;animation-delay:6120ms">and</span><span class="sp"> </span><span class="w" id="b4w23" style="line-height:80px;animation-delay:6360ms">the</span><span class="sp"> </span><span class="w" id="b4w24" style="line-height:80px;animation-delay:6520ms">week</span></div>
+      <div class="cl" id="b4p1l2" style="line-height:80px"><span class="w" id="b4w25" style="line-height:80px;animation-delay:6720ms">just</span><span class="sp"> </span><span class="w" id="b4w26" style="line-height:80px;animation-delay:6960ms">runs</span><span class="sp"> </span><span class="w a" id="b4w27" style="line-height:80px;animation-delay:7320ms">itself.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue5" style="z-index:15;animation-delay:8160ms;animation-duration:1600ms;">
+  <div class="pg cap" id="b5p1" style="font-size:52px;opacity:1;">
+      <div class="cl" id="b5p1l1" style="line-height:80px"><span class="w" id="b5w28" style="line-height:80px;animation-delay:8160ms">My</span><span class="sp"> </span><span class="w" id="b5w29" style="line-height:80px;animation-delay:8440ms">kids</span><span class="sp"> </span><span class="w" id="b5w30" style="line-height:80px;animation-delay:8680ms">even</span><span class="sp"> </span><span class="w" id="b5w31" style="line-height:80px;animation-delay:8840ms">eat</span></div>
+      <div class="cl" id="b5p1l2" style="line-height:80px"><span class="w" id="b5w32" style="line-height:80px;animation-delay:9040ms">the</span><span class="sp"> </span><span class="w a" id="b5w33" style="line-height:80px;animation-delay:9120ms">vegetables.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue6" style="z-index:16;animation-delay:9760ms;animation-duration:8240ms;">
+  <div class="pg cap" id="b6p1" style="font-size:52px;opacity:1;">
+      <div class="cl" id="b6p1l1" style="line-height:80px"><span class="w" id="b6w34" style="line-height:80px;animation-delay:9760ms">Mostly</span><span class="sp"> </span><span class="w" id="b6w35" style="line-height:80px;animation-delay:10480ms">I</span><span class="sp"> </span><span class="w" id="b6w36" style="line-height:80px;animation-delay:10760ms">am</span></div>
+      <div class="cl" id="b6p1l2" style="line-height:80px"><span class="w a" id="b6w37" style="line-height:80px;animation-delay:10960ms">keeping</span><span class="sp"> </span><span class="w" id="b6w38" style="line-height:80px;animation-delay:11240ms">it.</span></div>
+  </div>
+</div>

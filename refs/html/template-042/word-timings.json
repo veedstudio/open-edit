@@ -1,0 +1,226 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 1.64,
+      "cueDelayMs": 160,
+      "cueDurMs": 1480,
+      "words": [
+        {
+          "w": "Every",
+          "delayMs": 160
+        },
+        {
+          "w": "piece",
+          "delayMs": 320
+        },
+        {
+          "w": "we",
+          "delayMs": 640
+        },
+        {
+          "w": "make",
+          "delayMs": 840
+        },
+        {
+          "w": "started",
+          "delayMs": 1080
+        },
+        {
+          "w": "on",
+          "delayMs": 1400
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 1.64,
+      "endSec": 3.76,
+      "cueDelayMs": 1640,
+      "cueDurMs": 2120,
+      "words": [
+        {
+          "w": "a",
+          "delayMs": 1640
+        },
+        {
+          "w": "beach",
+          "delayMs": 1760
+        },
+        {
+          "w": "exactly",
+          "delayMs": 2080
+        },
+        {
+          "w": "like",
+          "delayMs": 2680
+        },
+        {
+          "w": "this",
+          "delayMs": 2880
+        },
+        {
+          "w": "one.",
+          "delayMs": 3120
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 3.76,
+      "endSec": 6.68,
+      "cueDelayMs": 3760,
+      "cueDurMs": 2920,
+      "words": [
+        {
+          "w": "5",
+          "delayMs": 3760
+        },
+        {
+          "w": "tons",
+          "delayMs": 4080
+        },
+        {
+          "w": "of",
+          "delayMs": 4440
+        },
+        {
+          "w": "ocean",
+          "delayMs": 4600
+        },
+        {
+          "w": "plastic",
+          "delayMs": 5040
+        },
+        {
+          "w": "so",
+          "delayMs": 5680
+        },
+        {
+          "w": "far",
+          "delayMs": 5960
+        },
+        {
+          "w": "pulled",
+          "delayMs": 6240
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 6.68,
+      "endSec": 8.88,
+      "cueDelayMs": 6680,
+      "cueDurMs": 2200,
+      "words": [
+        {
+          "w": "from",
+          "delayMs": 6680
+        },
+        {
+          "w": "the",
+          "delayMs": 6800
+        },
+        {
+          "w": "water",
+          "delayMs": 6920
+        },
+        {
+          "w": "and",
+          "delayMs": 7160
+        },
+        {
+          "w": "spun",
+          "delayMs": 7440
+        },
+        {
+          "w": "into",
+          "delayMs": 7800
+        },
+        {
+          "w": "thread.",
+          "delayMs": 8160
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 8.88,
+      "endSec": 10.8,
+      "cueDelayMs": 8880,
+      "cueDurMs": 1920,
+      "words": [
+        {
+          "w": "The",
+          "delayMs": 8880
+        },
+        {
+          "w": "ocean",
+          "delayMs": 9200
+        },
+        {
+          "w": "gave",
+          "delayMs": 9640
+        },
+        {
+          "w": "us",
+          "delayMs": 9880
+        },
+        {
+          "w": "the",
+          "delayMs": 10080
+        },
+        {
+          "w": "brand.",
+          "delayMs": 10280
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 10.8,
+      "endSec": 13.8,
+      "cueDelayMs": 10800,
+      "cueDurMs": 3000,
+      "words": [
+        {
+          "w": "The",
+          "delayMs": 10800
+        },
+        {
+          "w": "least",
+          "delayMs": 11080
+        },
+        {
+          "w": "we",
+          "delayMs": 11320
+        },
+        {
+          "w": "can",
+          "delayMs": 11560
+        },
+        {
+          "w": "do",
+          "delayMs": 11760
+        },
+        {
+          "w": "is",
+          "delayMs": 12000
+        },
+        {
+          "w": "give",
+          "delayMs": 12280
+        },
+        {
+          "w": "something",
+          "delayMs": 12640
+        },
+        {
+          "w": "back.",
+          "delayMs": 13120
+        }
+      ]
+    }
+  ]
+}

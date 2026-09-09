@@ -1,0 +1,343 @@
+{
+  "text": "YOUR TEAM SPENDS HOURS TURNING DATA INTO SLIDES. WE JUST MADE THAT ONE CLICK NEW IN THIS RELEASE, REPORTS BECOME SHARE READY DASHBOARDS ON BRAND AUTOMATICALLY. EARLY ACCESS IS OPEN THIS WEEK. BRING YOUR MESSIEST REPORT AND WATCH",
+  "chunks": [
+    {
+      "text": "YOUR TEAM SPENDS HOURS",
+      "timestamp": [
+        0.16,
+        1.68
+      ],
+      "words": [
+        {
+          "text": "YOUR",
+          "timestamp": [
+            0.16,
+            0.36
+          ]
+        },
+        {
+          "text": "TEAM",
+          "timestamp": [
+            0.36,
+            0.68
+          ]
+        },
+        {
+          "text": "SPENDS",
+          "timestamp": [
+            0.68,
+            1.27
+          ]
+        },
+        {
+          "text": "HOURS",
+          "timestamp": [
+            1.27,
+            1.68
+          ]
+        }
+      ]
+    },
+    {
+      "text": "TURNING DATA INTO SLIDES.",
+      "timestamp": [
+        1.68,
+        3.58
+      ],
+      "words": [
+        {
+          "text": "TURNING",
+          "timestamp": [
+            1.68,
+            2.2
+          ]
+        },
+        {
+          "text": "DATA",
+          "timestamp": [
+            2.2,
+            2.56
+          ]
+        },
+        {
+          "text": "INTO",
+          "timestamp": [
+            2.56,
+            2.92
+          ]
+        },
+        {
+          "text": "SLIDES.",
+          "timestamp": [
+            2.92,
+            3.58
+          ]
+        }
+      ]
+    },
+    {
+      "text": "WE JUST MADE THAT ONE CLICK NEW",
+      "timestamp": [
+        3.6,
+        6.08
+      ],
+      "words": [
+        {
+          "text": "WE",
+          "timestamp": [
+            3.6,
+            3.88
+          ]
+        },
+        {
+          "text": "JUST",
+          "timestamp": [
+            3.88,
+            4.08
+          ]
+        },
+        {
+          "text": "MADE",
+          "timestamp": [
+            4.08,
+            4.32
+          ]
+        },
+        {
+          "text": "THAT",
+          "timestamp": [
+            4.32,
+            4.6
+          ]
+        },
+        {
+          "text": "ONE",
+          "timestamp": [
+            4.6,
+            4.99
+          ]
+        },
+        {
+          "text": "CLICK",
+          "timestamp": [
+            4.99,
+            5.79
+          ]
+        },
+        {
+          "text": "NEW",
+          "timestamp": [
+            5.79,
+            6.08
+          ]
+        }
+      ]
+    },
+    {
+      "text": "IN THIS RELEASE,",
+      "timestamp": [
+        6.08,
+        7.26
+      ],
+      "words": [
+        {
+          "text": "IN",
+          "timestamp": [
+            6.08,
+            6.28
+          ]
+        },
+        {
+          "text": "THIS",
+          "timestamp": [
+            6.28,
+            6.52
+          ]
+        },
+        {
+          "text": "RELEASE,",
+          "timestamp": [
+            6.52,
+            7.26
+          ]
+        }
+      ]
+    },
+    {
+      "text": "REPORTS BECOME SHARE READY DASHBOARDS ON BRAND",
+      "timestamp": [
+        7.28,
+        10.67
+      ],
+      "words": [
+        {
+          "text": "REPORTS",
+          "timestamp": [
+            7.28,
+            7.92
+          ]
+        },
+        {
+          "text": "BECOME",
+          "timestamp": [
+            7.92,
+            8.4
+          ]
+        },
+        {
+          "text": "SHARE",
+          "timestamp": [
+            8.4,
+            8.72
+          ]
+        },
+        {
+          "text": "READY",
+          "timestamp": [
+            8.72,
+            9.23
+          ]
+        },
+        {
+          "text": "DASHBOARDS",
+          "timestamp": [
+            9.23,
+            9.95
+          ]
+        },
+        {
+          "text": "ON",
+          "timestamp": [
+            9.95,
+            10.07
+          ]
+        },
+        {
+          "text": "BRAND",
+          "timestamp": [
+            10.07,
+            10.67
+          ]
+        }
+      ]
+    },
+    {
+      "text": "AUTOMATICALLY. EARLY",
+      "timestamp": [
+        10.8,
+        12.32
+      ],
+      "words": [
+        {
+          "text": "AUTOMATICALLY.",
+          "timestamp": [
+            10.8,
+            11.91
+          ]
+        },
+        {
+          "text": "EARLY",
+          "timestamp": [
+            11.91,
+            12.32
+          ]
+        }
+      ]
+    },
+    {
+      "text": "ACCESS IS OPEN THIS WEEK.",
+      "timestamp": [
+        12.32,
+        14.22
+      ],
+      "words": [
+        {
+          "text": "ACCESS",
+          "timestamp": [
+            12.32,
+            12.8
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            12.8,
+            13.12
+          ]
+        },
+        {
+          "text": "OPEN",
+          "timestamp": [
+            13.12,
+            13.52
+          ]
+        },
+        {
+          "text": "THIS",
+          "timestamp": [
+            13.52,
+            13.84
+          ]
+        },
+        {
+          "text": "WEEK.",
+          "timestamp": [
+            13.84,
+            14.22
+          ]
+        }
+      ]
+    },
+    {
+      "text": "BRING YOUR MESSIEST REPORT AND WATCH",
+      "timestamp": [
+        14.24,
+        16.95
+      ],
+      "words": [
+        {
+          "text": "BRING",
+          "timestamp": [
+            14.24,
+            14.56
+          ]
+        },
+        {
+          "text": "YOUR",
+          "timestamp": [
+            14.56,
+            14.8
+          ]
+        },
+        {
+          "text": "MESSIEST",
+          "timestamp": [
+            14.8,
+            15.44
+          ]
+        },
+        {
+          "text": "REPORT",
+          "timestamp": [
+            15.44,
+            15.919
+          ]
+        },
+        {
+          "text": "AND",
+          "timestamp": [
+            15.919,
+            16.35
+          ]
+        },
+        {
+          "text": "WATCH",
+          "timestamp": [
+            16.35,
+            16.95
+          ]
+        }
+      ]
+    }
+  ]
+}

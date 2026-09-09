@@ -1,0 +1,251 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 1.04,
+      "cueDelayMs": 160,
+      "cueDurMs": 880,
+      "words": [
+        {
+          "w": "I",
+          "delayMs": 160
+        },
+        {
+          "w": "FIRED",
+          "delayMs": 280
+        },
+        {
+          "w": "OUR",
+          "delayMs": 600
+        },
+        {
+          "w": "BIGGEST",
+          "delayMs": 760
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 1.04,
+      "endSec": 2.32,
+      "cueDelayMs": 1040,
+      "cueDurMs": 1280,
+      "words": [
+        {
+          "w": "CLIENT",
+          "delayMs": 1040
+        },
+        {
+          "w": "TWO",
+          "delayMs": 1360
+        },
+        {
+          "w": "YEARS",
+          "delayMs": 1600
+        },
+        {
+          "w": "AGO",
+          "delayMs": 1800
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 2.32,
+      "endSec": 2.99,
+      "cueDelayMs": 2320,
+      "cueDurMs": 670,
+      "words": [
+        {
+          "w": "BEST",
+          "delayMs": 2320
+        },
+        {
+          "w": "DECISION",
+          "delayMs": 2680
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 3,
+      "endSec": 3.92,
+      "cueDelayMs": 3000,
+      "cueDurMs": 920,
+      "words": [
+        {
+          "w": "WE",
+          "delayMs": 3000
+        },
+        {
+          "w": "EVER",
+          "delayMs": 3280
+        },
+        {
+          "w": "MADE",
+          "delayMs": 3480
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 3.92,
+      "endSec": 5.12,
+      "cueDelayMs": 3920,
+      "cueDurMs": 1200,
+      "words": [
+        {
+          "w": "THEY",
+          "delayMs": 3920
+        },
+        {
+          "w": "WERE",
+          "delayMs": 4240
+        },
+        {
+          "w": "40%",
+          "delayMs": 4480
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 5.12,
+      "endSec": 6.39,
+      "cueDelayMs": 5120,
+      "cueDurMs": 1270,
+      "words": [
+        {
+          "w": "OF",
+          "delayMs": 5120
+        },
+        {
+          "w": "REVENUE",
+          "delayMs": 5400
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "startSec": 6.4,
+      "endSec": 8.08,
+      "cueDelayMs": 6400,
+      "cueDurMs": 1680,
+      "words": [
+        {
+          "w": "AND",
+          "delayMs": 6400
+        },
+        {
+          "w": "100%",
+          "delayMs": 6960
+        }
+      ]
+    },
+    {
+      "i": 8,
+      "startSec": 8.08,
+      "endSec": 9.28,
+      "cueDelayMs": 8080,
+      "cueDurMs": 1200,
+      "words": [
+        {
+          "w": "OF",
+          "delayMs": 8080
+        },
+        {
+          "w": "OUR",
+          "delayMs": 8360
+        },
+        {
+          "w": "STRESS",
+          "delayMs": 8560
+        }
+      ]
+    },
+    {
+      "i": 9,
+      "startSec": 9.28,
+      "endSec": 10.48,
+      "cueDelayMs": 9280,
+      "cueDurMs": 1200,
+      "words": [
+        {
+          "w": "WE",
+          "delayMs": 9280
+        },
+        {
+          "w": "REBUILT",
+          "delayMs": 9600
+        },
+        {
+          "w": "AROUND",
+          "delayMs": 10200
+        }
+      ]
+    },
+    {
+      "i": 10,
+      "startSec": 10.48,
+      "endSec": 12.08,
+      "cueDelayMs": 10480,
+      "cueDurMs": 1600,
+      "words": [
+        {
+          "w": "CUSTOMERS",
+          "delayMs": 10480
+        },
+        {
+          "w": "WE",
+          "delayMs": 11120
+        },
+        {
+          "w": "LOVE",
+          "delayMs": 11320
+        }
+      ]
+    },
+    {
+      "i": 11,
+      "startSec": 12.08,
+      "endSec": 14.26,
+      "cueDelayMs": 12080,
+      "cueDurMs": 2180,
+      "words": [
+        {
+          "w": "THAT",
+          "delayMs": 12080
+        },
+        {
+          "w": "IS",
+          "delayMs": 12360
+        },
+        {
+          "w": "THE",
+          "delayMs": 12520
+        },
+        {
+          "w": "COMPANY",
+          "delayMs": 12680
+        },
+        {
+          "w": "YOU",
+          "delayMs": 12960
+        },
+        {
+          "w": "ARE",
+          "delayMs": 13240
+        },
+        {
+          "w": "LOOKING",
+          "delayMs": 13440
+        },
+        {
+          "w": "AT",
+          "delayMs": 13680
+        }
+      ]
+    }
+  ]
+}

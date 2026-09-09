@@ -129,7 +129,7 @@ ${pagesHtml}
 
   /* beat gate — the one safe reveal recipe; delay+duration set inline per beat */
   @keyframes cueWin { 0%, 99.99% { opacity: 1; } 100% { opacity: 0; } }
-  .cue { position: absolute; left: ${p(81)}px; top: ${p(95)}px; width: ${p(574)}px; height: ${p(420)}px; /* raised from 175 per curation 2026-07-21 */
+  .cue { position: absolute; left: ${p(81)}px; top: ${p(150)}px; width: ${p(574)}px; height: ${p(420)}px; /* 175 → 95 (curation 2026-07-21) → 150 (safe-zone pass: ink ran ~35px above the 11% top margin) */
          opacity: 0; animation-name: cueWin; animation-timing-function: linear;
          animation-fill-mode: forwards; }
 

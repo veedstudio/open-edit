@@ -28,7 +28,7 @@ const LINE_GAP = 6; // tight stack (curation 2026-07-21; was flex gap 31)
 // (lower third, 810) — beats alternate zones; the engine (≥0.6.0) verifies through the cue gate, so
 // cross-beat top reuse is safe. Same pass: tight leading, the transplanted star under the accent
 // word (pink, ×2 cap height, TL/BR/BL/TR corner pattern), a single drawn underline, white accent.
-const POS_TOPS = [150, 810];
+const POS_TOPS = [150, 830]; // lower slot 810 → 830 (nearer the bottom safe margin)
 const STAR_COLOR = '#ec307d'; // transplanted pink — kept verbatim (art-directed)
 const STAR_CLIP = 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)';
 const ADV_EM = 0.48; // Gochi Hand advance em/char — MEASURED off real renders (0.58 was the ladder's conservative budget, ~20% wide)

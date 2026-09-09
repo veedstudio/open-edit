@@ -1,0 +1,295 @@
+{
+  "text": "THREE WAYS TO MAKE A SMALL ROOM FEEL TWICE AS BIG. MIRRORS OPPOSITE WINDOWS. CURTAINS HUNG HIGH RIGHT UNDER THE CEILING. ONE BIG PIECE INSTEAD OF FIVE SMALL ONES. CLUTTER SHRINKS A ROOM. SAVE THIS.",
+  "chunks": [
+    {
+      "text": "THREE WAYS TO MAKE A SMALL ROOM FEEL TWICE AS BIG.",
+      "timestamp": [
+        0.24,
+        3.12
+      ],
+      "words": [
+        {
+          "text": "THREE",
+          "timestamp": [
+            0.24,
+            0.36
+          ]
+        },
+        {
+          "text": "WAYS",
+          "timestamp": [
+            0.36,
+            0.64
+          ]
+        },
+        {
+          "text": "TO",
+          "timestamp": [
+            0.64,
+            0.72
+          ]
+        },
+        {
+          "text": "MAKE",
+          "timestamp": [
+            0.72,
+            0.84
+          ]
+        },
+        {
+          "text": "A",
+          "timestamp": [
+            0.84,
+            1
+          ]
+        },
+        {
+          "text": "SMALL",
+          "timestamp": [
+            1,
+            1.2
+          ]
+        },
+        {
+          "text": "ROOM",
+          "timestamp": [
+            1.2,
+            1.44
+          ]
+        },
+        {
+          "text": "FEEL",
+          "timestamp": [
+            1.44,
+            1.68
+          ]
+        },
+        {
+          "text": "TWICE",
+          "timestamp": [
+            1.68,
+            1.96
+          ]
+        },
+        {
+          "text": "AS",
+          "timestamp": [
+            1.96,
+            2.12
+          ]
+        },
+        {
+          "text": "BIG.",
+          "timestamp": [
+            2.12,
+            3.12
+          ]
+        }
+      ]
+    },
+    {
+      "text": "MIRRORS OPPOSITE WINDOWS.",
+      "timestamp": [
+        3.12,
+        4.96
+      ],
+      "words": [
+        {
+          "text": "MIRRORS",
+          "timestamp": [
+            3.12,
+            3.6
+          ]
+        },
+        {
+          "text": "OPPOSITE",
+          "timestamp": [
+            3.6,
+            3.96
+          ]
+        },
+        {
+          "text": "WINDOWS.",
+          "timestamp": [
+            3.96,
+            4.96
+          ]
+        }
+      ]
+    },
+    {
+      "text": "CURTAINS HUNG HIGH RIGHT UNDER THE CEILING.",
+      "timestamp": [
+        4.96,
+        6.96
+      ],
+      "words": [
+        {
+          "text": "CURTAINS",
+          "timestamp": [
+            4.96,
+            5.52
+          ]
+        },
+        {
+          "text": "HUNG",
+          "timestamp": [
+            5.52,
+            5.72
+          ]
+        },
+        {
+          "text": "HIGH",
+          "timestamp": [
+            5.72,
+            5.88
+          ]
+        },
+        {
+          "text": "RIGHT",
+          "timestamp": [
+            5.88,
+            6.04
+          ]
+        },
+        {
+          "text": "UNDER",
+          "timestamp": [
+            6.04,
+            6.2
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            6.2,
+            6.36
+          ]
+        },
+        {
+          "text": "CEILING.",
+          "timestamp": [
+            6.36,
+            6.96
+          ]
+        }
+      ]
+    },
+    {
+      "text": "ONE BIG PIECE INSTEAD OF FIVE SMALL ONES.",
+      "timestamp": [
+        6.96,
+        10.32
+      ],
+      "words": [
+        {
+          "text": "ONE",
+          "timestamp": [
+            7.92,
+            8.2
+          ]
+        },
+        {
+          "text": "BIG",
+          "timestamp": [
+            8.2,
+            8.4
+          ]
+        },
+        {
+          "text": "PIECE",
+          "timestamp": [
+            8.4,
+            8.68
+          ]
+        },
+        {
+          "text": "INSTEAD",
+          "timestamp": [
+            8.68,
+            9
+          ]
+        },
+        {
+          "text": "OF",
+          "timestamp": [
+            9,
+            9.16
+          ]
+        },
+        {
+          "text": "FIVE",
+          "timestamp": [
+            9.16,
+            9.36
+          ]
+        },
+        {
+          "text": "SMALL",
+          "timestamp": [
+            9.36,
+            9.6
+          ]
+        },
+        {
+          "text": "ONES.",
+          "timestamp": [
+            9.6,
+            10.32
+          ]
+        }
+      ]
+    },
+    {
+      "text": "CLUTTER SHRINKS A ROOM. SAVE THIS.",
+      "timestamp": [
+        10.32,
+        13.399
+      ],
+      "words": [
+        {
+          "text": "CLUTTER",
+          "timestamp": [
+            10.32,
+            10.84
+          ]
+        },
+        {
+          "text": "SHRINKS",
+          "timestamp": [
+            10.84,
+            11.16
+          ]
+        },
+        {
+          "text": "A",
+          "timestamp": [
+            11.16,
+            11.32
+          ]
+        },
+        {
+          "text": "ROOM.",
+          "timestamp": [
+            11.32,
+            12.16
+          ]
+        },
+        {
+          "text": "SAVE",
+          "timestamp": [
+            12.16,
+            12.64
+          ]
+        },
+        {
+          "text": "THIS.",
+          "timestamp": [
+            12.64,
+            13.399
+          ]
+        }
+      ]
+    }
+  ]
+}

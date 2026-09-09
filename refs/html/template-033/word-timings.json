@@ -1,0 +1,235 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 1.759,
+      "cueDelayMs": 160,
+      "cueDurMs": 1599,
+      "words": [
+        {
+          "w": "You",
+          "delayMs": 160
+        },
+        {
+          "w": "forget",
+          "delayMs": 280
+        },
+        {
+          "w": "facts",
+          "delayMs": 560
+        },
+        {
+          "w": "in",
+          "delayMs": 920
+        },
+        {
+          "w": "days,",
+          "delayMs": 1120
+        },
+        {
+          "w": "but",
+          "delayMs": 1440
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 1.76,
+      "endSec": 3.599,
+      "cueDelayMs": 1760,
+      "cueDurMs": 1839,
+      "words": [
+        {
+          "w": "you",
+          "delayMs": 1760
+        },
+        {
+          "w": "remember",
+          "delayMs": 1960
+        },
+        {
+          "w": "stories",
+          "delayMs": 2320
+        },
+        {
+          "w": "for",
+          "delayMs": 2720
+        },
+        {
+          "w": "decades.",
+          "delayMs": 2920
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 3.6,
+      "endSec": 5.199,
+      "cueDelayMs": 3600,
+      "cueDurMs": 1599,
+      "words": [
+        {
+          "w": "There",
+          "delayMs": 3600
+        },
+        {
+          "w": "is",
+          "delayMs": 3880
+        },
+        {
+          "w": "a",
+          "delayMs": 4040
+        },
+        {
+          "w": "reason.",
+          "delayMs": 4200
+        },
+        {
+          "w": "A",
+          "delayMs": 4720
+        },
+        {
+          "w": "story",
+          "delayMs": 5000
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 5.2,
+      "endSec": 6.959,
+      "cueDelayMs": 5200,
+      "cueDurMs": 1759,
+      "words": [
+        {
+          "w": "links",
+          "delayMs": 5200
+        },
+        {
+          "w": "each",
+          "delayMs": 5560
+        },
+        {
+          "w": "fact",
+          "delayMs": 5760
+        },
+        {
+          "w": "to",
+          "delayMs": 6000
+        },
+        {
+          "w": "an",
+          "delayMs": 6200
+        },
+        {
+          "w": "emotion.",
+          "delayMs": 6360
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 6.96,
+      "endSec": 9.519,
+      "cueDelayMs": 6960,
+      "cueDurMs": 2559,
+      "words": [
+        {
+          "w": "An",
+          "delayMs": 6960
+        },
+        {
+          "w": "emotion",
+          "delayMs": 7240
+        },
+        {
+          "w": "is",
+          "delayMs": 7640
+        },
+        {
+          "w": "how",
+          "delayMs": 7760
+        },
+        {
+          "w": "the",
+          "delayMs": 7960
+        },
+        {
+          "w": "brain",
+          "delayMs": 8160
+        },
+        {
+          "w": "files",
+          "delayMs": 8440
+        },
+        {
+          "w": "things.",
+          "delayMs": 8880
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 9.52,
+      "endSec": 10.359,
+      "cueDelayMs": 9520,
+      "cueDurMs": 839,
+      "words": [
+        {
+          "w": "So",
+          "delayMs": 9520
+        },
+        {
+          "w": "if",
+          "delayMs": 9760
+        },
+        {
+          "w": "you",
+          "delayMs": 9840
+        },
+        {
+          "w": "want",
+          "delayMs": 9960
+        },
+        {
+          "w": "to",
+          "delayMs": 10120
+        },
+        {
+          "w": "be",
+          "delayMs": 10240
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "startSec": 10.36,
+      "endSec": 13.433,
+      "cueDelayMs": 10360,
+      "cueDurMs": 3073,
+      "words": [
+        {
+          "w": "remembered,",
+          "delayMs": 10360
+        },
+        {
+          "w": "stop",
+          "delayMs": 11040
+        },
+        {
+          "w": "listing.",
+          "delayMs": 11440
+        },
+        {
+          "w": "Start",
+          "delayMs": 12240
+        },
+        {
+          "w": "telling.",
+          "delayMs": 12640
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; opacity:0; z-index:1; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  @keyframes pgMid { 0%{opacity:0} 0.01%,99.99%{opacity:1} 100%{opacity:0} }
+
+  .board { left:52px; bottom:319px; width:601px; z-index:2; }
+  .cl { display:block; text-align:left; font-family:'Archivo Black'; font-weight:400; letter-spacing:-0.02em; line-height:1; padding:0 0 9px; }
+  .clC { display:block; text-align:left; font-family:'Archivo Black'; font-weight:400; letter-spacing:-0.03em; line-height:1; padding:0 0 14px; }
+  .w { display:inline-block; opacity:0; line-height:1; margin-right:0.22em; padding:8px 0 15px; color:#FFFFFF;
+       text-shadow:5px 6px 0 #101010, 0 5px 20px rgba(25,25,25,0.38), 0 2px 5px rgba(25,25,25,0.3);
+       animation-name:wIn; animation-duration:200ms; animation-timing-function:cubic-bezier(.2,.7,.3,1); animation-fill-mode:both; }
+  @keyframes wIn { 0%{opacity:0; transform:translateY(0.3em)} 100%{opacity:1; transform:none} }
+  .hl { background:#FFE500; color:#101010; padding:8px 17px 15px; text-shadow:none; box-shadow:5px 6px 0 #101010, 0 5px 20px rgba(25,25,25,0.38), 0 2px 5px rgba(25,25,25,0.3);
+        animation-name:wPop; animation-duration:260ms; animation-timing-function:cubic-bezier(.34,1.4,.64,1); }
+  @keyframes wPop { 0%{opacity:0; transform:translateY(0.18em) scale(.86)} 100%{opacity:1; transform:none} }
+  .cta { background:#FF2E12; color:#101010; padding:9px 20px 18px; text-shadow:none;
+         box-shadow:6px 8px 0 #101010, 0 5px 20px rgba(25,25,25,0.38), 0 2px 5px rgba(25,25,25,0.3);
+         animation-name:wPop; animation-duration:260ms; animation-timing-function:cubic-bezier(.34,1.4,.64,1); }
+  .idx { position:absolute; right:52px; top:52px; width:583px; text-align:right; z-index:3; }
+  .ig { display:inline-block; opacity:0; line-height:1; padding:0 0 0.06em; font-family:'Archivo Black'; font-weight:400; letter-spacing:-0.045em; color:#FF2E12;
+        text-shadow:0 11px 49px rgba(25,25,25,0.38), 0 6px 11px rgba(25,25,25,0.3);
+        animation:idxIn 420ms cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes idxIn { 0%{opacity:0; transform:translateY(40px) scale(1.06)} 100%{opacity:1; transform:none} }
+  .lead { margin-left:-17px; }
+  .leadC { margin-left:-20px; }
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:240ms;animation-duration:2880ms;">
+  <div class="pg board" id="b1p1" style="animation:cueWin linear forwards;animation-delay:240ms;animation-duration:600ms;">
+      <div class="cl" id="b1p1l1" style="font-size:80px"><span class="w" id="b1w1" style="animation-delay:240ms">THREE</span><span class="w" id="b1w2" style="animation-delay:360ms">WAYS</span></div>
+      <div class="cl" id="b1p1l2" style="font-size:80px"><span class="w" id="b1w3" style="animation-delay:640ms">TO</span><span class="w" id="b1w4" style="animation-delay:720ms">MAKE</span></div>
+  </div>
+  <div class="pg board" id="b1p2" style="animation:cueWin linear forwards;animation-delay:840ms;animation-duration:840ms;">
+      <div class="cl" id="b1p2l1" style="font-size:80px"><span class="w" id="b1w5" style="animation-delay:840ms">A</span><span class="w" id="b1w6" style="animation-delay:1000ms">SMALL</span></div>
+      <div class="cl" id="b1p2l2" style="font-size:80px"><span class="w" id="b1w7" style="animation-delay:1200ms">ROOM</span><span class="w" id="b1w8" style="animation-delay:1440ms">FEEL</span></div>
+  </div>
+  <div class="pg board" id="b1p3" style="animation:cueWin linear forwards;animation-delay:1680ms;animation-duration:1440ms;">
+      <div class="cl" id="b1p3l1" style="font-size:80px"><span class="w hl lead" id="b1w9" style="animation-delay:1680ms">TWICE</span></div>
+      <div class="cl" id="b1p3l2" style="font-size:80px"><span class="w" id="b1w10" style="animation-delay:1960ms">AS</span><span class="w" id="b1w11" style="animation-delay:2120ms">BIG.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:3120ms;animation-duration:1840ms;">
+  <div class="idx" id="b2n" style="font-size:521px"><span class="ig" style="animation-delay:3120ms">1</span></div>
+  <div class="pg board" id="b2p1" style="animation:cueWin linear forwards;animation-delay:3120ms;animation-duration:840ms;">
+      <div class="cl" id="b2p1l1" style="font-size:80px"><span class="w" id="b2w12" style="animation-delay:3120ms">MIRRORS</span></div>
+      <div class="cl" id="b2p1l2" style="font-size:80px"><span class="w" id="b2w13" style="animation-delay:3600ms">OPPOSITE</span></div>
+  </div>
+  <div class="pg board" id="b2p2" style="animation:cueWin linear forwards;animation-delay:3960ms;animation-duration:1000ms;">
+      <div class="cl" id="b2p2l1" style="font-size:80px"><span class="w hl lead" id="b2w14" style="animation-delay:3960ms">WINDOWS.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:4960ms;animation-duration:2000ms;">
+  <div class="idx" id="b3n" style="font-size:521px"><span class="ig" style="animation-delay:4960ms">2</span></div>
+  <div class="pg board" id="b3p1" style="animation:cueWin linear forwards;animation-delay:4960ms;animation-duration:920ms;">
+      <div class="cl" id="b3p1l1" style="font-size:80px"><span class="w" id="b3w15" style="animation-delay:4960ms">CURTAINS</span></div>
+      <div class="cl" id="b3p1l2" style="font-size:80px"><span class="w" id="b3w16" style="animation-delay:5520ms">HUNG</span><span class="w" id="b3w17" style="animation-delay:5720ms">HIGH</span></div>
+  </div>
+  <div class="pg board" id="b3p2" style="animation:cueWin linear forwards;animation-delay:5880ms;animation-duration:480ms;">
+      <div class="cl" id="b3p2l1" style="font-size:80px"><span class="w" id="b3w18" style="animation-delay:5880ms">RIGHT</span></div>
+      <div class="cl" id="b3p2l2" style="font-size:80px"><span class="w" id="b3w19" style="animation-delay:6040ms">UNDER</span><span class="w" id="b3w20" style="animation-delay:6200ms">THE</span></div>
+  </div>
+  <div class="pg board" id="b3p3" style="animation:cueWin linear forwards;animation-delay:6360ms;animation-duration:600ms;">
+      <div class="cl" id="b3p3l1" style="font-size:80px"><span class="w hl lead" id="b3w21" style="animation-delay:6360ms">CEILING.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue4" style="z-index:14;animation-delay:6960ms;animation-duration:3360ms;">
+  <div class="idx" id="b4n" style="font-size:521px"><span class="ig" style="animation-delay:6960ms">3</span></div>
+  <div class="pg board" id="b4p1" style="animation:cueWin linear forwards;animation-delay:7920ms;animation-duration:760ms;">
+      <div class="cl" id="b4p1l1" style="font-size:80px"><span class="w" id="b4w22" style="animation-delay:7920ms">ONE</span><span class="w" id="b4w23" style="animation-delay:8200ms">BIG</span></div>
+      <div class="cl" id="b4p1l2" style="font-size:80px"><span class="w" id="b4w24" style="animation-delay:8400ms">PIECE</span></div>
+  </div>
+  <div class="pg board" id="b4p2" style="animation:cueWin linear forwards;animation-delay:8680ms;animation-duration:680ms;">
+      <div class="cl" id="b4p2l1" style="font-size:80px"><span class="w hl lead" id="b4w25" style="animation-delay:8680ms">INSTEAD</span></div>
+      <div class="cl" id="b4p2l2" style="font-size:80px"><span class="w" id="b4w26" style="animation-delay:9000ms">OF</span><span class="w" id="b4w27" style="animation-delay:9160ms">FIVE</span></div>
+  </div>
+  <div class="pg board" id="b4p3" style="animation:cueWin linear forwards;animation-delay:9360ms;animation-duration:960ms;">
+      <div class="cl" id="b4p3l1" style="font-size:80px"><span class="w" id="b4w28" style="animation-delay:9360ms">SMALL</span></div>
+      <div class="cl" id="b4p3l2" style="font-size:80px"><span class="w" id="b4w29" style="animation-delay:9600ms">ONES.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue5" style="z-index:15;animation-delay:10320ms;animation-duration:7680ms;">
+  <div class="pg board" id="b5p1" style="animation:cueWin linear forwards;animation-delay:10320ms;animation-duration:1000ms;">
+      <div class="cl" id="b5p1l1" style="font-size:80px"><span class="w" id="b5w30" style="animation-delay:10320ms">CLUTTER</span></div>
+      <div class="cl" id="b5p1l2" style="font-size:80px"><span class="w hl lead" id="b5w31" style="animation-delay:10840ms">SHRINKS</span><span class="w" id="b5w32" style="animation-delay:11160ms">A</span></div>
+  </div>
+  <div class="pg board" id="b5p2" style="animation:cueWin linear forwards;animation-delay:11320ms;animation-duration:840ms;">
+      <div class="cl" id="b5p2l1" style="font-size:80px"><span class="w" id="b5w33" style="animation-delay:11320ms">ROOM.</span></div>
+  </div>
+  <div class="pg board" id="b5p3" style="animation:cueWin linear forwards;animation-delay:12160ms;animation-duration:5840ms;">
+      <div class="clC" id="b5p3l1" style="font-size:110px"><span class="w cta leadC" id="b5w34" style="animation-delay:12160ms">SAVE</span></div>
+      <div class="clC" id="b5p3l2" style="font-size:110px"><span class="w cta leadC" id="b5w35" style="animation-delay:12640ms">THIS.</span></div>
+  </div>
+</div>

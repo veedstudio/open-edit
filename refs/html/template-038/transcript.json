@@ -1,0 +1,370 @@
+{
+  "text": "MONTH THREE OF BUILDING IN PUBLIC HERE ARE THE NUMBERS NOBODY POSTS 400 IN REVENUE 200 USERS AND RENT IS DEFINITELY NOT COVERED BUT NOBODY CHURNS EVERYONE WHO SIGNS UP STAYS THAT IS WHY I AM STILL HERE",
+  "chunks": [
+    {
+      "text": "MONTH THREE OF BUILDING IN PUBLIC",
+      "timestamp": [
+        0.32,
+        1.88
+      ],
+      "words": [
+        {
+          "text": "MONTH",
+          "timestamp": [
+            0.32,
+            0.52
+          ]
+        },
+        {
+          "text": "THREE",
+          "timestamp": [
+            0.52,
+            0.84
+          ]
+        },
+        {
+          "text": "OF",
+          "timestamp": [
+            0.84,
+            1.12
+          ]
+        },
+        {
+          "text": "BUILDING",
+          "timestamp": [
+            1.12,
+            1.4
+          ]
+        },
+        {
+          "text": "IN",
+          "timestamp": [
+            1.4,
+            1.64
+          ]
+        },
+        {
+          "text": "PUBLIC",
+          "timestamp": [
+            1.64,
+            1.88
+          ]
+        }
+      ]
+    },
+    {
+      "text": "HERE ARE THE NUMBERS",
+      "timestamp": [
+        1.88,
+        2.64
+      ],
+      "words": [
+        {
+          "text": "HERE",
+          "timestamp": [
+            1.88,
+            2.12
+          ]
+        },
+        {
+          "text": "ARE",
+          "timestamp": [
+            2.12,
+            2.24
+          ]
+        },
+        {
+          "text": "THE",
+          "timestamp": [
+            2.24,
+            2.36
+          ]
+        },
+        {
+          "text": "NUMBERS",
+          "timestamp": [
+            2.36,
+            2.64
+          ]
+        }
+      ]
+    },
+    {
+      "text": "NOBODY POSTS",
+      "timestamp": [
+        2.64,
+        3.68
+      ],
+      "words": [
+        {
+          "text": "NOBODY",
+          "timestamp": [
+            2.64,
+            3.04
+          ]
+        },
+        {
+          "text": "POSTS",
+          "timestamp": [
+            3.04,
+            3.68
+          ]
+        }
+      ]
+    },
+    {
+      "text": "400 IN REVENUE",
+      "timestamp": [
+        3.68,
+        4.79
+      ],
+      "words": [
+        {
+          "text": "400",
+          "timestamp": [
+            3.68,
+            4.16
+          ]
+        },
+        {
+          "text": "IN",
+          "timestamp": [
+            4.16,
+            4.36
+          ]
+        },
+        {
+          "text": "REVENUE",
+          "timestamp": [
+            4.36,
+            4.79
+          ]
+        }
+      ]
+    },
+    {
+      "text": "200 USERS",
+      "timestamp": [
+        4.79,
+        5.56
+      ],
+      "words": [
+        {
+          "text": "200",
+          "timestamp": [
+            4.8,
+            5.2
+          ]
+        },
+        {
+          "text": "USERS",
+          "timestamp": [
+            5.2,
+            5.56
+          ]
+        }
+      ]
+    },
+    {
+      "text": "AND RENT IS DEFINITELY",
+      "timestamp": [
+        5.56,
+        6.56
+      ],
+      "words": [
+        {
+          "text": "AND",
+          "timestamp": [
+            5.56,
+            5.72
+          ]
+        },
+        {
+          "text": "RENT",
+          "timestamp": [
+            5.72,
+            5.96
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            5.96,
+            6.12
+          ]
+        },
+        {
+          "text": "DEFINITELY",
+          "timestamp": [
+            6.12,
+            6.56
+          ]
+        }
+      ]
+    },
+    {
+      "text": "NOT COVERED",
+      "timestamp": [
+        6.56,
+        7.44
+      ],
+      "words": [
+        {
+          "text": "NOT",
+          "timestamp": [
+            6.56,
+            6.8
+          ]
+        },
+        {
+          "text": "COVERED",
+          "timestamp": [
+            6.8,
+            7.44
+          ]
+        }
+      ]
+    },
+    {
+      "text": "BUT NOBODY CHURNS",
+      "timestamp": [
+        7.44,
+        8.68
+      ],
+      "words": [
+        {
+          "text": "BUT",
+          "timestamp": [
+            7.44,
+            7.72
+          ]
+        },
+        {
+          "text": "NOBODY",
+          "timestamp": [
+            7.72,
+            8.16
+          ]
+        },
+        {
+          "text": "CHURNS",
+          "timestamp": [
+            8.16,
+            8.68
+          ]
+        }
+      ]
+    },
+    {
+      "text": "EVERYONE WHO SIGNS UP STAYS",
+      "timestamp": [
+        8.68,
+        9.96
+      ],
+      "words": [
+        {
+          "text": "EVERYONE",
+          "timestamp": [
+            8.68,
+            8.96
+          ]
+        },
+        {
+          "text": "WHO",
+          "timestamp": [
+            8.96,
+            9.16
+          ]
+        },
+        {
+          "text": "SIGNS",
+          "timestamp": [
+            9.16,
+            9.44
+          ]
+        },
+        {
+          "text": "UP",
+          "timestamp": [
+            9.44,
+            9.6
+          ]
+        },
+        {
+          "text": "STAYS",
+          "timestamp": [
+            9.6,
+            9.96
+          ]
+        }
+      ]
+    },
+    {
+      "text": "THAT IS WHY I AM",
+      "timestamp": [
+        9.96,
+        10.72
+      ],
+      "words": [
+        {
+          "text": "THAT",
+          "timestamp": [
+            9.96,
+            10.12
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            10.12,
+            10.24
+          ]
+        },
+        {
+          "text": "WHY",
+          "timestamp": [
+            10.24,
+            10.36
+          ]
+        },
+        {
+          "text": "I",
+          "timestamp": [
+            10.36,
+            10.52
+          ]
+        },
+        {
+          "text": "AM",
+          "timestamp": [
+            10.52,
+            10.72
+          ]
+        }
+      ]
+    },
+    {
+      "text": "STILL HERE",
+      "timestamp": [
+        10.72,
+        11.38
+      ],
+      "words": [
+        {
+          "text": "STILL",
+          "timestamp": [
+            10.72,
+            10.92
+          ]
+        },
+        {
+          "text": "HERE",
+          "timestamp": [
+            10.92,
+            11.38
+          ]
+        }
+      ]
+    }
+  ]
+}

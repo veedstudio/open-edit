@@ -1,6 +1,6 @@
 // Compiled recipe — hook-054-peak (9:16, authored at 736×1312 @25fps). Source sheet: ./recipe.md.
 // Two-register caption: per beat the first 2–3 words ride a gold italic Cormorant accent arc (per-glyph
-// rotation about the fixed crown centre 368/520, radius 325, dark 8-direction stroke), the remaining
+// rotation about the fixed crown centre 350/520, radius 280, dark 8-direction stroke), the remaining
 // words land as a white Archivo payoff block in the lower third; both reveal within ONE cue and hold
 // together until the gate cuts at the next beat. One hero word per beat: hot-amber on the arc (+`big`
 // 1.32em when a digit token — DEVICE INTENSITY axis: standard), white 800 in the body.
@@ -14,34 +14,28 @@ import {
 } from '../../../pipeline/recipes/lib.ts';
 import type { WordTiming, WordTimings } from '../../../pipeline/scripts/synth-word-timings.ts';
 
-const R = 325; // crown radius (px, scales)
+// Safe-zone pass 2026-09-03: the crown is centred on the 9:16 safe zone (x 44..655, so 350 — not the
+// canvas's 368) and the radius tightened 325 → 280 so the fan stays narrow; the apex (520 − 280 = 240)
+// keeps a 1.32em hero digit above the 144px top margin.
+const R = 280; // crown radius (px, scales)
+const ARC_CX = 350;
+const ARC_CY = 520;
+// The fan must fit the zone: an end glyph's rotated box reaches ~0.5em past its centre, so the crown's
+// width is 2R·sin(half) + FONT; 595 leaves 8px each side of the 611px zone. The half-angle cap keeps end
+// glyphs from turning sideways (the sheet's table topped out at 59°).
+const ARC_WIDTH_MAX = 595;
+const ARC_HALF_MAX_DEG = 64;
 const BASE_IN_MS = 420; // wordIn/payIn entrance
 const DUR_FLOOR_MS = 250;
 const DEVICE_INTENSITY: 'standard' | 'calm' = 'standard';
 
-// Section-3 arc table, verbatim: FONT per C (1..15) + the angle rows (degrees — NEVER scaled).
-const ARC_ROW_FONT = [125, 125, 125, 125, 118, 118, 106, 106, 99, 99, 93, 90, 86, 83, 80];
-const ARC_ANGLE_TABLE: string[][] = [
-  ['0.00'],
-  ['-6.61', '6.61'],
-  ['-13.22', '0.00', '13.22'],
-  ['-19.83', '-6.61', '6.61', '19.83'],
-  ['-24.96', '-12.48', '0.00', '12.48', '24.96'],
-  ['-31.20', '-18.72', '-6.24', '6.24', '18.72', '31.20'],
-  ['-33.64', '-22.42', '-11.21', '0.00', '11.21', '22.42', '33.64'],
-  ['-39.24', '-28.03', '-16.82', '-5.61', '5.61', '16.82', '28.03', '39.24'],
-  ['-41.89', '-31.42', '-20.94', '-10.47', '0.00', '10.47', '20.94', '31.42', '41.89'],
-  ['-47.12', '-36.65', '-26.18', '-15.71', '-5.24', '5.24', '15.71', '26.18', '36.65', '47.12'],
-  ['-49.19', '-39.35', '-29.51', '-19.67', '-9.84', '0.00', '9.84', '19.67', '29.51', '39.35', '49.19'],
-  ['-52.36', '-42.84', '-33.32', '-23.80', '-14.28', '-4.76', '4.76', '14.28', '23.80', '33.32', '42.84', '52.36'],
-  ['-54.58', '-45.48', '-36.39', '-27.29', '-18.19', '-9.10', '0.00', '9.10', '18.19', '27.29', '36.39', '45.48', '54.58'],
-  ['-57.07', '-48.29', '-39.51', '-30.73', '-21.95', '-13.17', '-4.39', '4.39', '13.17', '21.95', '30.73', '39.51', '48.29', '57.07'],
-  ['-59.24', '-50.77', '-42.31', '-33.85', '-25.39', '-16.92', '-8.46', '0.00', '8.46', '16.92', '25.39', '33.85', '42.31', '50.77', '59.24'],
-];
-// Demotion ladder: the distinct FONTs, largest→smallest ("next smaller FONT + its ANGLE row").
-export const ARC_FONT_LADDER = [125, 118, 106, 99, 93, 90, 86, 83, 80];
+// The sheet's section-3 table (FONT per C, angle rows) is replaced by its own closed form solved
+// against the zone: the fan takes the LARGEST font whose half-angle and width both fit, so a long
+// accent (C>15 used to keep FONT 80 and fan past ±80°) steps down instead of leaving the zone.
+// Demotion ladder: the distinct FONTs, largest→smallest; the tail is the long-accent range.
+export const ARC_FONT_LADDER = [125, 118, 106, 99, 93, 90, 86, 83, 80, 76, 72, 68, 64, 60, 57, 54, 51, 48, 45, 42];
 
-// Sheet closed form: angle(k) = (k − (C−1)/2) × step, step(deg) = 0.60·FONT·(180/π) ÷ 325.
+// Sheet closed form: angle(k) = (k − (C−1)/2) × step, step(deg) = 0.60·FONT·(180/π) ÷ R.
 export function arcStepDeg(font: number): number {
   return (0.6 * font * (180 / Math.PI)) / R;
 }
@@ -49,11 +43,20 @@ export function arcAngles(C: number, font: number): string[] {
   const step = arcStepDeg(font);
   return Array.from({ length: C }, (_, k) => ((k - (C - 1) / 2) * step).toFixed(2));
 }
-// Base row = the table verbatim (C>15 keeps FONT=80 with the C=15 step); demoted rows re-solve angles.
+export function arcHalfDeg(C: number, font: number): number {
+  return ((C - 1) / 2) * arcStepDeg(font);
+}
+export function arcWidth(C: number, font: number): number {
+  return 2 * R * Math.sin((arcHalfDeg(C, font) * Math.PI) / 180) + font;
+}
+export function arcFits(C: number, font: number): boolean {
+  return arcHalfDeg(C, font) <= ARC_HALF_MAX_DEG && arcWidth(C, font) <= ARC_WIDTH_MAX;
+}
+// Base row = the largest fitting FONT; demoted rows step down the ladder (angles re-solved).
 export function arcRow(C: number, demote = 0): { font: number; angles: string[] } {
-  const base = ARC_FONT_LADDER.indexOf(ARC_ROW_FONT[Math.min(C, 15) - 1]);
+  const found = ARC_FONT_LADDER.findIndex((f) => arcFits(C, f));
+  const base = found < 0 ? ARC_FONT_LADDER.length - 1 : found;
   const font = ARC_FONT_LADDER[Math.min(ARC_FONT_LADDER.length - 1, base + demote)];
-  if (!demote && C <= 15) return { font, angles: ARC_ANGLE_TABLE[C - 1] };
   return { font, angles: arcAngles(C, font) };
 }
 
@@ -225,7 +228,7 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
 
   /* ARC: gold Cormorant italic accent crown; font-size inline on .arc, inherited by the arc-chars */
   .arc { position: absolute; inset: 0; }
-  .arc-char { position: absolute; left: ${p(368)}px; top: ${p(520)}px;
+  .arc-char { position: absolute; left: ${p(ARC_CX)}px; top: ${p(ARC_CY)}px;
     font-style: italic; font-weight: 700; line-height: 1; color: #e9bd2b; white-space: pre;
     text-shadow:
       -${p(1)}px -${p(1)}px 0 #15100a, ${p(1)}px -${p(1)}px 0 #15100a, -${p(1)}px ${p(1)}px 0 #15100a, ${p(1)}px ${p(1)}px 0 #15100a,
@@ -239,7 +242,7 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
   @keyframes wordIn { 0% { opacity: 0; transform: translateY(0.28em); } 100% { opacity: 1; transform: translateY(0); } }
 
   /* BODY: clean white Archivo payoff (lower third) */
-  .pay { position: absolute; left: ${p(68)}px; top: ${p(852)}px; width: ${p(600)}px; }
+  .pay { position: absolute; left: ${p(68)}px; top: ${p(960)}px; width: ${p(600)}px; } /* 852 → 960: payoff sits on the bottom safe margin, off the face */
   .payline { display: block; width: ${p(600)}px; text-align: center; white-space: nowrap; line-height: 1.0;
              font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; letter-spacing: ${f(-0.5)}px; color: #f7f5f3;
              text-shadow: 0 ${p(2)}px ${p(7)}px rgba(0,0,0,.6), 0 0 ${p(3)}px rgba(0,0,0,.55); }

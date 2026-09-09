@@ -53,7 +53,10 @@ export const ROLE_FADE_MS_078: Record<Role078, number | null> = {
 };
 
 // Role assignment is total and deterministic by node id — spoken content only ever lands in b{N}l{k}.
-export function roleFor078(nodeId: string): Role078 {
+// Chrome ids end in `-chrome` (on the element that DIRECTLY wraps the text, since the engine labels a run
+// by its direct parent) so the safe-zone report can set dressing aside; the role reads the bare id.
+export function roleFor078(rawId: string): Role078 {
+  const nodeId = rawId.replace(/(-[ab])?-chrome$/, '');
   if (nodeId === 'tagl') return 'kicker-left';
   if (nodeId === 'tagr') return 'kicker-right';
   if (/^lp\d$/.test(nodeId)) return 'laurel-panel';
@@ -144,7 +147,7 @@ function lineHtml(units: Unit[], id: string, sizeCls: string, tight: boolean, ga
 
 // v3: the title block is anchored by its BOTTOM edge — a fixed SUB_GAP to the subtitle chrome at
 // SUB_TOP, whatever the line count (fewer lines → more actor visible; 3 lines just start higher).
-const SUB_TOP = 989;
+const SUB_TOP = 1049; // 989 → 1049 (safe-zone pass: title + bottom chrome ride 60px lower, off the face)
 const SUB_GAP = 56;
 const LINE_PITCH_EM = 0.55; // v3 leading (was 0.82 — Anton: minus a third)
 
@@ -175,12 +178,12 @@ function laurelHtml(side: 'l' | 'r', lpA: string, lpB: string, lblId: string, lb
   return `    <div id="laurel-${side}" class="laurel" data-node-id="laurel-${side}" data-node-role="icon">
       <div class="lp fader" id="${lpA}" style="animation-delay:${d}ms; clip-path: ${LAUREL_A}"></div>
       <div class="lp fader" id="${lpB}" style="animation-delay:${d}ms; clip-path: ${LAUREL_B}"></div>
-      <div class="lbl y fader" id="${lblId}" style="animation-delay:${d}ms"><div>BEST</div><div>${lblLine2}</div></div>
+      <div class="lbl y fader" id="${lblId}" style="animation-delay:${d}ms"><div id="${lblId}-a-chrome">BEST</div><div id="${lblId}-b-chrome">${lblLine2}</div></div>
     </div>`;
 }
 
 function seg(id: string, plain: string, bold: string): string {
-  return `<span class="seg fader" id="${id}" style="animation-delay:${ROLE_FADE_MS_078['credit-seg']}ms">${plain} <b class="cb">${bold}</b></span>`;
+  return `<span class="seg fader" id="${id}-chrome" style="animation-delay:${ROLE_FADE_MS_078['credit-seg']}ms">${plain} <b class="cb" id="${id}-b-chrome">${bold}</b></span>`;
 }
 
 function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {}) {
@@ -212,15 +215,15 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
   .fader { opacity: 0; animation: fadeon .45s cubic-bezier(.2,.7,.3,1) both; }
   @keyframes fadeon { from { opacity: 0; } to { opacity: 1; } }
 
-  #tagl { position: absolute; z-index: 2; left: ${p(87)}px; top: ${p(61)}px; font-weight: 700; font-size: ${p(18)}px; letter-spacing: ${p(2)}px; }
-  #tagr { position: absolute; z-index: 2; right: ${p(61)}px; top: ${p(61)}px; font-weight: 700; font-size: ${p(18)}px; letter-spacing: ${p(2)}px; }
+  #tagl-chrome { position: absolute; z-index: 2; left: ${p(87)}px; top: ${p(61)}px; font-weight: 700; font-size: ${p(18)}px; letter-spacing: ${p(2)}px; }
+  #tagr-chrome { position: absolute; z-index: 2; right: ${p(61)}px; top: ${p(61)}px; font-weight: 700; font-size: ${p(18)}px; letter-spacing: ${p(2)}px; }
 
   /* curation 2026-07-21: joint row rises 393→225; the whole spoken block (cue title + subtitle +
      credits) drops +206 as one unit (relative spacing untouched); bottom brand logos removed */
   #joint-row { position: absolute; z-index: 2; left: 0; top: ${p(225)}px; width: ${p(736)}px; height: ${p(65)}px; }
   /* v4: A CREATOR! JOINT is ONE plain text entity — one font, one size, one baseline
      (the three-span mixed-face version read as a broken line) */
-  #joint { position: absolute; top: ${p(4)}px; left: 0; width: ${p(736)}px; text-align: center;
+  #joint-chrome { position: absolute; top: ${p(4)}px; left: 0; width: ${p(736)}px; text-align: center;
            font-weight: 700; font-size: ${p(27)}px; letter-spacing: ${p(4)}px; }
   .laurel { position: absolute; top: 0; width: ${p(78)}px; height: ${p(65)}px; }
   #laurel-l { left: ${p(63)}px; }
@@ -230,10 +233,10 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
          display: flex; flex-direction: column; align-items: center; justify-content: center;
          font-size: ${p(9)}px; font-weight: 700; line-height: 1.05; letter-spacing: .5px; }
 
-  #subtitle-row { position: absolute; z-index: 2; left: 0; top: ${p(989)}px; width: ${p(736)}px; text-align: center; }
-  #subtitle { display: inline-block; font-weight: 700; font-size: ${p(21)}px; letter-spacing: ${p(2)}px; }
+  #subtitle-row { position: absolute; z-index: 2; left: 0; top: ${p(SUB_TOP)}px; width: ${p(736)}px; text-align: center; }
+  #subtitle-chrome { display: inline-block; font-weight: 700; font-size: ${p(21)}px; letter-spacing: ${p(2)}px; }
 
-  #credits { position: absolute; z-index: 2; left: 0; top: ${p(1070)}px; width: ${p(736)}px;
+  #credits { position: absolute; z-index: 2; left: 0; top: ${p(1130)}px; width: ${p(736)}px;
              display: flex; flex-direction: column; align-items: center; gap: ${p(9)}px; }
   .crow { display: flex; gap: ${p(17)}px; justify-content: center; font-size: ${p(19)}px; font-weight: 400; letter-spacing: .5px; }
   .seg { position: relative; z-index: 2; white-space: nowrap; }
@@ -269,17 +272,17 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
 <body>
   <video class="vid" src="${meta.videoPath}" muted></video>
 
-  <div id="tagl" class="y glow fader" style="animation-delay:${ROLE_FADE_MS_078['kicker-left']}ms" data-node-id="tagl" data-node-role="text">THE INTERNET</div>
-  <div id="tagr" class="y glow fader" style="animation-delay:${ROLE_FADE_MS_078['kicker-right']}ms" data-node-id="tagr" data-node-role="text">PRESENTS</div>
+  <div id="tagl-chrome" class="y glow fader" style="animation-delay:${ROLE_FADE_MS_078['kicker-left']}ms" data-node-id="tagl-chrome" data-node-role="text">THE INTERNET</div>
+  <div id="tagr-chrome" class="y glow fader" style="animation-delay:${ROLE_FADE_MS_078['kicker-right']}ms" data-node-id="tagr-chrome" data-node-role="text">PRESENTS</div>
 
   <div id="joint-row">
 ${laurelHtml('l', 'lp1', 'lp2', 'lbl1', 'PICTURE')}
-    <div id="joint" class="y glow fader" style="animation-delay:${ROLE_FADE_MS_078.joint}ms" data-node-id="joint" data-node-role="text">A CREATOR! JOINT</div>
+    <div id="joint-chrome" class="y glow fader" style="animation-delay:${ROLE_FADE_MS_078.joint}ms" data-node-id="joint-chrome" data-node-role="text">A CREATOR! JOINT</div>
 ${laurelHtml('r', 'lp3', 'lp4', 'lbl2', 'ACT')}
   </div>
 
   <div id="subtitle-row" class="fader" style="animation-delay:${ROLE_FADE_MS_078.subtitle}ms">
-    <div id="subtitle" class="y glow" data-node-id="subtitle" data-node-role="text">INSPIRED BY ACTUAL EVENTS</div>
+    <div id="subtitle-chrome" class="y glow" data-node-id="subtitle-chrome" data-node-role="text">INSPIRED BY ACTUAL EVENTS</div>
   </div>
 
   <div id="credits" class="glow" data-node-id="credits">

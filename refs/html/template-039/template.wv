@@ -1,0 +1,99 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@1,900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; opacity:0; z-index:1; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  @keyframes pgMid { 0%{opacity:0} 0.01%,99.99%{opacity:1} 100%{opacity:0} }
+
+  .stack { left:40px; right:40px; top:790px; z-index:2; font-family:'Jost'; font-style:italic; font-weight:900; text-align:left; }
+  .ln { display:block; line-height:1; padding-bottom:14px; }
+  .w { display:inline-block; vertical-align:bottom; margin-right:14px; opacity:0; animation-fill-mode:forwards; white-space:pre; transform-origin:left center; }
+  .bleed { margin-left:-40px; }
+  .rc { letter-spacing:-0.015em; padding:6px 15px 9px; background:#FF1F0F; color:#FFFFFF; box-shadow:8px 8px 0 #0A0A0A;
+        animation-name:wIn; animation-duration:130ms; animation-timing-function:cubic-bezier(.16,.84,.3,1); }
+  .rh { letter-spacing:-0.025em; padding:9px 21px 14px; background:#E9FF00; color:#0A0A0A; box-shadow:11px 11px 0 #0A0A0A;
+        animation-name:hIn; animation-duration:210ms; animation-timing-function:cubic-bezier(.34,1.3,.64,1); }
+  .rb { letter-spacing:-0.035em; padding:14px 34px 21px; background:#E9FF00; color:#0A0A0A; box-shadow:17px 17px 0 #0A0A0A;
+        animation-name:hIn; animation-duration:300ms; animation-timing-function:cubic-bezier(.34,1.3,.64,1); }
+  @keyframes wIn { from{opacity:0; transform:translateY(0.24em)} to{opacity:1; transform:none} }
+  @keyframes hIn { from{opacity:0; transform:scale(0.8)} to{opacity:1; transform:none} }
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:160ms;animation-duration:880ms;">
+  <div class="pg stack" id="b1p1" style="opacity:1;">
+      <div class="ln" id="b1p1l1"><span class="w rc" id="b1w1" style="font-size:83px;animation-delay:160ms">I</span><span class="w rc" id="b1w2" style="font-size:83px;animation-delay:280ms">FIRED</span><span class="w rc" id="b1w3" style="font-size:83px;animation-delay:600ms">OUR</span></div>
+      <div class="ln" id="b1p1l2"><span class="w rh" id="b1w4" style="font-size:113px;animation-delay:760ms">BIGGEST</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:1040ms;animation-duration:1280ms;">
+  <div class="pg stack" id="b2p1" style="opacity:1;">
+      <div class="ln" id="b2p1l1"><span class="w rh" id="b2w5" style="font-size:104px;animation-delay:1040ms">CLIENT</span><span class="w rc" id="b2w6" style="font-size:76px;animation-delay:1360ms">TWO</span></div>
+      <div class="ln" id="b2p1l2"><span class="w rc" id="b2w7" style="font-size:76px;animation-delay:1600ms">YEARS</span><span class="w rc" id="b2w8" style="font-size:76px;animation-delay:1800ms">AGO</span></div>
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:2320ms;animation-duration:680ms;">
+  <div class="pg stack" id="b3p1" style="opacity:1;">
+      <div class="ln" id="b3p1l1"><span class="w rc" id="b3w9" style="font-size:83px;animation-delay:2320ms">BEST</span></div>
+      <div class="ln" id="b3p1l2"><span class="w rh" id="b3w10" style="font-size:113px;animation-delay:2680ms">DECISION</span></div>
+  </div>
+</div>
+<div class="cue" id="cue4" style="z-index:14;animation-delay:3000ms;animation-duration:920ms;">
+  <div class="pg stack" id="b4p1" style="opacity:1;">
+      <div class="ln" id="b4p1l1"><span class="w rc" id="b4w11" style="font-size:83px;animation-delay:3000ms">WE</span><span class="w rc" id="b4w12" style="font-size:83px;animation-delay:3280ms">EVER</span></div>
+      <div class="ln" id="b4p1l2"><span class="w rh" id="b4w13" style="font-size:113px;animation-delay:3480ms">MADE</span></div>
+  </div>
+</div>
+<div class="cue" id="cue5" style="z-index:15;animation-delay:3920ms;animation-duration:1200ms;">
+  <div class="pg stack" id="b5p1" style="opacity:1;">
+      <div class="ln" id="b5p1l1"><span class="w rc" id="b5w14" style="font-size:83px;animation-delay:3920ms">THEY</span><span class="w rc" id="b5w15" style="font-size:83px;animation-delay:4240ms">WERE</span></div>
+      <div class="ln" id="b5p1l2"><span class="w rb bleed" id="b5w16" style="font-size:181px;animation-delay:4480ms">40%</span></div>
+  </div>
+</div>
+<div class="cue" id="cue6" style="z-index:16;animation-delay:5120ms;animation-duration:1280ms;">
+  <div class="pg stack" id="b6p1" style="opacity:1;">
+      <div class="ln" id="b6p1l1"><span class="w rc" id="b6w17" style="font-size:83px;animation-delay:5120ms">OF</span></div>
+      <div class="ln" id="b6p1l2"><span class="w rh" id="b6w18" style="font-size:113px;animation-delay:5400ms">REVENUE</span></div>
+  </div>
+</div>
+<div class="cue" id="cue7" style="z-index:17;animation-delay:6400ms;animation-duration:1680ms;">
+  <div class="pg stack" id="b7p1" style="opacity:1;">
+      <div class="ln" id="b7p1l1"><span class="w rc" id="b7w19" style="font-size:83px;animation-delay:6400ms">AND</span></div>
+      <div class="ln" id="b7p1l2"><span class="w rb bleed" id="b7w20" style="font-size:181px;animation-delay:6960ms">100%</span></div>
+  </div>
+</div>
+<div class="cue" id="cue8" style="z-index:18;animation-delay:8080ms;animation-duration:1200ms;">
+  <div class="pg stack" id="b8p1" style="opacity:1;">
+      <div class="ln" id="b8p1l1"><span class="w rc" id="b8w21" style="font-size:83px;animation-delay:8080ms">OF</span><span class="w rc" id="b8w22" style="font-size:83px;animation-delay:8360ms">OUR</span></div>
+      <div class="ln" id="b8p1l2"><span class="w rh" id="b8w23" style="font-size:113px;animation-delay:8560ms">STRESS</span></div>
+  </div>
+</div>
+<div class="cue" id="cue9" style="z-index:19;animation-delay:9280ms;animation-duration:1200ms;">
+  <div class="pg stack" id="b9p1" style="opacity:1;">
+      <div class="ln" id="b9p1l1"><span class="w rc" id="b9w24" style="font-size:76px;animation-delay:9280ms">WE</span><span class="w rh" id="b9w25" style="font-size:104px;animation-delay:9600ms">REBUILT</span></div>
+      <div class="ln" id="b9p1l2"><span class="w rc" id="b9w26" style="font-size:76px;animation-delay:10200ms">AROUND</span></div>
+  </div>
+</div>
+<div class="cue" id="cue10" style="z-index:20;animation-delay:10480ms;animation-duration:1600ms;">
+  <div class="pg stack" id="b10p1" style="opacity:1;">
+      <div class="ln" id="b10p1l1"><span class="w rh" id="b10w27" style="font-size:104px;animation-delay:10480ms">CUSTOMERS</span></div>
+      <div class="ln" id="b10p1l2"><span class="w rc" id="b10w28" style="font-size:76px;animation-delay:11120ms">WE</span><span class="w rc" id="b10w29" style="font-size:76px;animation-delay:11320ms">LOVE</span></div>
+  </div>
+</div>
+<div class="cue" id="cue11" style="z-index:21;animation-delay:12080ms;animation-duration:5920ms;">
+  <div class="pg stack" id="b11p1" style="opacity:1;animation:pgOff 40ms linear 12920ms forwards;">
+      <div class="ln" id="b11p1l1"><span class="w rc" id="b11w30" style="font-size:76px;animation-delay:12080ms">THAT</span><span class="w rc" id="b11w31" style="font-size:76px;animation-delay:12360ms">IS</span><span class="w rc" id="b11w32" style="font-size:76px;animation-delay:12520ms">THE</span></div>
+      <div class="ln" id="b11p1l2"><span class="w rc" id="b11w33" style="font-size:76px;animation-delay:12680ms">COMPANY</span></div>
+  </div>
+  <div class="pg stack" id="b11p2" style="animation:pgOn 40ms linear 12960ms forwards;">
+      <div class="ln" id="b11p2l1"><span class="w rc" id="b11w34" style="font-size:76px;animation-delay:12960ms">YOU</span><span class="w rc" id="b11w35" style="font-size:76px;animation-delay:13240ms">ARE</span></div>
+      <div class="ln" id="b11p2l2"><span class="w rh" id="b11w36" style="font-size:104px;animation-delay:13440ms">LOOKING</span><span class="w rc" id="b11w37" style="font-size:76px;animation-delay:13680ms">AT</span></div>
+  </div>
+</div>

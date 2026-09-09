@@ -1,0 +1,81 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:736px; height:1312px; position:relative; overflow:hidden; }
+  .vid { position:absolute; inset:0; width:736px; height:1312px; object-fit:cover; z-index:0; }
+  @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
+  .cue { position:absolute; inset:0; opacity:0; animation:cueWin linear forwards; }
+  .pg { position:absolute; opacity:0; z-index:1; }
+  @keyframes pgOn { to{opacity:1} }
+  @keyframes pgOff { to{opacity:0} }
+  @keyframes pgMid { 0%{opacity:0} 0.01%,99.99%{opacity:1} 100%{opacity:0} }
+
+  .poster { inset:0; }
+  .ml { position:absolute; left:52px; width:632px; z-index:2; font-family:'IBM Plex Mono'; font-weight:600;
+        letter-spacing:0.08em; line-height:1.3; color:#E6F1F7; white-space:nowrap;
+        text-shadow:0 3px 14px rgba(11,11,14,0.52), 0 2px 3px rgba(11,11,14,0.40); }
+  .w { display:inline-block; opacity:0; animation-name:wIn; animation-duration:220ms; animation-timing-function:cubic-bezier(.2,.7,.3,1); animation-fill-mode:both; }
+  @keyframes wIn { 0%{opacity:0; transform:translateY(14px)} 100%{opacity:1; transform:translateY(0)} }
+  .hero { position:absolute; left:52px; width:632px; z-index:3; }
+  .sw { display:inline-block; padding:3px 21px; }
+  .wipeL { clip-path:polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%); animation-name:wipeL; animation-duration:190ms; animation-timing-function:cubic-bezier(.16,1,.3,1); animation-fill-mode:both; }
+  .wipeR { clip-path:polygon(100% 0%, 100% 0%, 100% 100%, 100% 100%); animation-name:wipeR; animation-duration:190ms; animation-timing-function:cubic-bezier(.16,1,.3,1); animation-fill-mode:both; }
+  @keyframes wipeL { 0%{clip-path:polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%)} 100%{clip-path:polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)} }
+  @keyframes wipeR { 0%{clip-path:polygon(100% 0%, 100% 0%, 100% 100%, 100% 100%)} 100%{clip-path:polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)} }
+  .sRed { background:#FF2D00; }
+  .sIce { background:#00E5FF; }
+  .hw { display:inline-block; font-family:'Anton'; font-weight:400; line-height:0.8; letter-spacing:0.01em; padding:0.08em 0 0.06em; color:#0B0B0E; white-space:nowrap; }
+</style>
+<video class="vid" src="demo.mp4" muted></video>
+<div class="cue" id="cue1" style="z-index:11;animation-delay:160ms;animation-duration:3280ms;">
+  <div class="pg poster" id="b1p1" style="opacity:1;">
+      <div class="ml" id="b1p1a" style="top:790px;font-size:28px;text-align:left"><span class="w" id="b1w1" style="animation-delay:160ms">I</span> <span class="w" id="b1w2" style="animation-delay:240ms">HAVE</span> <span class="w" id="b1w3" style="animation-delay:360ms">WATCHED</span> <span class="w" id="b1w4" style="animation-delay:720ms">FIVE</span></div>
+      <div class="hero" style="top:852px;text-align:left"><span class="sw sRed wipeL" style="animation-delay:1000ms"><span class="hw" id="b1p1h" style="font-size:118px">TECHNOLOGY</span></span></div>
+      <div class="ml" id="b1p1b" style="top:1048px;font-size:28px;text-align:left"><span class="w" id="b1w5" style="animation-delay:1520ms">WAVES</span> <span class="w" id="b1w6" style="animation-delay:1960ms">HIT</span> <span class="w" id="b1w7" style="animation-delay:2200ms">THIS</span> <span class="w" id="b1w8" style="animation-delay:2400ms">INDUSTRY.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue2" style="z-index:12;animation-delay:3440ms;animation-duration:1360ms;">
+  <div class="pg poster" id="b2p1" style="opacity:1;">
+      <div class="ml" id="b2p1a" style="top:790px;font-size:28px;text-align:right"><span class="w" id="b2w9" style="animation-delay:3440ms">THIS</span> <span class="w" id="b2w10" style="animation-delay:3760ms">ONE</span> <span class="w" id="b2w11" style="animation-delay:4000ms">IS</span></div>
+      <div class="hero" style="top:852px;text-align:right"><span class="sw sRed wipeR" style="animation-delay:4200ms"><span class="hw" id="b2p1h" style="font-size:131px">DIFFERENT</span></span></div>
+      
+  </div>
+</div>
+<div class="cue" id="cue3" style="z-index:13;animation-delay:4800ms;animation-duration:2640ms;">
+  <div class="pg poster" id="b3p1" style="opacity:1;">
+      <div class="ml" id="b3p1a" style="top:790px;font-size:28px;text-align:left"><span class="w" id="b3w12" style="animation-delay:4800ms">THE</span> <span class="w" id="b3w13" style="animation-delay:5080ms">SCARCE</span> <span class="w" id="b3w14" style="animation-delay:5520ms">THING</span> <span class="w" id="b3w15" style="animation-delay:5720ms">IS</span> <span class="w" id="b3w16" style="animation-delay:5920ms">NO</span> <span class="w" id="b3w17" style="animation-delay:6120ms">LONGER</span></div>
+      <div class="hero" style="top:852px;text-align:left"><span class="sw sIce wipeL" style="animation-delay:6480ms"><span class="hw" id="b3p1h" style="font-size:118px">PRODUCTION</span></span></div>
+      
+  </div>
+</div>
+<div class="cue" id="cue4" style="z-index:14;animation-delay:7440ms;animation-duration:1600ms;">
+  <div class="pg poster" id="b4p1" style="opacity:1;">
+      <div class="ml" id="b4p1a" style="top:790px;font-size:28px;text-align:right"><span class="w" id="b4w18" style="animation-delay:7440ms">IT</span> <span class="w" id="b4w19" style="animation-delay:7720ms">IS</span></div>
+      <div class="hero" style="top:852px;text-align:right"><span class="sw sRed wipeR" style="animation-delay:7920ms"><span class="hw" id="b4p1h" style="font-size:131px">ATTENTION</span></span></div>
+      
+  </div>
+</div>
+<div class="cue" id="cue5" style="z-index:15;animation-delay:9040ms;animation-duration:1440ms;">
+  <div class="pg poster" id="b5p1" style="opacity:1;">
+      <div class="ml" id="b5p1a" style="top:790px;font-size:28px;text-align:left"><span class="w" id="b5w20" style="animation-delay:9040ms">AND</span> <span class="w" id="b5w21" style="animation-delay:9320ms">IT</span></div>
+      <div class="hero" style="top:852px;text-align:left"><span class="sw sRed wipeL" style="animation-delay:9520ms"><span class="hw" id="b5p1h" style="font-size:175px">ALWAYS</span></span></div>
+      <div class="ml" id="b5p1b" style="top:1048px;font-size:28px;text-align:left"><span class="w" id="b5w22" style="animation-delay:9800ms">WAS.</span></div>
+  </div>
+</div>
+<div class="cue" id="cue6" style="z-index:16;animation-delay:10480ms;animation-duration:3760ms;">
+  <div class="pg poster" id="b6p1" style="opacity:1;">
+      <div class="ml" id="b6p1a" style="top:790px;font-size:28px;text-align:right"><span class="w" id="b6w23" style="animation-delay:10480ms">MAKE</span> <span class="w" id="b6w24" style="animation-delay:10840ms">FEWER</span></div>
+      <div class="hero" style="top:852px;text-align:right"><span class="sw sIce wipeR" style="animation-delay:11240ms"><span class="hw" id="b6p1h" style="font-size:175px">THINGS</span></span></div>
+      <div class="ml" id="b6p1b" style="top:1048px;font-size:28px;text-align:right"><span class="w" id="b6w25" style="animation-delay:12400ms">MAKE</span> <span class="w" id="b6w26" style="animation-delay:12680ms">THEM</span> <span class="w" id="b6w27" style="animation-delay:12920ms">MATTER</span></div>
+  </div>
+</div>
+<div class="cue" id="cue7" style="z-index:17;animation-delay:14240ms;animation-duration:3760ms;">
+  <div class="pg poster" id="b7p1" style="opacity:1;">
+      <div class="ml" id="b7p1a" style="top:790px;font-size:28px;text-align:left"><span class="w" id="b7w28" style="animation-delay:14240ms">THAT</span></div>
+      <div class="hero" style="top:852px;text-align:left"><span class="sw sRed wipeL" style="animation-delay:14560ms"><span class="hw" id="b7p1h" style="font-size:175px">ADVICE</span></span></div>
+      <div class="ml" id="b7p1b" style="top:1048px;font-size:28px;text-align:left"><span class="w" id="b7w29" style="animation-delay:15080ms">HAS</span> <span class="w" id="b7w30" style="animation-delay:15320ms">NEVER</span> <span class="w" id="b7w31" style="animation-delay:15560ms">LOST.</span></div>
+  </div>
+</div>

@@ -1,0 +1,206 @@
+{
+  "beats": [
+    {
+      "i": 1,
+      "startSec": 0.16,
+      "endSec": 2.32,
+      "cueDelayMs": 160,
+      "cueDurMs": 2160,
+      "words": [
+        {
+          "w": "MY",
+          "delayMs": 160
+        },
+        {
+          "w": "MOTHER",
+          "delayMs": 280
+        },
+        {
+          "w": "WROTE",
+          "delayMs": 520
+        },
+        {
+          "w": "HER",
+          "delayMs": 760
+        },
+        {
+          "w": "RECIPES",
+          "delayMs": 920
+        },
+        {
+          "w": "ON",
+          "delayMs": 1440
+        },
+        {
+          "w": "WHATEVER",
+          "delayMs": 1840
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 2.32,
+      "endSec": 4.387,
+      "cueDelayMs": 2320,
+      "cueDurMs": 2067,
+      "words": [
+        {
+          "w": "PAPER",
+          "delayMs": 2320
+        },
+        {
+          "w": "THE",
+          "delayMs": 2640
+        },
+        {
+          "w": "KITCHEN",
+          "delayMs": 2840
+        },
+        {
+          "w": "HAD",
+          "delayMs": 3200
+        },
+        {
+          "w": "THAT",
+          "delayMs": 3440
+        },
+        {
+          "w": "DAY.",
+          "delayMs": 3640
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 4.4,
+      "endSec": 5.987,
+      "cueDelayMs": 4400,
+      "cueDurMs": 1587,
+      "words": [
+        {
+          "w": "60",
+          "delayMs": 4400
+        },
+        {
+          "w": "YEARS",
+          "delayMs": 4760
+        },
+        {
+          "w": "LATER,",
+          "delayMs": 5040
+        },
+        {
+          "w": "WE",
+          "delayMs": 5280
+        },
+        {
+          "w": "STILL",
+          "delayMs": 5520
+        },
+        {
+          "w": "BAKE",
+          "delayMs": 5720
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 6,
+      "endSec": 8.16,
+      "cueDelayMs": 6000,
+      "cueDurMs": 2160,
+      "words": [
+        {
+          "w": "FROM",
+          "delayMs": 6000
+        },
+        {
+          "w": "THOSE",
+          "delayMs": 6200
+        },
+        {
+          "w": "PAGES,",
+          "delayMs": 6440
+        },
+        {
+          "w": "STAINS",
+          "delayMs": 7040
+        },
+        {
+          "w": "AND",
+          "delayMs": 7520
+        },
+        {
+          "w": "ALL.",
+          "delayMs": 7720
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 8.16,
+      "endSec": 10.48,
+      "cueDelayMs": 8160,
+      "cueDurMs": 2320,
+      "words": [
+        {
+          "w": "WE",
+          "delayMs": 8160
+        },
+        {
+          "w": "COULD",
+          "delayMs": 8440
+        },
+        {
+          "w": "MODERNIZE",
+          "delayMs": 8600
+        },
+        {
+          "w": "IT.",
+          "delayMs": 9160
+        },
+        {
+          "w": "WE",
+          "delayMs": 9440
+        },
+        {
+          "w": "NEVER",
+          "delayMs": 9720
+        },
+        {
+          "w": "WILL.",
+          "delayMs": 9960
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "startSec": 10.48,
+      "endSec": 12.033,
+      "cueDelayMs": 10480,
+      "cueDurMs": 1553,
+      "words": [
+        {
+          "w": "THAT",
+          "delayMs": 10480
+        },
+        {
+          "w": "IS",
+          "delayMs": 10760
+        },
+        {
+          "w": "THE",
+          "delayMs": 10920
+        },
+        {
+          "w": "WHOLE",
+          "delayMs": 11080
+        },
+        {
+          "w": "POINT.",
+          "delayMs": 11360
+        }
+      ]
+    }
+  ]
+}

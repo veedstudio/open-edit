@@ -1,0 +1,362 @@
+{
+  "text": "You forget facts in days, but you remember stories for decades. There is a reason. A story links each fact to an emotion. An emotion is how the brain files things. So if you want to be remembered, stop listing. Start telling.",
+  "chunks": [
+    {
+      "text": "You forget facts in days, but",
+      "timestamp": [
+        0.16,
+        1.759
+      ],
+      "words": [
+        {
+          "text": "You",
+          "timestamp": [
+            0.16,
+            0.28
+          ]
+        },
+        {
+          "text": "forget",
+          "timestamp": [
+            0.28,
+            0.56
+          ]
+        },
+        {
+          "text": "facts",
+          "timestamp": [
+            0.56,
+            0.92
+          ]
+        },
+        {
+          "text": "in",
+          "timestamp": [
+            0.92,
+            1.12
+          ]
+        },
+        {
+          "text": "days,",
+          "timestamp": [
+            1.12,
+            1.44
+          ]
+        },
+        {
+          "text": "but",
+          "timestamp": [
+            1.44,
+            1.759
+          ]
+        }
+      ]
+    },
+    {
+      "text": "you remember stories for decades.",
+      "timestamp": [
+        1.76,
+        3.599
+      ],
+      "words": [
+        {
+          "text": "you",
+          "timestamp": [
+            1.76,
+            1.96
+          ]
+        },
+        {
+          "text": "remember",
+          "timestamp": [
+            1.96,
+            2.32
+          ]
+        },
+        {
+          "text": "stories",
+          "timestamp": [
+            2.32,
+            2.72
+          ]
+        },
+        {
+          "text": "for",
+          "timestamp": [
+            2.72,
+            2.92
+          ]
+        },
+        {
+          "text": "decades.",
+          "timestamp": [
+            2.92,
+            3.599
+          ]
+        }
+      ]
+    },
+    {
+      "text": "There is a reason. A story",
+      "timestamp": [
+        3.6,
+        5.199
+      ],
+      "words": [
+        {
+          "text": "There",
+          "timestamp": [
+            3.6,
+            3.88
+          ]
+        },
+        {
+          "text": "is",
+          "timestamp": [
+            3.88,
+            4.04
+          ]
+        },
+        {
+          "text": "a",
+          "timestamp": [
+            4.04,
+            4.2
+          ]
+        },
+        {
+          "text": "reason.",
+          "timestamp": [
+            4.2,
+            4.72
+          ]
+        },
+        {
+          "text": "A",
+          "timestamp": [
+            4.72,
+            5
+          ]
+        },
+        {
+          "text": "story",
+          "timestamp": [
+            5,
+            5.199
+          ]
+        }
+      ]
+    },
+    {
+      "text": "links each fact to an emotion.",
+      "timestamp": [
+        5.2,
+        6.959
+      ],
+      "words": [
+        {
+          "text": "links",
+          "timestamp": [
+            5.2,
+            5.56
+          ]
+        },
+        {
+          "text": "each",
+          "timestamp": [
+            5.56,
+            5.76
+          ]
+        },
+        {
+          "text": "fact",
+          "timestamp": [
+            5.76,
+            6
+          ]
+        },
+        {
+          "text": "to",
+          "timestamp": [
+            6,
+            6.2
+          ]
+        },
+        {
+          "text": "an",
+          "timestamp": [
+            6.2,
+            6.36
+          ]
+        },
+        {
+          "text": "emotion.",
+          "timestamp": [
+            6.36,
+            6.959
+          ]
+        }
+      ]
+    },
+    {
+      "text": "An emotion is how the brain files things.",
+      "timestamp": [
+        6.96,
+        9.519
+      ],
+      "words": [
+        {
+          "text": "An",
+          "timestamp": [
+            6.96,
+            7.24
+          ]
+        },
+        {
+          "text": "emotion",
+          "timestamp": [
+            7.24,
+            7.64
+          ]
+        },
+        {
+          "text": "is",
+          "timestamp": [
+            7.64,
+            7.76
+          ]
+        },
+        {
+          "text": "how",
+          "timestamp": [
+            7.76,
+            7.96
+          ]
+        },
+        {
+          "text": "the",
+          "timestamp": [
+            7.96,
+            8.16
+          ]
+        },
+        {
+          "text": "brain",
+          "timestamp": [
+            8.16,
+            8.44
+          ]
+        },
+        {
+          "text": "files",
+          "timestamp": [
+            8.44,
+            8.88
+          ]
+        },
+        {
+          "text": "things.",
+          "timestamp": [
+            8.88,
+            9.519
+          ]
+        }
+      ]
+    },
+    {
+      "text": "So if you want to be",
+      "timestamp": [
+        9.52,
+        10.359
+      ],
+      "words": [
+        {
+          "text": "So",
+          "timestamp": [
+            9.52,
+            9.76
+          ]
+        },
+        {
+          "text": "if",
+          "timestamp": [
+            9.76,
+            9.84
+          ]
+        },
+        {
+          "text": "you",
+          "timestamp": [
+            9.84,
+            9.96
+          ]
+        },
+        {
+          "text": "want",
+          "timestamp": [
+            9.96,
+            10.12
+          ]
+        },
+        {
+          "text": "to",
+          "timestamp": [
+            10.12,
+            10.24
+          ]
+        },
+        {
+          "text": "be",
+          "timestamp": [
+            10.24,
+            10.359
+          ]
+        }
+      ]
+    },
+    {
+      "text": "remembered, stop listing. Start telling.",
+      "timestamp": [
+        10.36,
+        13.433
+      ],
+      "words": [
+        {
+          "text": "remembered,",
+          "timestamp": [
+            10.36,
+            11.04
+          ]
+        },
+        {
+          "text": "stop",
+          "timestamp": [
+            11.04,
+            11.44
+          ]
+        },
+        {
+          "text": "listing.",
+          "timestamp": [
+            11.44,
+            12.24
+          ]
+        },
+        {
+          "text": "Start",
+          "timestamp": [
+            12.24,
+            12.64
+          ]
+        },
+        {
+          "text": "telling.",
+          "timestamp": [
+            12.64,
+            13.433
+          ]
+        }
+      ]
+    }
+  ]
+}

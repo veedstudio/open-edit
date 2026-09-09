@@ -850,6 +850,10 @@ the defects `--verify` can't see). Exits:
 on request); on a probe FAIL offer a
 `--seed`/`--style` re-run; never redesign or hand-edit the .wv document · **3** = the sampled ref has no compiled
 recipe (stale `style.json`; rerun SAMPLE ONE STYLE).
+The chain's `--verify` runs the bounds family only. After exit 0, run the SAFE-ZONE CHECK (the VERIFY invocation
+in the DESIGN + RENDER step's RENDER + VERIFY block) on `runs/<key>/final` — seconds, no re-record on a clean
+result — and triage per its CHROME/TRANSIENT/MINOR/MAJOR rule: chrome, transient and minor → deliver and mention;
+major → fix on a `--module` copy and re-run the chain.
 
 CUSTOMISING (only when the user explicitly asks for a tweak to a recipe run): **NEVER edit a library
 recipe (`refs/html/<id>/recipe.ts`) in place** — it is validated, shared by every run. COPY it to your
@@ -969,16 +973,89 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs a real desktop session; binary = 
      — engine-limit anti-patterns (animated blur, the stacking trap, missing cue ids, per-corner radius).
      Exit 1 → fix the flagged rule, re-lint before verifying.
   VERIFY (analytic, fast, no video, reads manifest render block):
-       {repo}/.veed-engine/veed-engine-cli {repo}/runs/{key}/final --verify
+       {repo}/.veed-engine/veed-engine-cli {repo}/runs/{key}/final --verify=bounds,safezones --verify-report {repo}/runs/{key}/final/verify.json
      It replays the whole timeline offscreen and checks the REAL draw list. Exit 0 = clean. Exit 1 = it prints ONE
      stdout line per problem, naming the element id, e.g.:
        frame 3 t=0.400s FAIL[bounds] #cap3 glyph 14 right 3.1px outside (8.42% of glyph box) viewport 736x1312
        FAIL[never-visible] #cap5 glyph 2 ink in 300 frames, never fully visible (best 0.00% at frame 0 ...)
        frame 2 t=0.200s FAIL[occluded] #cap2 glyph 5 fully covered by later opaque rect
+       FAIL[safezone] #b4w31 zone generic-9x16 53.5% of ink outside keep-inside, worst frame 314 t=10.5s, window 10.5..11.3s, 24 offending frames (longest run 24)
      Built-in rules = the exact defects this pipeline hits: bounds (type off the viewport), never-visible (type
      clipped away in EVERY frame — e.g. stuck behind a mask/box), occluded (type fully hidden under a later opaque
-     layer — the z-order/opacity trap). Fix ONLY the flagged element (nudge inside the safe zone / fix z-order or the
-     mask) and re-run --verify until exit 0. (exit 2 = engine render failure = a real authoring error, not a nit.)
+     layer — the z-order/opacity trap), safezone (type inside the viewport but outside the platform-safe area —
+     the SAFE-ZONE CHECK below owns its triage and fix). Fix ONLY the flagged element (nudge inside the safe zone /
+     fix z-order or the mask) and re-run --verify until exit 0. (exit 2 = engine render failure = a real authoring
+     error, not a nit.) If the engine prints its usage instead of a report, it predates `--verify=<rules>`
+     (`--help` lists `--verify[=<rules>]` on an engine that has it): run bare `--verify` for the first three rules
+     and say plainly that the safe-zone check did not run — never fake it from a screenshot.
+  SAFE-ZONE CHECK — the `safezones` family of the VERIFY invocation above. Same walk, no extra cost; it judges
+     GLYPH INK only (plates, boxes, images, video and semi-transparent fills are not observed) against the
+     platform-safe area, and both the check and every fix below are the DOCUMENT's — the mp4 is never inspected.
+     Zones: bare `safezones` picks the generic preset by canvas aspect — 9:16 → x 6..89% / y 11..83% (top 11%,
+     bottom 17%, left 6%, right 11%: the brief's own safe margins, the band feed UI covers), 16:9 → 6% inset,
+     1:1 → 5% inset. Custom zones when the user's platform or brand says so:
+     `--verify=bounds,safezones:{path}.json` with
+     `{"zones":[{"name":"...","rect":{"x":%,"y":%,"w":%,"h":%},"mode":"keep-inside|keep-out","severity":"error|warn"}],"exempt":["id"]}`
+     — or the same object as `"verify":{"safezones":{...}}` in manifest.json, which wins over the flag. `keep-out`
+     names a rect ink must stay OUT of (a logo corner, a sticker band); `warn` reports and scores but exits 0;
+     `exempt` lists ids whose bleed is the DESIGN (a full-bleed title, a ticker) — never an id you want to stop
+     failing.
+     READ THE REPORT: one FAIL[safezone] line per (element, zone), aggregated over the whole timeline — `% of ink`
+     is the element's intruding ink-area over its visible ink-area across every frame, `worst frame` is where to
+     look, `window` is first..last offending time, and `N offending frames (longest run M)` is how long the ink was
+     actually out (the window alone cannot tell one flash from two far apart). The element named is the INNERMOST id'd element carrying the
+     ink — in this pipeline's documents that is a WORD span (`#b4w31`); the thing you move is the LINE or BLOCK
+     that positions it (its `.ln` / page container), and the words of one line move together. `verify.json`
+     carries what stdout does not: `max_intrusion_px` per violation (the depth in canvas px — the number a fix
+     is sized from), `alpha_at_max_intrusion` (the run's effective opacity in that deepest frame — a slide-in still
+     fading up posts a deep number nobody sees), `offending_frames` / `longest_run_frames`, per-element scores and
+     an `overall_score` (100 = clean; ink-area-time weighted, so a brief
+     flash barely moves it and a line HELD outside sinks it — use it to describe, never to triage). To SEE a
+     worst frame: `{repo}/.veed-engine/veed-engine-cli {repo}/runs/{key}/final --headless --frame-num-until-exit {frame} --exit-screenshot {path}.png`.
+     CHROME FIRST: an element whose id ends in `-chrome` is DRESSING (kickers, credits, film-strip labels and
+     marks, stickers) — not the spoken line. The convention: a recipe or an authored document puts the suffix on
+     the element that DIRECTLY wraps the text (the engine labels a run by its direct parent's id; an id one level
+     up leaves the run reported by its text, pooled with every other run of the same text). A `FAIL[safezone]` on
+     a `-chrome` id is not triaged and is never fixed: name it in ONE clause at delivery ("the credits strip runs
+     under the feed UI") and deliver. Only content violations enter the triage below.
+     TRIAGE — TRANSIENT vs MINOR vs MAJOR, per positioned line, from the numbers (never by eye). Let `edge` = 2%
+     of the canvas's shorter side (22px on a 1080-wide canvas) and `hold` = 250ms in frames (8 at 30fps, 6 at
+     25). A report without `longest_run_frames` (an engine before that field) reads the `window` length as the
+     hold instead — it overstates two flashes far apart, never understates a held line.
+       TRANSIENT: every violation on the line has `longest_run_frames` < hold AND `ink_intruding_fraction` <= 0.05.
+         A line's slide-in or settle crossing the margin for a few frames, usually while still fading up; the
+         composition is right at rest, and `max_intrusion_px` here is the animation's travel, not a placement.
+         NOT a fix: deliver, and mention it in ONE clause ("two lines cross the safe margin for a few frames on
+         entry"). Name it as a visible flick only when `alpha_at_max_intrusion` is above 0.5.
+       MINOR: not transient, and every violation on the line has `max_intrusion_px` <= edge AND
+         `ink_intruding_fraction` <= 0.25.
+         A descender, an overshoot, a line box set ON the margin. AUTOCORRECT without asking: shift that line's
+         container inward by ceil(max_intrusion_px) + 4px (the side is the one the line sits nearest — the
+         document tells you, the report does not), re-run VERIFY, and mention it in ONE clause at delivery
+         ("nudged two lines inside the safe area").
+       MAJOR: anything else — deeper than `edge` and not transient, more than a quarter of the ink out, or `100%`
+         (the whole element outside). A band placed under the feed UI, a title wider than the zone, a wrong-canvas
+         assumption.
+         AUTOCORRECT too, but as a RE-PLACEMENT, not a nudge: put the block at the nearest legal position on its
+         own side (bottom band → top = zone bottom px − block height − 8px; a side → left/right = zone edge + 8px);
+         if the block is WIDER than the zone (left AND right both fail, or its width exceeds the zone's) step it
+         ONE rung down the size ladder first, then place; if `analysis.json` exists and the new position lands on
+         `faceBbox`, take the other band. Re-run VERIFY. A major fix changes the composition, so tell the user what
+         moved and by how much in plain terms — not the rule name. Never resize, recolour or re-time anything
+         else.
+       keep-out zones triage on the same numbers (depth = how far INTO the rect, fraction = how much of the ink
+         is in it, hold = how long); the fix moves the ink OUT the shortest way.
+       `WARN[safezone]` lines never block; treat them as minor for the message and fix them only if the fix is a
+         nudge.
+     At most TWO correction cycles, then stop and report honestly — a third means the placement rule is wrong,
+     not the number. On a COMPILED-RECIPE run the document is script-owned: a safezone FAIL is a recipe geometry
+     bug — a CHROME one is dressing and is delivered and mentioned; a TRANSIENT one is delivered and mentioned (the
+     recipe's entry animation, not its placement); a MINOR
+     one is delivered and reported (the recipe's own margins are the fix, offline); a MAJOR one is fixed on a
+     `--module` COPY (the CUSTOMISING route), never in `final/template.wv` by hand.
+     A delivered result the user asks you to CHECK ("is this inside the safe zones?") is the same command on its
+     run dir's `final/` — the check needs the document; an mp4 with no run dir has nothing to replay, so say that
+     rather than judging frames by eye.
   EXPECT WINDOWS (optional) — word-reveal TIMING: to assert a caption is shown/hidden in a time window, add a "verify" block to
      manifest.json alongside "render": {"verify":{"expect":[{"element":"cap3","visible":true,"from":2.1,"to":3.4}]}}.
      --verify then FAILs[expect-visible]/[expect-hidden] if a word isn't on-screen when it should be. Use when a
@@ -1075,8 +1152,10 @@ naming the donors in `donors`), then author
 whole chain with one command (OUTSIDE any sandbox — verify and record need a real desktop session):
   `npx @veedstudio/openedit-cli gates runs/<key>-remix`
 It runs design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, stops at the first failure and names
-the gate. A `--verify` failure: fix ONLY the flagged element and re-run, at most twice, then stop and
-report honestly. A probe-qa failure: report it in plain terms and pick the fix WITH the user — never
+the gate. Its `--verify` is the bounds family only, so run the SAFE-ZONE CHECK (the VERIFY invocation in the
+RENDER + VERIFY block) on `runs/<key>-remix/final` BEFORE the chain — you authored the document, the fix is
+yours, and a clean document costs no re-record. A `--verify` failure: fix ONLY the flagged element and re-run,
+at most twice, then stop and report honestly. A probe-qa failure: report it in plain terms and pick the fix WITH the user — never
 redesign. The deliverable lands next to the original, and the user compares.
 The WCAG AA pass runs INSIDE that chain, before the record — do not run it again afterwards. It DETECTS
 and REPORTS only; the chain does not pause and does not apply anything. On `status: attention` the

@@ -45,9 +45,18 @@ export const LADDER: Row078[] = [
   { cls: 't22', maxC: Infinity, tops: [591, 611, 631] },
 ];
 const LINE1_TOP = 571;
-// Curation 2026-07-21: whole stack rides 27px lower (line-1 ink top ≈598); applied to every line so
-// the ladder's leading survives; bottom-block clearance re-checked (L3 cap ink bottom ≈946 < 980).
-const STACK_DROP = 27;
+// Safe-zone pass 2026-09-03: the stack is BOTTOM-anchored — its last line's ink lands on STACK_BOTTOM
+// whatever the line count, so a short beat no longer floats mid-frame over the face (it used to hang
+// from LINE1_TOP). Line pitch is still the row's tops, read relative to LINE1_TOP. INK_EM is the italic
+// caps' ink depth below a line's top (0.1em .w padding + the glyphs), rounded up; the wordIn rise adds a
+// few transient px below it, which is why STACK_BOTTOM sits 29px above the 1089px margin.
+const STACK_BOTTOM = 1060;
+const INK_EM = 1.0;
+export function stackTop078(row: Row078, L: number): number {
+  const fs = Number(row.cls.slice(1));
+  const lastRel = L === 1 ? 0 : row.tops[L - 2] - LINE1_TOP;
+  return STACK_BOTTOM - lastRel - INK_EM * fs;
+}
 // Caps held near their pre-bump absolute reach (sheet: hard vertical ceiling vs the bottom block).
 const CAP_L3 = LADDER.findIndex((r) => r.cls === 't93');
 const CAP_L4 = LADDER.findIndex((r) => r.cls === 't76');
@@ -123,7 +132,8 @@ function generate(meta: RunMeta, timings: WordTimings, opts: RecipeOptions = {})
       const ids = lines.map((_, k) => `b${beat.i}l${k + 1}`);
       const row = rowFor(C, lines.length, demotionFor(demote, ...ids));
       const winMs = winMsFor(timings.beats, idx, meta.durationSec);
-      const divs = lines.map((ln, k) => lineHtml(ln, ids[k], row.cls, p((k === 0 ? LINE1_TOP : row.tops[k - 1]) + STACK_DROP)));
+      const top0 = stackTop078(row, lines.length);
+      const divs = lines.map((ln, k) => lineHtml(ln, ids[k], row.cls, p(top0 + (k === 0 ? 0 : row.tops[k - 1] - LINE1_TOP))));
       return `<div class="cue" id="cue${beat.i}" data-node-id="cue${beat.i}"
      style="z-index:${10 + beat.i};animation-delay:${beat.cueDelayMs}ms;animation-duration:${winMs}ms">
 ${divs.join('\n')}
@@ -144,15 +154,18 @@ ${divs.join('\n')}
   body { position:relative; font-family:'Albert Sans',sans-serif; }
   .vid { position:absolute; inset:0; width:${p(736)}px; height:${p(1312)}px; object-fit:cover; z-index:0; }
 
-  /* persistent credits chrome — fixed text, revealed once at clip start, up for the whole video */
+  /* persistent credits chrome — fixed text, revealed once at clip start, up for the whole video. Every
+     word span carries a -chrome id (the engine labels a run by its direct parent) so the safe-zone
+     report sets the dressing aside from the spoken stack. */
   .chrome { position:absolute; z-index:2; color:#e62129; white-space:nowrap; }
   #tagl    { left:${p(110)}px; top:${p(172)}px; font-weight:700; font-size:${p(15)}px; letter-spacing:${p(1)}px; line-height:${p(22)}px; }
   #tagr    { right:${p(146)}px; top:${p(172)}px; text-align:right; font-weight:700; font-size:${p(15)}px; letter-spacing:${p(1)}px; line-height:${p(22)}px; }
-  /* bottom block — ONE anchor, four lines top-to-bottom; #sub2's ink bottom lands ~1084px (<1089px) */
-  #basedon { left:${p(73)}px; width:${p(554)}px; top:${p(980)}px; text-align:center; font-weight:700; font-size:${p(14)}px; letter-spacing:${p(2)}px; line-height:1; }
-  #embreve { left:${p(73)}px; width:${p(554)}px; top:${p(999)}px; text-align:center; font-weight:800; font-size:${p(41)}px; letter-spacing:${p(3)}px; line-height:1; }
-  #sub1    { left:${p(73)}px; width:${p(554)}px; top:${p(1051)}px; text-align:center; font-weight:800; font-size:${p(14)}px; letter-spacing:${ph(0.5)}px; line-height:1; }
-  #sub2    { left:${p(73)}px; width:${p(554)}px; top:${p(1070)}px; text-align:center; font-weight:800; font-size:${p(14)}px; letter-spacing:${ph(0.5)}px; line-height:1; }
+  /* bottom block — ONE anchor, four lines top-to-bottom, under the bottom-anchored stack (980 → 1085):
+     the whole block now sits at or under the 1089px margin (chrome, reported not fixed) */
+  #basedon { left:${p(73)}px; width:${p(554)}px; top:${p(1085)}px; text-align:center; font-weight:700; font-size:${p(14)}px; letter-spacing:${p(2)}px; line-height:1; }
+  #embreve { left:${p(73)}px; width:${p(554)}px; top:${p(1104)}px; text-align:center; font-weight:800; font-size:${p(41)}px; letter-spacing:${p(3)}px; line-height:1; }
+  #sub1    { left:${p(73)}px; width:${p(554)}px; top:${p(1156)}px; text-align:center; font-weight:800; font-size:${p(14)}px; letter-spacing:${ph(0.5)}px; line-height:1; }
+  #sub2    { left:${p(73)}px; width:${p(554)}px; top:${p(1175)}px; text-align:center; font-weight:800; font-size:${p(14)}px; letter-spacing:${ph(0.5)}px; line-height:1; }
 
   /* beat gate — the one safe reveal recipe; z-index + delay + duration come inline per cue */
   @keyframes cueWin { 0%,99.99%{opacity:1} 100%{opacity:0} }
@@ -187,12 +200,12 @@ ${divs.join('\n')}
 </head>
 <body>
   <video class="vid" src="${meta.videoPath}" muted></video>
-  <div id="tagl" class="chrome" data-node-role="text"><span class="w" style="animation-delay:0ms">THE&#160;</span><span class="w" style="animation-delay:90ms">INTERNET</span></div>
-  <div id="tagr" class="chrome" data-node-role="text"><span class="w" style="animation-delay:180ms">PRESENTS</span></div>
-  <div id="basedon" class="chrome" data-node-role="text"><span class="w" style="animation-delay:270ms">BASED&#160;</span><span class="w" style="animation-delay:330ms">ON&#160;</span><span class="w" style="animation-delay:390ms">A&#160;</span><span class="w" style="animation-delay:450ms">TRUE&#160;</span><span class="w" style="animation-delay:510ms">STORY</span></div>
-  <div id="embreve" class="chrome" data-node-role="text"><span class="w" style="animation-delay:590ms">COMING&#160;</span><span class="w" style="animation-delay:670ms">SOON</span></div>
-  <div id="sub1" class="chrome" data-node-role="text"><span class="w" style="animation-delay:730ms">LIKE,&#160;</span><span class="w" style="animation-delay:790ms">REALLY&#160;</span><span class="w" style="animation-delay:850ms">SOON</span></div>
-  <div id="sub2" class="chrome" data-node-role="text"><span class="w" style="animation-delay:890ms">TRUST&#160;</span><span class="w" style="animation-delay:930ms">US&#160;</span><span class="w" style="animation-delay:970ms">:P</span></div>
+  <div id="tagl" class="chrome" data-node-role="text"><span class="w" id="tagl-w1-chrome" data-node-id="tagl-w1-chrome" style="animation-delay:0ms">THE&#160;</span><span class="w" id="tagl-w2-chrome" data-node-id="tagl-w2-chrome" style="animation-delay:90ms">INTERNET</span></div>
+  <div id="tagr" class="chrome" data-node-role="text"><span class="w" id="tagr-w1-chrome" data-node-id="tagr-w1-chrome" style="animation-delay:180ms">PRESENTS</span></div>
+  <div id="basedon" class="chrome" data-node-role="text"><span class="w" id="basedon-w1-chrome" data-node-id="basedon-w1-chrome" style="animation-delay:270ms">BASED&#160;</span><span class="w" id="basedon-w2-chrome" data-node-id="basedon-w2-chrome" style="animation-delay:330ms">ON&#160;</span><span class="w" id="basedon-w3-chrome" data-node-id="basedon-w3-chrome" style="animation-delay:390ms">A&#160;</span><span class="w" id="basedon-w4-chrome" data-node-id="basedon-w4-chrome" style="animation-delay:450ms">TRUE&#160;</span><span class="w" id="basedon-w5-chrome" data-node-id="basedon-w5-chrome" style="animation-delay:510ms">STORY</span></div>
+  <div id="embreve" class="chrome" data-node-role="text"><span class="w" id="embreve-w1-chrome" data-node-id="embreve-w1-chrome" style="animation-delay:590ms">COMING&#160;</span><span class="w" id="embreve-w2-chrome" data-node-id="embreve-w2-chrome" style="animation-delay:670ms">SOON</span></div>
+  <div id="sub1" class="chrome" data-node-role="text"><span class="w" id="sub1-w1-chrome" data-node-id="sub1-w1-chrome" style="animation-delay:730ms">LIKE,&#160;</span><span class="w" id="sub1-w2-chrome" data-node-id="sub1-w2-chrome" style="animation-delay:790ms">REALLY&#160;</span><span class="w" id="sub1-w3-chrome" data-node-id="sub1-w3-chrome" style="animation-delay:850ms">SOON</span></div>
+  <div id="sub2" class="chrome" data-node-role="text"><span class="w" id="sub2-w1-chrome" data-node-id="sub2-w1-chrome" style="animation-delay:890ms">TRUST&#160;</span><span class="w" id="sub2-w2-chrome" data-node-id="sub2-w2-chrome" style="animation-delay:930ms">US&#160;</span><span class="w" id="sub2-w3-chrome" data-node-id="sub2-w3-chrome" style="animation-delay:970ms">:P</span></div>
 ${cues.join('\n')}
 </body>
 </html>

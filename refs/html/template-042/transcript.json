@@ -1,0 +1,353 @@
+{
+  "text": "Every piece we make started on a beach exactly like this one. 5 tons of ocean plastic so far pulled from the water and spun into thread. The ocean gave us the brand. The least we can do is give something back.",
+  "chunks": [
+    {
+      "text": "Every piece we make started on",
+      "timestamp": [
+        0.16,
+        1.64
+      ],
+      "words": [
+        {
+          "text": "Every",
+          "timestamp": [
+            0.16,
+            0.32
+          ]
+        },
+        {
+          "text": "piece",
+          "timestamp": [
+            0.32,
+            0.64
+          ]
+        },
+        {
+          "text": "we",
+          "timestamp": [
+            0.64,
+            0.84
+          ]
+        },
+        {
+          "text": "make",
+          "timestamp": [
+            0.84,
+            1.08
+          ]
+        },
+        {
+          "text": "started",
+          "timestamp": [
+            1.08,
+            1.4
+          ]
+        },
+        {
+          "text": "on",
+          "timestamp": [
+            1.4,
+            1.64
+          ]
+        }
+      ]
+    },
+    {
+      "text": "a beach exactly like this one.",
+      "timestamp": [
+        1.64,
+        3.76
+      ],
+      "words": [
+        {
+          "text": "a",
+          "timestamp": [
+            1.64,
+            1.76
+          ]
+        },
+        {
+          "text": "beach",
+          "timestamp": [
+            1.76,
+            2.08
+          ]
+        },
+        {
+          "text": "exactly",
+          "timestamp": [
+            2.08,
+            2.68
+          ]
+        },
+        {
+          "text": "like",
+          "timestamp": [
+            2.68,
+            2.88
+          ]
+        },
+        {
+          "text": "this",
+          "timestamp": [
+            2.88,
+            3.12
+          ]
+        },
+        {
+          "text": "one.",
+          "timestamp": [
+            3.12,
+            3.76
+          ]
+        }
+      ]
+    },
+    {
+      "text": "5 tons of ocean plastic so far pulled",
+      "timestamp": [
+        3.76,
+        6.68
+      ],
+      "words": [
+        {
+          "text": "5",
+          "timestamp": [
+            3.76,
+            4.08
+          ]
+        },
+        {
+          "text": "tons",
+          "timestamp": [
+            4.08,
+            4.44
+          ]
+        },
+        {
+          "text": "of",
+          "timestamp": [
+            4.44,
+            4.6
+          ]
+        },
+        {
+          "text": "ocean",
+          "timestamp": [
+            4.6,
+            5.04
+          ]
+        },
+        {
+          "text": "plastic",
+          "timestamp": [
+            5.04,
+            5.68
+          ]
+        },
+        {
+          "text": "so",
+          "timestamp": [
+            5.68,
+            5.96
+          ]
+        },
+        {
+          "text": "far",
+          "timestamp": [
+            5.96,
+            6.24
+          ]
+        },
+        {
+          "text": "pulled",
+          "timestamp": [
+            6.24,
+            6.68
+          ]
+        }
+      ]
+    },
+    {
+      "text": "from the water and spun into thread.",
+      "timestamp": [
+        6.68,
+        8.88
+      ],
+      "words": [
+        {
+          "text": "from",
+          "timestamp": [
+            6.68,
+            6.8
+          ]
+        },
+        {
+          "text": "the",
+          "timestamp": [
+            6.8,
+            6.92
+          ]
+        },
+        {
+          "text": "water",
+          "timestamp": [
+            6.92,
+            7.16
+          ]
+        },
+        {
+          "text": "and",
+          "timestamp": [
+            7.16,
+            7.44
+          ]
+        },
+        {
+          "text": "spun",
+          "timestamp": [
+            7.44,
+            7.8
+          ]
+        },
+        {
+          "text": "into",
+          "timestamp": [
+            7.8,
+            8.16
+          ]
+        },
+        {
+          "text": "thread.",
+          "timestamp": [
+            8.16,
+            8.88
+          ]
+        }
+      ]
+    },
+    {
+      "text": "The ocean gave us the brand.",
+      "timestamp": [
+        8.88,
+        10.8
+      ],
+      "words": [
+        {
+          "text": "The",
+          "timestamp": [
+            8.88,
+            9.2
+          ]
+        },
+        {
+          "text": "ocean",
+          "timestamp": [
+            9.2,
+            9.64
+          ]
+        },
+        {
+          "text": "gave",
+          "timestamp": [
+            9.64,
+            9.88
+          ]
+        },
+        {
+          "text": "us",
+          "timestamp": [
+            9.88,
+            10.08
+          ]
+        },
+        {
+          "text": "the",
+          "timestamp": [
+            10.08,
+            10.28
+          ]
+        },
+        {
+          "text": "brand.",
+          "timestamp": [
+            10.28,
+            10.8
+          ]
+        }
+      ]
+    },
+    {
+      "text": "The least we can do is give something back.",
+      "timestamp": [
+        10.8,
+        13.8
+      ],
+      "words": [
+        {
+          "text": "The",
+          "timestamp": [
+            10.8,
+            11.08
+          ]
+        },
+        {
+          "text": "least",
+          "timestamp": [
+            11.08,
+            11.32
+          ]
+        },
+        {
+          "text": "we",
+          "timestamp": [
+            11.32,
+            11.56
+          ]
+        },
+        {
+          "text": "can",
+          "timestamp": [
+            11.56,
+            11.76
+          ]
+        },
+        {
+          "text": "do",
+          "timestamp": [
+            11.76,
+            12
+          ]
+        },
+        {
+          "text": "is",
+          "timestamp": [
+            12,
+            12.28
+          ]
+        },
+        {
+          "text": "give",
+          "timestamp": [
+            12.28,
+            12.64
+          ]
+        },
+        {
+          "text": "something",
+          "timestamp": [
+            12.64,
+            13.12
+          ]
+        },
+        {
+          "text": "back.",
+          "timestamp": [
+            13.12,
+            13.8
+          ]
+        }
+      ]
+    }
+  ]
+}

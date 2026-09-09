@@ -33,6 +33,8 @@ const LADDER: SizeRow[] = [
   { cls: '', fs: 48, maxC: 25.8 },
   { cls: '', fs: 42, maxC: 29.4 },
 ];
+// safe-zone pass: anchors 62/92 leave 582px, not the 612 the table was measured for
+const BUDGET_SCALE = 582 / 612;
 const MAX_ROWS = 5;
 const CANVAS_H = 1312;
 const INK_EM = 0.72; // Anton caps ink height (em)
@@ -71,7 +73,7 @@ export function rowLoad(row: Row): number {
 
 export function beatFs(rows: Row[], demoteRows = 0): number {
   const L = Math.max(...rows.map(rowLoad));
-  return (pickRow(LADDER, L, demoteRows) as SizeRow).fs;
+  return (pickRow(LADDER, L / BUDGET_SCALE, demoteRows) as SizeRow).fs;
 }
 
 // section 4: entrances compress when the gate closes before a full 350ms reveal (250ms floor)
@@ -136,9 +138,10 @@ ${body}
      gl = flush left, gr = flush right (the split counterweight). */
   .grp { position:absolute; z-index:2; display:inline-block; white-space:nowrap;
          line-height:1; letter-spacing:${p(-1)}px; color:#fede0c; font-weight:400; }
-  /* v3: symmetric margins — the 44/81 pair read as a leftward drift of the whole block */
+  /* v3 made the margins symmetric (62/62); the safe-zone pass pulls the right anchor in to 92 —
+     the 11% right margin is 81px and right-flushed rows sat 19px past it */
   .gl { left:${p(62)}px; }
-  .gr { right:${p(62)}px; }
+  .gr { right:${p(92)}px; }
 
   /* word reveal — the prefab's plain eased alpha fade IN, then HOLD; the cue gate is the only exit.
      The dark text-shadow grounds the yellow ink over light footage. */

@@ -1,0 +1,334 @@
+{
+  "text": "I HAVE WATCHED FIVE TECHNOLOGY WAVES HIT THIS INDUSTRY. THIS ONE IS DIFFERENT THE SCARCE THING IS NO LONGER PRODUCTION. IT IS ATTENTION AND IT ALWAYS WAS. MAKE FEWER THINGS, MAKE THEM MATTER THAT ADVICE HAS NEVER LOST.",
+  "chunks": [
+    {
+      "text": "I HAVE WATCHED FIVE TECHNOLOGY WAVES HIT THIS INDUSTRY.",
+      "timestamp": [
+        0.16,
+        3.44
+      ],
+      "words": [
+        {
+          "text": "I",
+          "timestamp": [
+            0.16,
+            0.24
+          ]
+        },
+        {
+          "text": "HAVE",
+          "timestamp": [
+            0.24,
+            0.36
+          ]
+        },
+        {
+          "text": "WATCHED",
+          "timestamp": [
+            0.36,
+            0.72
+          ]
+        },
+        {
+          "text": "FIVE",
+          "timestamp": [
+            0.72,
+            1
+          ]
+        },
+        {
+          "text": "TECHNOLOGY",
+          "timestamp": [
+            1,
+            1.52
+          ]
+        },
+        {
+          "text": "WAVES",
+          "timestamp": [
+            1.52,
+            1.96
+          ]
+        },
+        {
+          "text": "HIT",
+          "timestamp": [
+            1.96,
+            2.2
+          ]
+        },
+        {
+          "text": "THIS",
+          "timestamp": [
+            2.2,
+            2.4
+          ]
+        },
+        {
+          "text": "INDUSTRY.",
+          "timestamp": [
+            2.4,
+            3.44
+          ]
+        }
+      ]
+    },
+    {
+      "text": "THIS ONE IS DIFFERENT",
+      "timestamp": [
+        3.44,
+        4.8
+      ],
+      "words": [
+        {
+          "text": "THIS",
+          "timestamp": [
+            3.44,
+            3.76
+          ]
+        },
+        {
+          "text": "ONE",
+          "timestamp": [
+            3.76,
+            4
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            4,
+            4.2
+          ]
+        },
+        {
+          "text": "DIFFERENT",
+          "timestamp": [
+            4.2,
+            4.8
+          ]
+        }
+      ]
+    },
+    {
+      "text": "THE SCARCE THING IS NO LONGER PRODUCTION.",
+      "timestamp": [
+        4.8,
+        7.44
+      ],
+      "words": [
+        {
+          "text": "THE",
+          "timestamp": [
+            4.8,
+            5.08
+          ]
+        },
+        {
+          "text": "SCARCE",
+          "timestamp": [
+            5.08,
+            5.52
+          ]
+        },
+        {
+          "text": "THING",
+          "timestamp": [
+            5.52,
+            5.72
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            5.72,
+            5.92
+          ]
+        },
+        {
+          "text": "NO",
+          "timestamp": [
+            5.92,
+            6.12
+          ]
+        },
+        {
+          "text": "LONGER",
+          "timestamp": [
+            6.12,
+            6.48
+          ]
+        },
+        {
+          "text": "PRODUCTION.",
+          "timestamp": [
+            6.48,
+            7.44
+          ]
+        }
+      ]
+    },
+    {
+      "text": "IT IS ATTENTION",
+      "timestamp": [
+        7.44,
+        9.04
+      ],
+      "words": [
+        {
+          "text": "IT",
+          "timestamp": [
+            7.44,
+            7.72
+          ]
+        },
+        {
+          "text": "IS",
+          "timestamp": [
+            7.72,
+            7.92
+          ]
+        },
+        {
+          "text": "ATTENTION",
+          "timestamp": [
+            7.92,
+            9.04
+          ]
+        }
+      ]
+    },
+    {
+      "text": "AND IT ALWAYS WAS.",
+      "timestamp": [
+        9.04,
+        10.48
+      ],
+      "words": [
+        {
+          "text": "AND",
+          "timestamp": [
+            9.04,
+            9.32
+          ]
+        },
+        {
+          "text": "IT",
+          "timestamp": [
+            9.32,
+            9.52
+          ]
+        },
+        {
+          "text": "ALWAYS",
+          "timestamp": [
+            9.52,
+            9.8
+          ]
+        },
+        {
+          "text": "WAS.",
+          "timestamp": [
+            9.8,
+            10.48
+          ]
+        }
+      ]
+    },
+    {
+      "text": "MAKE FEWER THINGS, MAKE THEM MATTER",
+      "timestamp": [
+        10.48,
+        14.24
+      ],
+      "words": [
+        {
+          "text": "MAKE",
+          "timestamp": [
+            10.48,
+            10.84
+          ]
+        },
+        {
+          "text": "FEWER",
+          "timestamp": [
+            10.84,
+            11.24
+          ]
+        },
+        {
+          "text": "THINGS,",
+          "timestamp": [
+            11.24,
+            12.4
+          ]
+        },
+        {
+          "text": "MAKE",
+          "timestamp": [
+            12.4,
+            12.68
+          ]
+        },
+        {
+          "text": "THEM",
+          "timestamp": [
+            12.68,
+            12.92
+          ]
+        },
+        {
+          "text": "MATTER",
+          "timestamp": [
+            12.92,
+            14.24
+          ]
+        }
+      ]
+    },
+    {
+      "text": "THAT ADVICE HAS NEVER LOST.",
+      "timestamp": [
+        14.24,
+        16.233
+      ],
+      "words": [
+        {
+          "text": "THAT",
+          "timestamp": [
+            14.24,
+            14.56
+          ]
+        },
+        {
+          "text": "ADVICE",
+          "timestamp": [
+            14.56,
+            15.08
+          ]
+        },
+        {
+          "text": "HAS",
+          "timestamp": [
+            15.08,
+            15.32
+          ]
+        },
+        {
+          "text": "NEVER",
+          "timestamp": [
+            15.32,
+            15.56
+          ]
+        },
+        {
+          "text": "LOST.",
+          "timestamp": [
+            15.56,
+            16.233
+          ]
+        }
+      ]
+    }
+  ]
+}
