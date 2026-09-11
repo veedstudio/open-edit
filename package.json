@@ -1,16 +1,52 @@
 {
-  "name": "open-edit",
-  "private": true,
+  "name": "@veedstudio/openedit-cli",
+  "description": "Open Edit command-line tool",
   "license": "Apache-2.0",
   "type": "module",
   "packageManager": "pnpm@10.16.1",
+  "bin": {
+    "openedit": "cli/dist/cli.js"
+  },
+  "files": [
+    "cli/dist",
+    "refs/html",
+    "!refs/html/**/transcript.json",
+    "!refs/html/**/word-timings.json",
+    "refs/tags.json",
+    "refs/animations.md",
+    "pipeline",
+    "veed",
+    "docs/FLOW.md",
+    "docs/recipe-format.md",
+    "AGENTS.md",
+    ".claude/skills/open-edit",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "@veedstudio:registry": "https://registry.npmjs.org"
+  },
+  "openedit": {
+    "minEngine": "0.10.2"
+  },
   "scripts": {
+    "build": "node cli/scripts/build.mjs",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "test:cli": "node --import tsx --test \"cli/tests/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "typecheck:cli": "tsc -p cli/tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@types/culori": "^4.0.1",
     "@types/node": "^22.0.0",
     "tsx": "4.21.0",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "culori": "^4.0.2"
   }
 }

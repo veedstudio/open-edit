@@ -1,19 +1,14 @@
 #!/usr/bin/env node
 // Compatibility entrypoint (the cross-platform twin of preflight.sh). The canonical setup lives in
-// the published CLI: `npx @veedstudio/openedit-cli init`. This shim only defaults the workspace to
-// this checkout.
+// the published CLI: `npx @veedstudio/openedit-cli init`. Every argument passes through untouched.
+//
+// It adds no --workspace of its own. This file travels with the content tree, which inside an
+// install is a directory under node_modules — naming it as the workspace would put a user's renders
+// there. Left alone, init takes the invoking checkout's top level, or the working directory.
 import { spawnSync } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-
-// Only default the workspace when the caller did not give one, otherwise it is passed twice.
-const args = process.argv.slice(2);
-if (!args.includes('--workspace')) args.unshift('--workspace', repoRoot);
 
 // Shell on Windows: npx installs as a .cmd shim Node cannot exec directly.
-const result = spawnSync('npx', ['--yes', '@veedstudio/openedit-cli', 'init', ...args], {
+const result = spawnSync('npx', ['--yes', '@veedstudio/openedit-cli', 'init', ...process.argv.slice(2)], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
 });

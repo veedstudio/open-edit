@@ -6,9 +6,12 @@
 set -uo pipefail
 
 # GUI-launched agents inherit a minimal PATH that commonly omits Homebrew. Add both standard
-# prefixes before probing node; preserve the caller's remaining PATH.
+# prefixes before probing node — but AFTER the caller's own PATH, never ahead of it. A Homebrew npm
+# keeps its own global directory, so an npx taken from there cannot see a CLI installed by whichever
+# npm the caller is using: it fetches a published copy and silently runs that instead of the one the
+# caller set up.
 HOMEBREW_PATH_PREFIX="${OPEN_EDIT_HOMEBREW_PATH_PREFIX-/opt/homebrew/bin:/usr/local/bin}"
-export PATH="${HOMEBREW_PATH_PREFIX:+$HOMEBREW_PATH_PREFIX:}$PATH"
+export PATH="$PATH${HOMEBREW_PATH_PREFIX:+:$HOMEBREW_PATH_PREFIX}"
 
 if ! command -v node >/dev/null 2>&1; then
   MODE=""

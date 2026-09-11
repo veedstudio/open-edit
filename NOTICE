@@ -18,6 +18,20 @@ The installer places a copy of those terms alongside the binary at
 `.veed-engine/LICENSE-binary.md`. The canonical copy is `LICENSE-binary.md` in
 the releases repository above.
 
+This project embeds woff2 subsets of two fonts in the login-success page, each
+licensed under the SIL Open Font License, Version 1.1
+(https://openfontlicense.org):
+
+  Inter — Copyright (c) 2016 The Inter Project Authors
+  (https://github.com/rsms/inter)
+
+  STIX Two Text — Copyright (c) 2001-2023 by the STI Pub Companies
+  (https://github.com/stipub/stixfonts)
+
+The full license text accompanies each upstream project at the URLs above.
+
+---
+
 Transcription in this project is performed against the VEED service, which
 requires a VEED account and credits. Use of that service is governed by VEED's
 terms, separately from this project's license.

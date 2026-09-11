@@ -1,200 +1,282 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/logo/light.png">
-    <img alt="OpenEdit, powered by VEED" src="docs/logo/light.png" width="440">
-  </picture>
-</p>
+# @veedstudio/openedit-cli
 
-<p align="center"><b>Not the editor you rent, but the one you own.</b></p>
+The Open Edit command-line tool: agent-driven video creation and editing,
+powered by VEED.
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/platform-Apple%20Silicon%20%C2%B7%20Windows%20x64-black" alt="Platform: Apple Silicon and Windows x64">
-</p>
-
-<p align="center">
-  <a href="#installation">Install</a> ·
-  <a href="#usage">Usage</a> ·
-  <a href="#examples">Examples</a> ·
-  <a href="https://www.veed.io">VEED</a>
-</p>
-
-OpenEdit is an open-source, agent-driven editing pipeline that ships with VEED's HTML renderer — closed
-source, but free to use.
-
-There is no GUI and no timeline. The pipeline is driven entirely through your coding agent — edit,
-cut, and reframe footage; layer motion graphics and visual elements; turn slides or websites into
-video; capture web pages; and pull in any [AI video/image generator](https://www.veed.io/tools/ai-video)
-or MCP server when it helps. Source video is optional: stills, slides, generated media, or pure
-motion graphics are enough when the brief calls for it. Be creative and fluid — try new ideas
-rather than collapsing every ask onto captions.
-
-OpenEdit edits footage. Supply your own source files, or ask it to generate a talking-head clip with
-[VEED Fabric](https://www.veed.io/ai/fabric-1-0) when you have none — that spends credits, and never
-without your approval.
-
-<a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/OpenEdit-4x3-trim.mp4"><img src="docs/examples/openedit-launch.webp" alt="OpenEdit launch video" width="100%"></a>
-
-*This launch video was made in OpenEdit — click it to watch with sound.*
-
-<a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/openedit-astra.mp4"><img src="docs/examples/openedit-astra.webp" alt="GPT-6 Astra title sequence made in OpenEdit" width="100%"></a>
-
-*Also made in OpenEdit, with GPT-6 Astra driving the pipeline — pure motion graphics, no source
-footage. Its prompt was written against the [OpenAI Brand Film](https://vimeo.com/1122006941) as a
-visual reference.*
-
-## Requirements
-
-| | |
-| --- | --- |
-| Platform | Apple Silicon Mac or Windows x64 PC. Preflight requires one of the two and stops elsewhere |
-| Intel Macs | Not supported — the renderer ships macOS-arm64 and windows-x64 only |
-| Older macOS | Built and tested on Tahoe 26.0. Nothing checks the version, so earlier releases may work — untested |
-| Windows | Windows 10 or newer (the installer extracts with the bundled `tar`). Git, Node, and ffmpeg via winget — preflight prints the exact commands and never runs them itself |
-| Linux | Planned; prioritisation depends on demand |
-| Transcription | needed only to caption speech — OpenEdit asks once and remembers: VEED ([sign up](https://www.veed.io/signup) / [login](https://www.veed.io/login)), WhisperX locally, or your own service. **VEED transcription consumes VEED credits**; WhisperX runs locally on your machine, and your own service is billed by whoever provides it |
-| Generation | optional — a veed.io account, only if you ask OpenEdit to generate footage you do not have |
-
-## Installation
-Download this repo, or install via the command line with:
-```sh
-npx skills add veedstudio/open-edit
-```
-
-## Agents
-OpenEdit uses an agent-agnostic skill and repository guide. It supports Claude Code, Codex, and Gemini;
-the installed skill prepares the runtime and loads its `AGENTS.md` instructions explicitly.
+The package carries the content it runs on — the recipe pool, the director's
+brief, the design substrate and the gates — so a fresh install can draw a style,
+build a document and gate it without cloning anything. The source is public at
+[veedstudio/open-edit](https://github.com/veedstudio/open-edit), whose README
+covers what Open Edit is and what it makes; this page is the command surface.
 
 ## Usage
-Open your coding agent. For example, with Claude Code:
+
 ```sh
-claude
+npx @veedstudio/openedit-cli --help
 ```
 
-then ask it:
-```
-Add subtitles to my video [VIDEO]
-```
+## Commands
 
-The agent will automatically transcribe your video, analyse the transcript, create a suitable design for your video, and then render it.
+### login
 
-After 1-3 minutes, the agent will return your video with subtitles burned in, as well as launch a video previewer. It will also tell you where to find the final MP4.
-
-You can then ask the agent for subtitle amendments, for example:
-
-```
-I don't like the yellow colour, make it darker
-
-Move the text up a bit
-
-When he says "go buy it now", make sure the 'now' really stands out.
-```
-
-You can also hand the agent a reference image to copy a style from:
-
-```
-Add subtitles that look like this [IMG-REF], to my video [VIDEO]
-```
-
-## Examples
-
-Real outputs, each with the prompt that produced it. Click any example to watch it with sound.
-
-```
-create viral subtitles with /open-edit and translate my video to 5 languages using VEED Lipsync 2.0 on Fal
-```
-
-One source clip, three languages, three caption styles — translated and re-lipsynced through
-[VEED's Lip Sync API](https://www.veed.io/tools/lip-sync-api):
-
-| Spanish | French | German |
-| --- | --- | --- |
-| [![Spanish](docs/examples/happy3-ES-078.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/happy3-ES-078.mp4) | [![French](docs/examples/remix-FR.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/remix-FR.mp4) | [![German](docs/examples/happy2-DE-lowerthird.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/happy2-DE-lowerthird.mp4) |
-
-```
-generate 3 viral hooks in Seedance 2.0 on Fal and create dynamic motion graphics using /open-edit
-```
-
-Three hooks generated with [Seedance](https://www.veed.io/tools/ai-video/seedance), three
-motion-graphic treatments:
-
-| | | |
-| --- | --- | --- |
-| [![News hook](docs/examples/news-comic.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/news-comic.mp4) | [![Desk hook](docs/examples/chair-remix.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/chair-remix.mp4) | [![Makeup hook](docs/examples/makeup-happy-v2.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/makeup-happy-v2.mp4) |
-
-```
-use Figma MCP to study my BrandBook and create branded campaign graphics using /open-edit
-```
-
-One brand book, three campaign cards:
-
-| | | |
-| --- | --- | --- |
-| [![Race Fashion 1](docs/examples/race-card-1.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/race-card-1.mp4) | [![Race Fashion 2](docs/examples/race-card-2.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/race-card-2.mp4) | [![Race Fashion 3](docs/examples/race-card-4.webp)](https://github.com/veedstudio/open-edit/releases/download/launch-examples/race-card-4.mp4) |
-
-## Renderer
-
-Caption styles are authored in HTML and CSS. Rendering does not use a headless browser: there is no
-browser to install, launch, or keep alive for the duration of a render.
-
-Internal benchmarks measured the renderer up to 2.2x faster than Chrome-driven renderers. These
-measurements are preliminary and not yet reproducible outside VEED; a documented benchmark and its
-methodology will follow.
-
-The renderer is integrated but not required. Composition does not depend on it, so Chrome can be used
-as the render backend instead.
-
-## Transcription
-
-OpenEdit asks once which provider to use and records the answer at the runtime root
-(`.open-edit-prefs.json`); it does not ask again. Every provider writes the same file —
-`runs/<key>/transcript.json`, with real per-word timings — and nothing downstream can tell which one ran.
-
-**VEED** — best quality, and the default workflow. Requires a VEED account; usage limits are your
-account's, and a free account covers about 10 minutes of transcription a month, beyond which it needs a
-[plan](https://www.veed.io/pricing). The audio track is uploaded and stored in order to transcribe it; the
-video is not uploaded. By default OpenEdit does not create a VEED project. The agent guides the one-time
-browser login and stores a refreshable token in the platform's per-user app-data directory.
+Log in with VEED (OAuth 2.1 + PKCE via the browser; the token is stored locally
+and refreshed automatically):
 
 ```sh
 npx @veedstudio/openedit-cli login
-npx @veedstudio/openedit-cli transcribe --provider veed /path/to/video.mp4
 ```
 
-**WhisperX** — free, local and offline; nothing leaves your machine. Installed on request, and the first
-run also downloads a model. Runs on CPU by default, with two quality tiers; a CUDA-capable box can
-override via `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE`.
+Pass `--manual` (or set `VEED_LOGIN_MANUAL=1`) when no reachable browser exists:
+the URL is printed, and the redirect is pasted back instead of caught on a
+localhost loopback.
+
+### token
+
+Print a valid VEED access token for other tools to consume, refreshing it
+first when stale (`VEED_ACCESS_TOKEN`, when set, is passed through as-is). The
+value is printed only when the output is captured; run it straight in a terminal
+and it reports that a token exists without putting one in your scrollback:
 
 ```sh
-npx @veedstudio/openedit-cli install-whisperx              # on request, once
-npx @veedstudio/openedit-cli transcribe /path/to/video.mp4    # --model medium for the better tier
+npx @veedstudio/openedit-cli token
 ```
 
-**Your own service** — produce a Whisper-family JSON however you like (WhisperX, openai-whisper,
-whisper-timestamped, mlx-whisper, the OpenAI API with `timestamp_granularities=["word"]`, or whisper.cpp
-`-oj`) and map it. No credentials pass through OpenEdit.
+Exits non-zero when no login is stored. `--path` prints the token store
+location instead of a token.
+
+### transcribe
+
+Transcribe videos, writing `runs/<key>/transcript.json`. There is no default
+provider — the choice is the user's, recorded once with `--record`. Locally with
+WhisperX (free, offline, nothing billed anywhere):
 
 ```sh
-npx @veedstudio/openedit-cli whisper transcription.json /path/to/video.mp4
+npx @veedstudio/openedit-cli transcribe video.mp4 [...] [--model medium] [--language de] [--force]
 ```
 
-Per-word timings are required whichever provider you use: without them the caption reveals drift out of
-sync with the audio, so a transcript that has none is refused rather than rendered badly.
+A transcript already on disk is left alone (it may have been retimed onto an
+edit); `--force` transcribes it again.
 
-## Scope and limitations
+Or hosted by VEED (premium quality; requires the one-time `login`, and spends
+the workspace's VEED transcription credits — `--workspace <id>` names which,
+required only when the account has several):
 
-V1 targets captions. Motion graphics, charts, and brandbook-matched styling render today, but are less
-exercised than captions and should be expected to have rough edges.
+```sh
+npx @veedstudio/openedit-cli transcribe --provider veed video.mp4 [...]
+```
 
-Report defects through GitHub issues.
+`--record <veed|whisperx|custom> [--model <id>]` records the transcription
+provider choice in `.open-edit-prefs.json` instead of running anything.
+
+### whisper
+
+Map a Whisper-family JSON produced by your own service (WhisperX,
+openai-whisper, whisper-timestamped, mlx-whisper, whisper.cpp `-oj -ml 1`, or
+the OpenAI API's `verbose_json` with word granularity) into the same
+`runs/<key>/transcript.json`:
+
+```sh
+npx @veedstudio/openedit-cli whisper transcription.json media.mp4 [...] [--force]
+```
+
+Word timestamps are required; the media argument may be a video or an audio
+file.
+
+### prep
+
+Probe the source canvas, synthesize `word-timings.json` from the transcript's
+real per-word times, and cut one base frame per beat (the transcript must
+already exist):
+
+```sh
+npx @veedstudio/openedit-cli prep video.mp4 [...]
+```
+
+### synth-timings
+
+Even-split word reveal delays for a single beat window:
+
+```sh
+npx @veedstudio/openedit-cli synth-timings --start 1.2 --end 3.4 --words "A B C" [--out file.json]
+```
+
+### generate / generate-set / sample-presenter
+
+Fabric generation — source footage from a script, when there is no video to
+caption. Generating spends TWO of the named workspace's allowances — AI
+Playground credits for the video and text-to-speech seconds for the voice — so
+it is two commands: the first quotes both and records the approval, the second
+spends exactly what was approved (no `--script` on the spend pass — the
+recorded, hashed script is what bills):
+
+```sh
+npx @veedstudio/openedit-cli generate --script "spoken words" --key my-run --workspace <id>
+npx @veedstudio/openedit-cli generate --key my-run --yes
+```
+
+`--resume` collects a job already created and paid for; `--abandon <sessionId>`
+clears one abandoned charge record. `generate-set --shots shots.json` covers
+several shots under one approval, and `sample-presenter` proposes a
+deterministic character/voice pair for a run key (listing costs nothing).
+
+### background-removal / lipsync
+
+Remove a video's background (VEED's free route by default; `--fast` uses a fal
+model billed to your own fal key), or re-lipsync a video to a new audio track
+(always fal-billed). Both use the VEED login only to host the local file:
+
+```sh
+npx @veedstudio/openedit-cli background-removal video.mp4 [--fast] [--mask-only] [--out <path>]
+npx @veedstudio/openedit-cli lipsync video.mp4 narration.mp3 [--out <path>]
+```
+
+The fal key comes from `FAL_KEY`, or `OPEN_EDIT_FAL_KEY_FILE` pointing at a
+file that holds it.
+
+### install-engine
+
+Download the veed render engine (checksum-verified, from its public GitHub
+releases) into the app-data dir, or upgrade an existing install:
+
+```sh
+npx @veedstudio/openedit-cli install-engine [weave-v<semver>]
+```
+
+`VEED_ENGINE_BIN` overrides where the engine is looked for. The binary is
+licensed separately (PolyForm Shield); its license installs beside it.
+
+### install-ffmpeg / install-whisperx
+
+The other two installers. `install-ffmpeg` checks for a working FFmpeg first
+(`VEED_ENGINE_FFMPEG`, then PATH, then a previous install) and only downloads
+when nothing works — a checksum-verified static build into the app-data dir
+(the download route is Windows-only; macOS points at `brew install ffmpeg`).
+`install-whisperx` installs the local transcription provider into an isolated
+uv/pipx tool environment; it never touches the system Python.
+
+```sh
+npx @veedstudio/openedit-cli install-ffmpeg [--check|--force]
+npx @veedstudio/openedit-cli install-whisperx [<version>]
+```
+
+### mux-audio / mix-audio
+
+Put sound on a render. `mux-audio` lays a run's source audio (or `--audio
+<file>`) onto its silent render, levelled to -14 LUFS / -1 dBTP (`--no-loudnorm`
+keeps the source level; the line it prints says which correction ran);
+`mix-audio` first builds one track from many pieces — narration, music,
+effects — per the run's mix spec, with music ducked under the voice:
+
+```sh
+npx @veedstudio/openedit-cli mix-audio runs/<key>            # → runs/<key>/audio/mix.m4a
+npx @veedstudio/openedit-cli mux-audio runs/<key> --audio runs/<key>/audio/mix.m4a
+```
+
+### wcag-pass
+
+Contrast-audit a rendered run through the engine's bundled analyzer, and (with
+`--apply`) promote the remediated template after re-verifying it:
+
+```sh
+npx @veedstudio/openedit-cli wcag-pass --run runs/<key> [--apply]
+```
+
+Needs the installed engine (`install-engine`). `WCAG_REMEDIATE` can point at a
+replacement remediation applier; by default the bundled one runs as its own
+plain-node process.
+
+### gates / expect-windows
+
+The whole gate chain — design → lint → verify → wcag → record → probe → mux —
+as one command over a run directory (run it outside any sandbox; rendering
+needs a real desktop session):
+
+```sh
+npx @veedstudio/openedit-cli gates runs/<key> [--doc <subdir>] [--audio <file>] [--no-loudnorm]
+```
+
+`expect-windows` derives the `verify.expect` timing assertions from a
+document's own gates (`--write` stamps them into the manifest); the chain runs
+it automatically. The design and lint gates come from the content this package
+carries, so they run with no checkout; `OPEN_EDIT_ROOT` pointed at one replaces
+them with that checkout's.
+
+### Editing and QA tools
+
+The remaining pipeline tools, each a direct port of its script:
+
+```sh
+npx @veedstudio/openedit-cli concat-chapters <run-dir> --doc chapters/act-1 --doc chapters/act-2
+npx @veedstudio/openedit-cli concat-videos [--canvas WxH] [--fit letterbox|crop|open] <out> <in1> <in2> [...]
+npx @veedstudio/openedit-cli cut-frames <video> [--json]      # frames at every shot boundary
+npx @veedstudio/openedit-cli scene-frames <video> <outDir>    # stills for a clip with no beats
+npx @veedstudio/openedit-cli scoped-edit <baseline.wv> <candidate.wv> [--allow <selector>]...
+npx @veedstudio/openedit-cli brand --file <brand.json> [--brief] [--check]
+npx @veedstudio/openedit-cli creative-log --for <video> [--reject "…" --why "…"] [--brief]
+```
+
+The cut tools, for an edit made before captioning: measure where speech starts,
+stops and pauses; assemble the kept ranges of an EDL (edit decision list) in one
+encode with crossfaded joins, each range snapped to the frame grid; and move the
+per-word timings you already have onto that timeline instead of transcribing the
+cut again. `--gap` and `--crossfade` are milliseconds; the EDL is seconds.
+
+```sh
+npx @veedstudio/openedit-cli speech-probe <video> [--range a:b] [--gap 250] [--window 10] [--json]
+npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20]
+npx @veedstudio/openedit-cli retime-transcript --edl edl.json --out <OPEN_EDIT_ROOT>/runs/cut/transcript.json
+```
+
+The retimed transcript goes where `prep` reads, `runs/<key>/` under the runtime
+root, so `prep cut.mp4` finds it and the cut is never transcribed.
+
+### stills / preview
+
+`stills` fetches licensed pictures from Wikimedia Commons, recording each
+file's terms beside it (`search` / `show` / `save`). `preview` serves a
+read-only localhost page for a run — scrub the footage, follow the transcript,
+and the player swaps to the new render when it lands:
+
+```sh
+npx @veedstudio/openedit-cli stills search "berlin skyline" --limit 10
+npx @veedstudio/openedit-cli preview runs/<key>
+```
+
+### init / readiness
+
+`init` is the workspace setup: it checks the machine dependencies (git, Node,
+pnpm, ffmpeg), clones the Open Edit runtime when the workspace isn't already a
+checkout, installs its pinned dependencies, and verifies the render engine.
+Bare `init` applies only safe, workspace-local setup; `--dry` reports without
+writing; `--auto-approve` also applies machine-global installs and clean
+updates, and is only for after a person has approved every reported action.
+Exit 10 means something is awaiting that approval; on success the workspace
+root is printed on stdout.
+
+```sh
+npx @veedstudio/openedit-cli init --dry --workspace <dir>
+npx @veedstudio/openedit-cli init --workspace <dir>
+```
+
+`readiness` reports what is present vs missing for a run — read-only, no
+network — and exits 1 when a blocking item is missing.
+
+## Configuration
+
+| Environment variable | Effect |
+| --- | --- |
+| `VEED_ORIGIN` | Overrides the default `https://www.veed.io` origin. |
+| `OPENEDIT_STATE_DIR` | Overrides where login state is stored. |
+| `OPEN_EDIT_ROOT` | Where `runs/<key>/` outputs and `.open-edit-prefs.json` are written (default: the app-data directory below). Pointed at an Open Edit checkout it also replaces the bundled content, so the CLI runs that checkout's recipes and gates instead. |
+| `VEED_ENGINE_FFMPEG` / `VEED_ENGINE_FFPROBE` | ffmpeg/ffprobe binaries (default: `PATH`; ffprobe defaults beside a configured ffmpeg). |
+| `WHISPERX_BIN` / `WHISPERX_MODEL` | WhisperX binary and fallback model tier (defaults: `whisperx` on `PATH`, `small.en`). |
+| `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE` | WhisperX device/compute (defaults: `cpu`/`int8`). |
+
+Login state lives in the platform's per-user app-data directory:
+`~/Library/Application Support/veed-openedit` on macOS, `%APPDATA%\veed-openedit`
+on Windows, and `$XDG_CONFIG_HOME/veed-openedit` (default `~/.config/veed-openedit`)
+on Linux.
 
 ## License
 
-The editor is licensed under Apache-2.0. The renderer binaries are distributed under PolyForm Shield
-1.0.0, which permits commercial use of the videos you produce with no payment to VEED. See `LICENSE`
-and `NOTICE` for the full terms.
-
----
-
-<p align="center"><sub><b>OpenEdit</b> · powered by <a href="https://www.veed.io">VEED</a></sub></p>
+Apache-2.0. See the bundled `LICENSE` and `NOTICE` files.

@@ -37,7 +37,7 @@ Init has three modes: bare applies safe local setup, `--dry` reports without wri
 4. **A transcription provider** — the skill asks once and remembers the answer. Either
    **VEED** (`npx @veedstudio/openedit-cli login`, one-time OAuth, ~30-day refreshable token; a free account
    covers about 10 minutes a month) or **WhisperX** locally (`npx @veedstudio/openedit-cli install-whisperx`,
-   free and offline). You can also point it at your own service. See `README.md`.
+   free and offline). You can also point it at your own service. See `.github/README.md`.
 5. **VEED credits.** **VEED transcription consumes VEED credits** (WhisperX runs locally on your
    machine; your own service is billed by whoever provides it). Separately, with no source video the skill can GENERATE a talking-head clip
    (`npx @veedstudio/openedit-cli generate`), which spends a workspace's AI Playground credits. **Fabric reuses VEED
