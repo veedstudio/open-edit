@@ -89,7 +89,11 @@ fast-path/refinement switch.
   restores a single source track and levels whichever track it is given to the delivery loudness; this
   is what a film needs instead.
 - `veed/` — VEED-native transcription + login (one writer of `transcript.json`; real per-word timings), plus Fabric generation and video background removal on the same login. `npx @veedstudio/openedit-cli background-removal` reaches the live free VEED route by default, or fal's own `--fast` model when that variant is wanted; `npx @veedstudio/openedit-cli lipsync` (video + new audio -> re-lipsynced video) has no VEED-hosted route at all and always goes through fal. Both fal-charged paths still use the VEED login to host the local file for a URL, but the generation call itself bills the user's own fal key (the CLI's fal BYOK rail), never a VEED workspace. `npx @veedstudio/openedit-cli prep` — `meta.json` + `word-timings.json` + base frames (needs a transcript from any provider). `refs/` — `html/` refs + `tags.json` (v3, the RUNTIME INDEX — recipes only, facet taxonomy, `fit` = aspect SOT) + per-ref `recipe.md` (the prose recipe sheet a compiled recipe is derived from — the fast path runs the compiled module, never the sheet; the creative pass reads sheets as craft substrate and REMIX donors).
-- `config.ts` — all machine paths (ffmpeg / ffprobe / veed-engine). `docs/` — FLOW (orchestration) · recipe-format (the recipe law). Engine support matrix = the `feature-support.md` asset downloaded with the engine release into `.veed-engine/` (not vendored here).
+- `cli/src/config.ts` — the machine paths the CLI resolves (ffmpeg / ffprobe / the engine), and the two roots
+  it keeps apart: the CONTENT it reads (recipes, gates, brief — the package's own tree unless `OPEN_EDIT_ROOT`
+  names a directory that really carries `refs/tags.json`) and the WORKSPACE it writes (`runs/`, the recorded
+  provider choice). A checkout also has a top-level `config.ts` of its own, reading the same env vars, for the
+  substrate scripts that run outside the CLI. `docs/` — FLOW (orchestration) · recipe-format (the recipe law). Engine support matrix = the `feature-support.md` asset downloaded with the engine release into `.veed-engine/` (not vendored here).
 
 ## Hard rules (do not drift — these protect output quality)
 - Recipe runs are **deterministic** — the generate-recipe command is the only writer of the final .wv document; never

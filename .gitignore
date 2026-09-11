@@ -51,3 +51,9 @@ __pycache__/
 # Engine probe renders — regenerable output of the probe harness
 internal/motion/probes/*/probe.mp4
 .ffmpeg/
+# Compiled content — emitted in place by `node cli/scripts/build.mjs --content`. The packer does this
+# in its own copy of the tree; a working checkout stays .ts-only so nothing stale can shadow an edit.
+refs/html/**/*.js
+pipeline/**/*.js
+veed/args.js
+internal/packaging/out/

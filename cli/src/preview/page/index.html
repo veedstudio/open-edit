@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenEdit preview</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='270 276 360 360'%3E%3Crect x='270' y='276' width='360' height='360' rx='80' fill='%2396FF1A'/%3E%3Cpath d='M433.603 583.575L334.898 543.331C329.252 541.025 325.558 535.532 325.558 529.428V488.759C325.558 482.662 329.245 477.176 334.891 474.863L433.603 434.5C434.409 434.174 435.284 434.757 435.284 435.625V476.356C435.284 477.37 434.652 478.28 433.701 478.641L352.343 509.149L433.694 539.407C434.652 539.761 435.284 540.678 435.284 541.692V582.437C435.284 583.305 434.409 583.895 433.603 583.569V583.575Z' fill='%23121212'/%3E%3Cpath d='M433.603 477.495L334.898 437.25C329.252 434.945 325.558 429.451 325.558 423.347V382.679C325.558 376.581 329.245 371.095 334.891 368.782L433.597 328.42C434.402 328.093 435.277 328.677 435.277 329.545V370.276C435.277 371.289 434.645 372.199 433.694 372.56L352.336 403.068L433.687 433.327C434.645 433.681 435.277 434.597 435.277 435.611V476.356C435.277 477.224 434.402 477.814 433.597 477.488L433.603 477.495Z' fill='%23121212'/%3E%3Cpath d='M466.397 434.501L565.095 474.745C570.741 477.051 574.435 482.544 574.435 488.649V529.317C574.435 535.414 570.748 540.901 565.102 543.213L466.39 583.576C465.584 583.902 464.709 583.319 464.709 582.451V541.72C464.709 540.706 465.341 539.797 466.292 539.435L547.65 508.927L466.299 478.669C465.341 478.315 464.709 477.398 464.709 476.384V435.64C464.709 434.772 465.584 434.181 466.39 434.508L466.397 434.501Z' fill='%23121212'/%3E%3Cpath d='M466.397 328.422L565.095 368.666C570.741 370.972 574.435 376.465 574.435 382.57V423.238C574.435 429.335 570.748 434.822 565.102 437.134L466.39 477.497C465.584 477.823 464.709 477.24 464.709 476.372V435.641C464.709 434.627 465.341 433.718 466.292 433.356L547.65 402.848L466.299 372.59C465.341 372.236 464.709 371.319 464.709 370.305V329.554C464.709 328.686 465.584 328.095 466.39 328.422H466.397Z' fill='%23121212'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="strip">
+    <span id="wordmark">OpenEdit preview</span>
+    <span id="status-center">
+      <span id="stage-pill" class="pill" hidden><span id="pill-text"></span><span id="stage-steps" aria-hidden="true"><i data-step="transcribe"></i><i data-step="design"></i><i data-step="render"></i></span></span>
+    </span>
+    <span id="conn" class="dot" title="reconnecting" hidden></span>
+    <span id="announce" class="sr-only" role="status" aria-live="polite"></span>
+  </header>
+
+  <main id="layout" hidden>
+    <section id="stage-area">
+      <div id="player-wrap">
+        <video id="player" playsinline preload="metadata"></video>
+        <div id="video-error" class="empty" hidden>This source isn't playing in the browser, likely a codec it can't decode. The preview comes alive when the render lands.</div>
+      </div>
+      <p id="cooking-note" hidden>Your source video — the subtitles land on it when the style finishes</p>
+    </section>
+    <section id="transcript" aria-label="Subtitles">
+      <h2 id="rail-title">Subtitles</h2>
+      <p id="no-speech" class="empty" hidden>No speech detected in this video.</p>
+      <ol id="lines"></ol>
+    </section>
+    <div id="transport">
+      <span id="timecode"><span id="timecode-top"><b id="timecode-now">00:00.0</b><span id="timecode-dur"></span></span><span id="timecode-sub">&nbsp;</span></span>
+      <span id="transport-center">
+        <button id="prev" aria-label="Previous subtitle" data-tip="Previous subtitle">
+          <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path d="M5 4v12M15 4l-7 6 7 6z" stroke="currentColor" stroke-width="1.8" fill="currentColor" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="play" aria-label="Play" data-tip="Play"></button>
+        <button id="next" aria-label="Next subtitle" data-tip="Next subtitle">
+          <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path d="M15 4v12M5 4l7 6-7 6z" stroke="currentColor" stroke-width="1.8" fill="currentColor" stroke-linejoin="round"/></svg>
+        </button>
+      </span>
+      <span id="transport-right">
+        <button id="loop" aria-label="Loop: on" aria-pressed="true" data-tip="Loop: on">
+          <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M4 8V7a3 3 0 013-3h7m0 0l-2.4-2.4M14 4l-2.4 2.4M16 12v1a3 3 0 01-3 3H6m0 0l2.4 2.4M6 16l2.4-2.4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <select id="speed" aria-label="Playback speed">
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="1.5">1.5x</option>
+          <option value="2">2x</option>
+        </select>
+        <select id="zoom" aria-label="Canvas zoom">
+          <option value="0.25">25%</option>
+          <option value="0.5">50%</option>
+          <option value="0.75">75%</option>
+          <option value="1" selected>100%</option>
+          <option value="1.5">150%</option>
+          <option value="2">200%</option>
+        </select>
+        <button id="mute" aria-label="Mute" data-tip="Mute">
+          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path class="spk" d="M3 7.5v5h3.2L11 16V4L6.2 7.5H3z" fill="currentColor"/><path class="wave1" d="M13.5 7.2a4 4 0 010 5.6" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/><path class="off" d="M13 7l4.5 6M17.5 7L13 13" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" visibility="hidden"/></svg>
+        </button>
+      </span>
+    </div>
+    <div id="lanes">
+      <div id="ruler"></div>
+      <div id="tracks" role="slider" tabindex="0" aria-label="Timeline" aria-valuemin="0" aria-valuenow="0">
+        <div id="track" class="lane"></div>
+        <div id="track-footage" class="lane"><span id="footage-label"></span></div>
+        <div id="playhead"></div>
+      </div>
+      <div id="track-tip" hidden></div>
+    </div>
+  </main>
+
+  <div id="waiting" class="empty">Waiting for transcript…</div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
