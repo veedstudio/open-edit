@@ -18,7 +18,7 @@
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, FFPROBE } from '../config.ts';
 
 /** The demuxer's list format. Single quotes in a path are escaped the way ffmpeg expects. */
@@ -92,16 +92,21 @@ export function concat(parts: string[], outPath: string, listPath: string): stri
   return outPath;
 }
 
+export const usage = {
+  summary: "Stream-copy a film's gated chapters into one deliverable",
+  positionals: '<run-dir>',
+  flags: {
+    doc: { type: 'string', value: '<subdir>', multiple: true, required: true, help: 'A gated chapter under the run, in play order' },
+    out: { type: 'string', value: '<file>', help: 'Output, relative to the run (default final/out.mp4)' },
+  },
+} satisfies Usage;
+
 export function concatChapters(argv: string[]): number {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: { doc: { type: 'string', multiple: true }, out: { type: 'string' } },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('concat-chapters', usage, argv);
   const [runDir] = positionals;
-  const docs = (values.doc as string[] | undefined) ?? [];
+  const docs = values.doc ?? [];
   if (!runDir || !docs.length) {
-    console.error('usage: openedit concat-chapters <run-dir> --doc chapters/act-1 --doc chapters/act-2 [...] [--out final/out.mp4]');
+    console.error(usageLine('concat-chapters', usage));
     return 2;
   }
   // Order is the order the flags were given. Deriving it from a directory listing would put act-10

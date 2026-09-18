@@ -5,9 +5,9 @@
 // A cut changes when words were said, never which, so every word keeps its window and shifts by its
 // range's offset. A word straddling a cut edge is kept only if most of it survives, decided on overlap
 // rather than on its start time alone.
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { parseFlags } from '../args.ts';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { assertRanges, loadEdl, snapRanges, sourceOrder, sourcePath, type EdlRange, type SnappedRange } from '../edl.ts';
 import { readJsonFile } from '../json-file.ts';
 import { probeFps } from '../probe.ts';
@@ -148,17 +148,18 @@ function readTranscript(path: string): Transcript {
   return raw as Transcript;
 }
 
+export const usage = {
+  summary: "Move existing per-word timings onto an EDL's timeline instead of transcribing again",
+  flags: {
+    edl: { type: 'string', value: '<edl.json>', required: true, help: 'The edit decision list whose timeline the words move onto' },
+    out: { type: 'string', value: '<transcript.json>', required: true, help: 'Where the retimed transcript is written' },
+  },
+} satisfies Usage;
+
 export function retimeTranscript(argv: string[]): number {
-  const { values } = parseFlags({
-    args: argv,
-    options: {
-      edl: { type: 'string' },
-      out: { type: 'string' },
-    },
-    allowPositionals: false,
-  });
+  const { values } = parseUsage('retime-transcript', usage, argv);
   if (!values.edl || !values.out) {
-    throw new Error('usage: openedit retime-transcript --edl <edl.json> --out <transcript.json>');
+    throw new Error(usageLine('retime-transcript', usage));
   }
   const loaded = loadEdl(values.edl);
   // The same snapping apply-edl cuts on, from the same probe, so the two tools agree to the frame.
@@ -196,6 +197,7 @@ export function retimeTranscript(argv: string[]): number {
 
   const { droppedAtEdges, ...result } = retime(ranges, load);
   const outPath = resolve(values.out);
+  mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify(result, null, 2));
 
   if (droppedAtEdges > 0) {

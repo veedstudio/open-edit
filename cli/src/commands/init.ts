@@ -9,8 +9,9 @@
 //                                 orchestrating agent may use this only after explicit user approval.
 //
 // Project hooks (the SessionStart entries in the workspace's agent configs) are installed here too,
-// invoking this package's session-start command — the installed skill is SKILL.md alone.
+// invoking this package's session-start command — the skill itself implements no setup.
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,6 +28,8 @@ import {
   unsupportedMessage,
 } from '../platform.ts';
 import { installProjectHooks } from '../project-hooks.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
+import { contentRoot, findWorkspace, packageRoot } from '../config.ts';
 
 export interface ExecResult {
   status: number | null;
@@ -45,14 +48,23 @@ const MIN_PNPM = '10.16.1';
 // runs); the Windows asset arrived in 0.9.0 and the WCAG analyzer in 0.8.0. The floor is checked before
 // the release API, so a stale engine is caught even when that API is unreachable or rate-limited.
 const MIN_ENGINE = '0.10.2';
+const PACKAGE_NAME = '@veedstudio/openedit-cli';
+const REGISTRY_DEFAULT = 'https://registry.npmjs.org';
 
 
-const USAGE = `usage: openedit init [--dry|--auto-approve]
-                     [--workspace <path>] [--repository <url-or-path>] [--ref <branch>]
+export const usage = {
+  summary: 'Workspace setup: check/install dependencies, clone the runtime, verify the engine',
+  flags: {
+    dry: { type: 'boolean', help: 'Report only; never write' },
+    'auto-approve': { type: 'boolean', help: 'Also install machine-global dependencies and apply clean updates; only after the user approved every action --dry reported' },
+    workspace: { type: 'string', value: '<path>', help: 'The workspace to set up (default: the nearest project, else the git toplevel, else cwd)' },
+    repository: { type: 'string', value: '<url-or-path>', help: 'Where the runtime is cloned from' },
+    ref: { type: 'string', value: '<branch>', help: 'The runtime branch to clone' },
+  },
+  notes: 'Bare init applies only workspace-local first-time setup.',
+} satisfies Usage;
 
-Bare init applies only workspace-local first-time setup. --dry never writes.
---auto-approve installs missing machine dependencies and applies all clean updates; use it only
-after the user has explicitly approved every action reported by --dry.`;
+const USAGE = `${usageLine('init', usage)}\n\n${usage.notes}`;
 
 class PreflightError extends Error {}
 
@@ -65,7 +77,18 @@ export function defaultDeps() {
     fetch: (...args) => fetch(...args),
     err: (line) => process.stderr.write(`${line}\n`),
     out: (line) => process.stdout.write(`${line}\n`),
+    // Seams for tests. A checkout's package.json carries no version — it is stamped at pack time.
+    contentDir: contentRoot(),
+    cliVersion: readOwnVersion(),
   };
+}
+
+function readOwnVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(packageRoot(), 'package.json'), 'utf8')).version ?? '';
+  } catch {
+    return '';
+  }
 }
 
 export async function main(argv, overrides = {}) {
@@ -88,11 +111,13 @@ async function run(argv, deps) {
   const die = (msg) => {
     throw new PreflightError(msg);
   };
-  let needsApproval = false;
+  // One entry per approval: a shared boolean let one handler's auto-approval erase another's.
+  const pendingApprovals = new Set();
   let failed = false;
   const needApproval = (msg) => {
-    needsApproval = true;
+    pendingApprovals.add(msg);
     say(`APPROVAL REQUIRED — ${msg}`);
+    return msg;
   };
 
   // GUI-launched agents inherit a minimal PATH that commonly omits Homebrew. Add both standard
@@ -170,37 +195,17 @@ async function run(argv, deps) {
     }
   };
 
-  let mode = 'apply';
-  let workspaceArg = '';
-  let repositoryArg = '';
-  let refArg = '';
-  const args = [...argv];
-  while (args.length > 0) {
-    const arg = args.shift();
-    switch (arg) {
-      case '--dry': mode = 'dry'; break;
-      case '--auto-approve': mode = 'auto'; break;
-      case '--workspace':
-        if (args.length === 0) die('--workspace requires a path');
-        workspaceArg = args.shift();
-        break;
-      case '--repository':
-        if (args.length === 0) die('--repository requires a URL or local path');
-        repositoryArg = args.shift();
-        break;
-      case '--ref':
-        if (args.length === 0) die('--ref requires a branch');
-        refArg = args.shift();
-        break;
-      case '-h':
-      case '--help':
-        deps.err(USAGE);
-        return 0;
-      default:
-        deps.err(USAGE);
-        die(`unknown argument: ${arg}`);
-    }
+  let values;
+  try {
+    ({ values } = parseUsage('init', usage, argv));
+  } catch (error) {
+    deps.err(USAGE);
+    die(error.message);
   }
+  const mode = values['auto-approve'] ? 'auto' : values.dry ? 'dry' : 'apply';
+  const workspaceArg = values.workspace ?? '';
+  let repositoryArg = values.repository ?? '';
+  const refArg = values.ref ?? '';
   for (const value of [workspaceArg, repositoryArg, refArg]) {
     if (/[\n\r]/.test(value)) die('arguments may not contain newlines');
   }
@@ -209,8 +214,13 @@ async function run(argv, deps) {
   if (workspaceArg) {
     workspace = resolveDir(workspaceArg) ?? die(`workspace does not exist: ${workspaceArg}`);
   } else {
-    const top = exec('git', ['rev-parse', '--show-toplevel']);
-    workspace = (ok(top) && resolveDir(out(top))) || fs.realpathSync.native(process.cwd());
+    // An existing project outranks the git toplevel, or a session opened in runs/<key> would
+    // scaffold a second project around the first.
+    const found = findWorkspace(process.cwd());
+    const top = found ? null : exec('git', ['rev-parse', '--show-toplevel']);
+    workspace = (found && resolveDir(found))
+      || (top && ok(top) && resolveDir(out(top)))
+      || fs.realpathSync.native(process.cwd());
   }
   if (repositoryArg && fs.existsSync(repositoryArg) && fs.statSync(repositoryArg).isDirectory()) {
     repositoryArg = resolveDir(repositoryArg) ?? die('repository path does not exist');
@@ -263,11 +273,45 @@ async function run(argv, deps) {
     }
   };
 
+  // Set when a managed clone should promote to packaged content (deleting it is the user's call).
+  let promoteFrom = '';
+
   const discoverRuntime = () => {
-    if (isOpenEditCheckout(workspace) && ok(exec('git', ['-C', workspace, 'rev-parse', '--is-inside-work-tree']))) {
+    if (isOpenEditCheckout(workspace)) {
+      // The content is all this needs, and a ZIP download still has it. Never falls through to the
+      // package path, where the scaffold would mutate the checkout's own files.
       root = workspace;
       rootKind = 'reused';
+      if (!ok(exec('git', ['-C', workspace, 'rev-parse', '--is-inside-work-tree']))) {
+        say(`${workspace} is an Open Edit source tree but not a Git work tree — using its content; runtime updates are unavailable`);
+      }
       return;
+    }
+    // Only an explicit --repository/--ref pin keeps the clone path, and that clone must validate.
+    if (!repositoryArg && !refArg) {
+      if (isOpenEditCheckout(managedRoot)) {
+        // A non-default receipt is a deliberate pin; only DEFAULT-path clones promote.
+        const statePath = statePathFor(managedRoot);
+        const pinned = statePath && fs.existsSync(statePath)
+          && (stateGet(statePath, 'repository') !== DEFAULT_REPOSITORY || stateGet(statePath, 'ref') !== DEFAULT_REF);
+        // Promotion would leave the user's own edits in a directory nothing reads again.
+        const dirty = Boolean(out(exec('git', ['-C', managedRoot, 'status', '--porcelain'])));
+        const moved = Boolean(statePath && fs.existsSync(statePath)
+          && out(exec('git', ['-C', managedRoot, 'rev-parse', 'HEAD'])) !== stateGet(statePath, 'installedCommit'));
+        if (!pinned && (dirty || moved)) {
+          say(`the managed clone at ${managedRoot} has ${dirty ? 'local changes' : 'moved off its recorded revision'} — keeping it rather than promoting to packaged content`);
+        }
+        if (!pinned && !dirty && !moved) {
+          promoteFrom = managedRoot;
+          root = workspace;
+          rootKind = 'package';
+          return;
+        }
+      } else {
+        root = workspace;
+        rootKind = 'package';
+        return;
+      }
     }
     if (!fs.existsSync(managedRoot)) return;
     if (!fs.statSync(managedRoot).isDirectory()) die(`managed runtime path is not a directory: ${managedRoot}`);
@@ -294,34 +338,23 @@ async function run(argv, deps) {
 
   discoverRuntime();
 
-  // SessionStart hooks for the agent harnesses, written into the WORKSPACE's agent configs. Advisory,
-  // like setup always treated them: a hook problem must not block a run. Owned here rather than by
-  // the skill so an installed skill is SKILL.md alone.
-  if (mode === 'dry') {
-    say('WOULD APPLY LOCALLY — SessionStart hooks in the workspace agent configs (.claude/.codex/.gemini)');
-  } else {
-    try {
-      installProjectHooks(workspace, (line) => say(line));
-    } catch (error) {
-      say(`could not install project hooks automatically (${error?.message ?? error}); the agent must preserve existing settings and add them manually`);
-    }
-  }
-
-  // Say which code is about to run, and warn when a local checkout is being bypassed. WORKSPACE is only
-  // reused when it IS an Open Edit checkout; otherwise everything below runs from a clone of
-  // DEFAULT_REF, so pointing --workspace at the wrong directory silently runs different code.
-  if (rootKind === 'reused') {
-    say(`reusing the local checkout at ${root}`);
-  } else {
-    say(`workspace ${workspace} will use a managed clone at ${managedRoot}`);
-    // Pointing --workspace elsewhere while standing in a checkout silently runs DIFFERENT code —
-    // the note the skill-bundled setup used to key on its own install location.
+  // Pointing --workspace at the wrong directory silently runs different code.
+  const warnBypassedCheckout = () => {
     const invokedTop = exec('git', ['rev-parse', '--show-toplevel']);
     const invokedFrom = ok(invokedTop) ? resolveDir(out(invokedTop)) : null;
     if (invokedFrom && isOpenEditCheckout(invokedFrom) && invokedFrom !== workspace) {
       say(`NOTE: this command ran from the checkout ${invokedFrom}, which will NOT be used.`);
       say(`      To run that code instead, pass --workspace ${invokedFrom}`);
     }
+  };
+  if (rootKind === 'reused') {
+    say(`reusing the local checkout at ${root}`);
+  } else if (rootKind === 'package') {
+    say(`workspace ${workspace} uses the packaged content (self-contained; no clone)`);
+    warnBypassedCheckout();
+  } else {
+    say(`workspace ${workspace} will use a managed clone at ${managedRoot}`);
+    warnBypassedCheckout();
   }
 
   let repository;
@@ -362,26 +395,30 @@ async function run(argv, deps) {
   // Kept at this scope so the post-clone FFmpeg step can clear its entry and retract the approval.
   let globalsMissing = { git: false, node: false, pnpm: false, ffmpeg: false };
 
+  const globalApprovals = { git: '', node: '', pnpm: '', ffmpeg: '' };
+
   const handleGlobalDependencies = () => {
+    // The package path needs neither: the scaffold skips git init silently, and nothing is
+    // pnpm-installed.
     const missing = {
-      git: !have('git'),
+      git: rootKind !== 'package' && !have('git'),
       node: !have('node'),
-      pnpm: !pnpmOk(),
+      pnpm: rootKind !== 'package' && !pnpmOk(),
       ffmpeg: !ffmpegOk(),
     };
     globalsMissing = missing;
-    if (missing.git) needApproval(`install Git globally: ${installHint('git', deps.os)}`);
-    if (missing.node) needApproval(`install Node globally: ${installHint('node', deps.os)}`);
+    if (missing.git) globalApprovals.git = needApproval(`install Git globally: ${installHint('git', deps.os)}`);
+    if (missing.node) globalApprovals.node = needApproval(`install Node globally: ${installHint('node', deps.os)}`);
     // corepack avoids owning a global package, but resolves its version from the CWD project and
     // writes shims into Node's own bin dir, which a system-wide Node does not allow. Both commands
     // are printed because either can be the one that works on a given machine.
     if (missing.pnpm) {
-      needApproval(`install pnpm ${MIN_PNPM} or newer globally: ${have('corepack')
+      globalApprovals.pnpm = needApproval(`install pnpm ${MIN_PNPM} or newer globally: ${have('corepack')
         ? 'corepack enable pnpm (or npm install --global pnpm@latest)'
         : 'npm install --global pnpm@latest'}`);
     }
     if (missing.ffmpeg) {
-      needApproval(`install FFmpeg globally: ${installHint('ffmpeg', deps.os)}`);
+      globalApprovals.ffmpeg = needApproval(`install FFmpeg globally: ${installHint('ffmpeg', deps.os)}`);
       if (ffmpegHasLocalRoute()) {
         say('FFmpeg can instead be installed to the app-data dir, which needs no admin rights: npx @veedstudio/openedit-cli install-ffmpeg');
       }
@@ -399,7 +436,7 @@ async function run(argv, deps) {
       return;
     }
     if (mode !== 'auto') return;
-    needsApproval = false;
+    for (const key of Object.keys(globalApprovals)) pendingApprovals.delete(globalApprovals[key]);
     if (missing.git) installBrewFormula('git');
     if (missing.node) installBrewFormula('node');
     if (missing.ffmpeg) installBrewFormula('ffmpeg');
@@ -420,7 +457,8 @@ async function run(argv, deps) {
         if (!ok(execTool('npm', ['install', '--global', 'pnpm@latest'], { stdio: ['ignore', 2, 2] }))) failed = true;
       }
     }
-    if (!have('git') || !have('node') || !pnpmOk() || !ffmpegOk()) failed = true;
+    // Mirrors the requirements above: the package path never demanded Git or pnpm.
+    if (!have('node') || !ffmpegOk() || (rootKind !== 'package' && (!have('git') || !pnpmOk()))) failed = true;
   };
 
   handleGlobalDependencies();
@@ -439,12 +477,253 @@ async function run(argv, deps) {
     installFfmpegLocally();
     if (!ffmpegOk()) return;
     globalsMissing.ffmpeg = false;
-    // Safe because only the global installs approve before here; renderer and runtime come later.
-    if (!Object.values(globalsMissing).some(Boolean)) needsApproval = false;
+    pendingApprovals.delete(globalApprovals.ffmpeg);
   };
 
   handleLocalFfmpeg();
   if (failed) die('the local FFmpeg install failed');
+
+  // ---------- the package path: promotion off the managed clone + project scaffold ----------
+
+  const packageManagerFor = (dir) => {
+    if (fs.existsSync(path.join(dir, 'pnpm-lock.yaml'))) return 'pnpm';
+    if (fs.existsSync(path.join(dir, 'yarn.lock'))) return 'yarn';
+    return 'npm';
+  };
+  const pmAddArgs = (pm, spec) => (pm === 'npm'
+    ? ['install', '--save-dev', '--save-exact', spec]
+    : pm === 'yarn'
+      ? ['add', '--dev', '--exact', spec]
+      : ['add', '--save-dev', '--save-exact', spec]);
+  const ownVersion = () => deps.cliVersion ?? '';
+  const workspacePin = () => {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(workspace, 'package.json'), 'utf8'));
+      return pkg.devDependencies?.[PACKAGE_NAME] ?? pkg.dependencies?.[PACKAGE_NAME] ?? '';
+    } catch {
+      return '';
+    }
+  };
+  // What the PROJECT runs: the pin can be a tarball or a range, and this CLI is usually an npx copy.
+  const workspaceInstalledVersion = () => {
+    try {
+      const file = path.join(workspace, 'node_modules', PACKAGE_NAME, 'package.json');
+      return JSON.parse(fs.readFileSync(file, 'utf8')).version ?? '';
+    } catch {
+      return '';
+    }
+  };
+  // The skill travels with the content, so a pinned checkout installs ITS skill beside its recipes.
+  const skillSource = () => path.join(deps.contentDir, '.claude', 'skills', 'open-edit');
+
+  // Prefs move so the provider question is not re-asked; the clone is left untouched.
+  const handlePromotion = () => {
+    if (rootKind !== 'package' || !promoteFrom) return;
+    const from = path.join(promoteFrom, '.open-edit-prefs.json');
+    const to = path.join(workspace, '.open-edit-prefs.json');
+    const carry = fs.existsSync(from) && !fs.existsSync(to);
+    if (mode === 'dry') {
+      say(`WOULD APPLY LOCALLY — promote off the managed clone${carry ? ' (carrying .open-edit-prefs.json to the workspace)' : ''}`);
+      return;
+    }
+    if (carry) {
+      try {
+        fs.copyFileSync(from, to);
+      } catch (error) {
+        say(`could not carry .open-edit-prefs.json from the old runtime (${error?.message ?? error}); the provider question will be asked again`);
+      }
+    }
+    say(`promoted to packaged content — the managed clone at ${promoteFrom} is no longer used and can be deleted`);
+  };
+
+  handlePromotion();
+
+  // Set once the consent gate has passed: this workspace is an OpenEdit project, or is becoming one.
+  let workspaceUsable = false;
+
+  // Two agents in one project both fire session-start, and npm takes no cross-process lock. A
+  // lease, not a lock: a crashed init must not wedge later sessions, so a stale one is broken.
+  const LEASE_MS = 10 * 60 * 1000;
+  const withInitLease = async (work) => {
+    if (mode === 'dry') return await work();
+    const key = crypto.createHash('sha1').update(workspace).digest('hex').slice(0, 16);
+    const lease = path.join(path.dirname(engineInstallDir(deps.os, env)), 'locks', `init-${key}`);
+    let held = false;
+    try {
+      fs.mkdirSync(path.dirname(lease), { recursive: true });
+      try {
+        fs.mkdirSync(lease);
+        held = true;
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
+        if (Date.now() - fs.statSync(lease).mtimeMs < LEASE_MS) {
+          say('another setup is already running in this workspace — leaving it to finish');
+          return undefined;
+        }
+        fs.rmSync(lease, { recursive: true, force: true });
+        fs.mkdirSync(lease);
+        held = true;
+      }
+    } catch {
+      // An unwritable app-data dir is not a reason to refuse setup.
+      return await work();
+    }
+    try {
+      return await work();
+    } finally {
+      if (held) {
+        try {
+          fs.rmSync(lease, { recursive: true, force: true });
+        } catch { /* the next run breaks it by age */ }
+      }
+    }
+  };
+
+  // Workspace-local (bare-init tier) and idempotent: present means untouched.
+  const handleProjectScaffold = () => {
+    if (rootKind !== 'package') return;
+    const pkgPath = path.join(workspace, 'package.json');
+    const ignorePath = path.join(workspace, '.gitignore');
+    const skillDest = path.join(workspace, '.claude', 'skills', 'open-edit');
+    const skillSrc = skillSource();
+
+    // A folder holding someone's files is never claimed silently.
+    const IGNORABLE = new Set(['.DS_Store', '.git', '.gitignore', '.claude', '.codex', '.gemini', '.agents', '.open-edit', '.open-edit-prefs.json', 'runs']);
+    const claimed = () => Boolean(promoteFrom)
+      || fs.existsSync(path.join(workspace, '.open-edit-prefs.json'))
+      || fs.existsSync(skillDest)
+      || Boolean(workspacePin());
+    const emptyEnough = () => {
+      try {
+        return fs.readdirSync(workspace).every((name) => IGNORABLE.has(name));
+      } catch {
+        return false;
+      }
+    };
+    if (mode !== 'auto' && !claimed() && !emptyEnough()) {
+      needApproval(`use ${workspace} as the OpenEdit project — it already holds other files; re-run with --auto-approve to use it anyway, or pass --workspace <folder> to pick another location (a fresh subfolder such as ${path.join(workspace, 'openedit')} keeps it separate)`);
+      return;
+    }
+
+    workspaceUsable = true;
+
+    const needPkg = !fs.existsSync(pkgPath);
+    const gitUsable = have('git');
+    const inRepo = gitUsable && ok(exec('git', ['-C', workspace, 'rev-parse', '--is-inside-work-tree']));
+    const ignoreLines = (() => {
+      const existing = fs.existsSync(ignorePath) ? fs.readFileSync(ignorePath, 'utf8').split(/\r?\n/) : [];
+      // node_modules/ because the pin below installs one where git init just started tracking.
+      return ['node_modules/', 'runs/', '.open-edit/', '.open-edit-prefs.json'].filter((line) => !existing.includes(line));
+    })();
+    const pinned = needPkg ? '' : workspacePin();
+
+    // First because `claimed()` reads it back: a run that dies at the pin must not return to a
+    // folder it made non-empty itself and demand approval for it.
+    const refreshSkill = () => {
+      if (!fs.existsSync(skillSrc)) {
+        say(`skill refresh skipped — no skill at ${skillSrc}`);
+        return;
+      }
+      // `npx skills add` symlinks this at .agents/skills/open-edit; replacing the LINK would leave
+      // every other agent on a copy that never updates again.
+      let dest = skillDest;
+      try {
+        if (fs.lstatSync(skillDest).isSymbolicLink()) dest = fs.realpathSync(skillDest);
+      } catch { /* absent, or a broken link: the plain path is the destination */ }
+      try {
+        // Replace, never merge: cpSync alone leaves behind files a newer version dropped.
+        fs.rmSync(dest, { recursive: true, force: true, maxRetries: 3 });
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.cpSync(skillSrc, dest, { recursive: true });
+        say(`skill refreshed — ${dest === skillDest ? path.join('.claude', 'skills', 'open-edit') : dest}`);
+      } catch (error) {
+        // An editor or another agent holding a file here must not abort every session on the machine.
+        say(`could not refresh the open-edit skill at ${dest} (${error?.message ?? error}); the agent may be reading an older copy`);
+      }
+    };
+
+    if (mode === 'dry') {
+      if (fs.existsSync(skillSrc)) say('WOULD APPLY LOCALLY — install/refresh the open-edit skill in .claude/skills/open-edit');
+      if (needPkg) say('WOULD APPLY LOCALLY — create a minimal private package.json');
+      if (gitUsable && !inRepo) say('WOULD APPLY LOCALLY — git init');
+      if (ignoreLines.length) say(`WOULD APPLY LOCALLY — .gitignore entries: ${ignoreLines.join(' ')}`);
+      if (!pinned) say(`WOULD APPLY LOCALLY — pin ${PACKAGE_NAME} as an exact devDependency (${packageManagerFor(workspace)})`);
+      return;
+    }
+
+    refreshSkill();
+    if (needPkg) {
+      // npm-safe name from the folder; the project is private, so the name only has to be valid.
+      const name = path.basename(workspace).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[._-]+|[._-]+$/g, '') || 'openedit-project';
+      fs.writeFileSync(pkgPath, `${JSON.stringify({ name, private: true }, null, 2)}\n`);
+      say('created a minimal private package.json');
+    }
+    if (gitUsable && !inRepo) {
+      if (ok(exec('git', ['init', '--quiet'], { cwd: workspace }))) say('initialized a git repository');
+      else say('git init failed; continuing without one');
+    }
+    if (ignoreLines.length) {
+      const existing = fs.existsSync(ignorePath) ? fs.readFileSync(ignorePath, 'utf8') : '';
+      const glue = existing && !existing.endsWith('\n') ? '\n' : '';
+      fs.appendFileSync(ignorePath, `${glue}${ignoreLines.join('\n')}\n`);
+      say(`ignored in git: ${ignoreLines.join(' ')}`);
+    }
+    if (!pinned) {
+      // Pins ITS OWN version so the project runs what init ran; OPENEDIT_PACKAGE_SOURCE overrides.
+      const spec = env.OPENEDIT_PACKAGE_SOURCE || (ownVersion() ? `${PACKAGE_NAME}@${ownVersion()}` : `${PACKAGE_NAME}@latest`);
+      const pm = packageManagerFor(workspace);
+      if (pm !== 'npm' && !have(pm)) {
+        // Installing with a different manager would fork the project's lockfiles; the pin waits.
+        needApproval(`install ${pm} globally: npm install --global ${pm}@latest — this project's lockfile makes ${pm} its package manager, and the CLI pin waits for it`);
+      } else if (!have('npm') && pm === 'npm') {
+        say('npm is unavailable — the project cannot be pinned to a CLI version yet');
+        failed = true;
+        return;
+      } else {
+        say(`pinning ${spec} as an exact devDependency (${pm})`);
+        if (!ok(execTool(pm, pmAddArgs(pm, spec), { cwd: workspace, stdio: ['ignore', 2, 2] }))) {
+          say(`could not install ${spec} with ${pm} — the project is not pinned to a CLI version yet`);
+          failed = true;
+          return;
+        }
+      }
+    }
+    // Carried once, never overwritten, so an upgrade cannot re-ask the provider question.
+    const legacyPrefs = path.join(path.dirname(engineInstallDir(deps.os, env)), '.open-edit-prefs.json');
+    const prefsDest = path.join(workspace, '.open-edit-prefs.json');
+    if (!fs.existsSync(prefsDest) && fs.existsSync(legacyPrefs)) {
+      try {
+        fs.copyFileSync(legacyPrefs, prefsDest);
+        say('carried .open-edit-prefs.json from the app-data dir — the provider choice travels with the upgrade');
+      } catch (error) {
+        say(`could not carry .open-edit-prefs.json from the app-data dir (${error?.message ?? error})`);
+      }
+    }
+  };
+
+  await withInitLease(handleProjectScaffold);
+  if (failed) die('project setup failed');
+
+  // Advisory: a hook problem must not block a run. Never written into a workspace the consent gate
+  // declined, or a refused folder would keep spawning session-start every session.
+  if (rootKind !== 'package' || workspaceUsable) {
+    if (mode === 'dry') {
+      say('WOULD APPLY LOCALLY — SessionStart hooks in the workspace agent configs (.claude/.codex/.gemini)');
+    } else {
+      try {
+        installProjectHooks(workspace, (line) => say(line));
+      } catch (error) {
+        say(`could not install project hooks automatically (${error?.message ?? error}); the agent must preserve existing settings and add them manually`);
+      }
+    }
+  }
+
+  // Read from disk: inferring them from the root kind made --dry call an untouched folder ready.
+  const workspaceScaffolded = () =>
+    fs.existsSync(path.join(workspace, 'package.json'))
+    && Boolean(workspacePin())
+    && (!fs.existsSync(skillSource())
+      || fs.existsSync(path.join(workspace, '.claude', 'skills', 'open-edit', 'SKILL.md')));
 
   const cloneRuntime = () => {
     if (rootKind !== 'missing') return;
@@ -524,7 +803,7 @@ async function run(argv, deps) {
   };
 
   const handleRepoDeps = () => {
-    if (rootKind === 'missing') return;
+    if (rootKind === 'missing' || rootKind === 'package') return;
     if (repoDepsReady()) {
       say('repository dependencies — ready');
       return;
@@ -600,7 +879,6 @@ async function run(argv, deps) {
       }
       if (!installEngine()) die('approved renderer update failed');
       assertEngineFloor(engine);
-      needsApproval = false;
       return;
     }
     const latest = await latestEngineVersion();
@@ -616,14 +894,78 @@ async function run(argv, deps) {
       say(`renderer ${installed} is newer than published ${latest}`);
       return;
     }
-    needApproval(`update renderer from ${installed} to ${latest}`);
+    const approval = needApproval(`update renderer from ${installed} to ${latest}`);
     if (mode === 'auto') {
-      needsApproval = false;
+      pendingApprovals.delete(approval);
       if (!installEngine()) die('approved renderer update failed');
     }
   };
 
   await handleRenderer();
+
+  // A patch or minor whose declared engine floor is met applies silently; anything else waits.
+  // Every lookup failure is silent: an offline session must still start clean.
+  const handlePackageUpdate = async () => {
+    if (rootKind !== 'package') return;
+    if (!workspacePin()) return; // the scaffold owns adding the dep; nothing to update without it
+    // Never ownVersion(): this CLI is usually an npx copy, and grading that either froze the pin or
+    // reinstalled it every session.
+    const installed = workspaceInstalledVersion();
+    // No readable install (a checkout) and 0.0.0-* (CI stamps, local packs) are unpublished space.
+    if (!installed || installed.startsWith('0.0.0-')) return;
+    const registry = (env.OPENEDIT_REGISTRY || REGISTRY_DEFAULT).replace(/\/+$/, '');
+    let doc;
+    try {
+      // The `latest` manifest, not the packument: that grows with every release, and this runs on
+      // every session start for two fields.
+      const res = await deps.fetch(`${registry}/${PACKAGE_NAME}/latest`, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) return;
+      doc = await res.json();
+    } catch {
+      return;
+    }
+    const latest = doc?.version;
+    if (typeof latest !== 'string' || !latest) return;
+    if (latest.includes('-')) return; // a prerelease latest is never auto-installed
+    if (versionAtLeast(installed, latest)) return; // current, or the registry moved BACK — never downgrade
+    const majorBump = Number(latest.split('.')[0]) > Number(installed.split('.')[0]);
+    const minEngine = doc?.openedit?.minEngine;
+    const engineNow = engineVersion(enginePath());
+    const floorSatisfied = typeof minEngine === 'string' && versionAtLeast(engineNow, minEngine);
+    // In --dry the renderer does not exist yet, so a declared floor cannot be graded.
+    if (mode === 'dry' && !majorBump && typeof minEngine === 'string' && !floorSatisfied
+      && !isEngineRunnable(enginePath(), deps.os)) {
+      say(`WOULD APPLY LOCALLY — update ${PACKAGE_NAME} ${installed} → ${latest} (engine floor ${minEngine} is checked after the renderer install)`);
+      return;
+    }
+    if (majorBump || !floorSatisfied) {
+      const why = majorBump
+        ? 'a major release'
+        : typeof minEngine !== 'string'
+          ? 'it does not declare its engine floor'
+          : `it needs engine ${minEngine} and ${engineNow || 'no readable engine'} is installed`;
+      const approval = needApproval(`update ${PACKAGE_NAME} from ${installed} to ${latest} — ${why}`);
+      if (mode !== 'auto') return;
+      pendingApprovals.delete(approval);
+    }
+    if (mode === 'dry') {
+      say(`WOULD APPLY LOCALLY — update ${PACKAGE_NAME} ${installed} → ${latest}`);
+      return;
+    }
+    const pm = packageManagerFor(workspace);
+    if (pm !== 'npm' && !have(pm)) {
+      say(`update to ${latest} is waiting for ${pm} (this project's package manager) — staying on ${installed}`);
+      return;
+    }
+    if (ok(execTool(pm, pmAddArgs(pm, `${PACKAGE_NAME}@${latest}`), { cwd: workspace, stdio: ['ignore', 2, 2] }))) {
+      say(`updated ${PACKAGE_NAME} ${installed} → ${latest}`);
+    } else {
+      // Non-fatal: the pin and the lockfile are untouched, and the next session retries.
+      say(`update to ${latest} failed — staying on ${installed}; the next session will retry`);
+    }
+  };
+
+  await withInitLease(handlePackageUpdate);
 
   const handleRuntimeUpdate = () => {
     if (rootKind !== 'managed') return;
@@ -642,9 +984,9 @@ async function run(argv, deps) {
       say('UPDATE AVAILABLE — runtime has local changes; leaving it untouched');
       return;
     }
-    needApproval(`fast-forward runtime from ${localCommit} to ${remoteCommit} (${repository} ${ref})`);
+    const approval = needApproval(`fast-forward runtime from ${localCommit} to ${remoteCommit} (${repository} ${ref})`);
     if (mode === 'auto') {
-      needsApproval = false;
+      pendingApprovals.delete(approval);
       if (!ok(exec('git', ['-C', root, 'fetch', 'origin', `refs/heads/${ref}:refs/remotes/origin/${ref}`], { stdio: ['ignore', 2, 2] }))) die('approved runtime fetch failed');
       if (!ok(exec('git', ['-C', root, 'merge-base', '--is-ancestor', localCommit, remoteCommit]))) die('remote update is not a fast-forward');
       if (!ok(exec('git', ['-C', root, 'merge', '--ff-only', remoteCommit], { stdio: ['ignore', 2, 2] }))) die('approved runtime update failed');
@@ -656,9 +998,9 @@ async function run(argv, deps) {
 
   if (rootKind === 'missing') {
     say('runtime is not ready');
-  } else if (repoDepsReady() && isEngineRunnable(enginePath(), deps.os)) {
+  } else if ((rootKind === 'package' ? workspaceScaffolded() : repoDepsReady()) && isEngineRunnable(enginePath(), deps.os)) {
     say(`ready — OPEN_EDIT_ROOT=${root}`);
-  } else if (needsApproval) {
+  } else if (pendingApprovals.size > 0) {
     say('local setup is incomplete because an approved prerequisite is missing');
   } else {
     // Nothing is awaiting approval: the outstanding work is the WOULD APPLY LOCALLY list above, which
@@ -666,7 +1008,7 @@ async function run(argv, deps) {
     say('not ready yet — run bare preflight (no --dry) to apply the local setup listed above');
   }
 
-  if (needsApproval) {
+  if (pendingApprovals.size > 0) {
     say('run with --auto-approve only after the user approves every action above');
     return 10;
   }

@@ -16,6 +16,7 @@
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { contentRoot, engineBinPath, engineEnv, workspaceRoot } from '../config.ts';
 import { tsxImportUrl } from '../ts-runtime.ts';
 import { expectWindows } from './expect-windows.ts';
@@ -23,7 +24,21 @@ import { probeQaCommand } from './probe-qa.ts';
 import { muxAudio } from './mux-audio.ts';
 import { wcagPass } from './wcag-pass.ts';
 
-const usage = 'usage: openedit gates <run-dir> [--doc <subdir>] [--audio <file>] [--no-mux] [--no-loudnorm] [--no-probe] [--no-expect] [--no-design] [--no-wcag]';
+export const usage = {
+  summary: 'THE gate chain: design → lint → verify → wcag → record → probe → mux, one command',
+  positionals: '<run-dir>',
+  flags: {
+    doc: { type: 'string', value: '<subdir>', help: 'Document under the run to gate: one chapter of a film (default final)' },
+    audio: { type: 'string', value: '<file>', help: "A built soundtrack to mux instead of the source clip's own track" },
+    'no-mux': { type: 'boolean', help: 'The run has no soundtrack to restore; the silent render is copied to out.mp4' },
+    'no-loudnorm': { type: 'boolean', help: 'Skip levelling the muxed audio to the delivery loudness' },
+    'no-probe': { type: 'boolean', help: 'The run has no source footage to diff frames against' },
+    'no-expect': { type: 'boolean', help: 'Skip deriving verify.expect from the document; never to silence an expect-visible failure' },
+    'no-design': { type: 'boolean', help: 'The run has no design/system.json (compiled-recipe runs only)' },
+    'no-wcag': { type: 'boolean', help: 'Skip the contrast audit' },
+  },
+  notes: 'Stops at the first failure and names it. Run outside any sandbox: verify and record need a real desktop session.',
+} satisfies Usage;
 
 class GateExit extends Error {
   constructor(readonly code: number, msg = '') { super(msg); }
@@ -67,53 +82,24 @@ const runEngine = (args: string[]) =>
   spawnSync(engineBinPath(), args, { stdio: 'inherit', env: engineEnv(), cwd: workspaceRoot() }).status === 0;
 
 function run(argv: string[]): void {
-  const [dir, ...rest] = argv;
-  if (!dir) die(usage, 2);
+  const { values, positionals: [dir] } = parseUsage('gates', usage, argv);
+  if (!dir) die(usageLine('gates', usage), 2);
 
-  let noLoudnorm = false;
-
-  let noMux = false;
-  let noProbe = false;
-  let noExpect = false;
-  let noDesign = false;
-  let noWcag = false;
+  const noLoudnorm = !!values['no-loudnorm'];
+  const noMux = !!values['no-mux'];
+  const noProbe = !!values['no-probe'];
+  const noExpect = !!values['no-expect'];
+  const noDesign = !!values['no-design'];
+  const noWcag = !!values['no-wcag'];
   // Which document under the run this call gates. A captioned clip has one; a film has one per
   // chapter, and hardcoding `final` was why a seven-chapter run found no route through here.
-  let doc = 'final';
-  // Whether --doc was actually GIVEN, which is a different question from which document is gated. The
-  // default is `final`, so passing it on unconditionally told design-gate every run was one chapter of
-  // a longer piece — and the declared-but-unused check, which only fires on a whole run, never ran at
-  // all through this chain.
-  let docGiven = false;
+  const doc = values.doc ?? 'final';
+  if (doc === '') die('--doc needs a subdirectory', 2);
+  // `--doc final` is the default written out, not a request to gate one chapter of many: passing it
+  // on unconditionally told design-gate every run was a chapter, so its whole-run check never ran.
+  const docGiven = doc !== 'final';
   // A built soundtrack rather than the source clip's track — a film has one, a captioned clip does not.
-  let audio = '';
-  while (rest.length > 0) {
-    const flag = rest.shift();
-    switch (flag) {
-      // `--doc final` is the default written out, not a request to gate one chapter of many.
-      case '--doc': {
-        const value = rest.shift();
-        if (!value) die('--doc needs a subdirectory', 2);
-        doc = value!;
-        if (doc !== 'final') docGiven = true;
-        break;
-      }
-      case '--audio': {
-        const value = rest.shift();
-        if (!value) die('--audio needs a file', 2);
-        audio = value!;
-        break;
-      }
-      case '--no-mux': noMux = true; break;
-      case '--no-loudnorm': noLoudnorm = true; break;
-      case '--no-probe': noProbe = true; break;
-      case '--no-expect': noExpect = true; break;
-      case '--no-design': noDesign = true; break;
-      case '--no-wcag': noWcag = true; break;
-      default:
-        die(`gates: unknown flag ${flag}`, 2);
-    }
-  }
+  const audio = values.audio ?? '';
 
   // A flag that cannot take effect is worse than one that is refused, and the complaint belongs here:
   // downstream it would print only after design, lint, verify, record and probe-qa had already run.

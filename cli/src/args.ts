@@ -63,3 +63,74 @@ export function numberFlag(
   if (!Number.isFinite(n) || !accept(n)) throw new Error(`--${flag} wants ${wants}, e.g. --${flag} ${fallback}`);
   return n;
 }
+
+// One declaration per command carries its flags, their parser config and its help. The dispatcher
+// renders the top-level list and `<command> --help` from these, so the help cannot drift from what
+// the parser accepts. Declare with `satisfies Usage` so the flag names and types stay literal and
+// `parseUsage` returns typed values.
+export type Flag = {
+  type: 'string' | 'boolean';
+  short?: string;
+  multiple?: boolean;
+  required?: boolean;
+  /** What the value is, for the grammar line: `<file>`, `N`, `male|female`. String flags only. */
+  value?: string;
+  help: string;
+};
+
+export type Usage<F extends Record<string, Flag> = Record<string, Flag>> = {
+  /** One line for the top-level command list. */
+  summary: string;
+  /** The positional grammar, e.g. `<video.mp4> [...]`; absent when the command takes none. */
+  positionals?: string;
+  flags: F;
+  /** Extra prose under the flag table. */
+  notes?: string;
+};
+
+function flagForm(name: string, f: Flag): string {
+  return f.type === 'string' ? `--${name} ${f.value ?? '<value>'}` : `--${name}`;
+}
+
+function flagGrammar(name: string, f: Flag): string {
+  const form = flagForm(name, f);
+  const one = f.required ? form : `[${form}]`;
+  return f.multiple ? `${one}...` : one;
+}
+
+/** The one-line grammar: `usage: openedit <command> <positionals> [--flag <value>] ...`. */
+export function usageLine(command: string, usage: Usage): string {
+  const parts = [`usage: openedit ${command}`];
+  if (usage.positionals) parts.push(usage.positionals);
+  for (const [name, f] of Object.entries(usage.flags)) parts.push(flagGrammar(name, f));
+  return parts.join(' ');
+}
+
+/** The full help for one command: grammar, summary, every flag with what it does, notes. */
+export function renderUsage(command: string, usage: Usage): string {
+  const rows = Object.entries(usage.flags).map(([name, f]) => {
+    const form = flagForm(name, f);
+    return [f.short ? `-${f.short}, ${form}` : form, f.help] as const;
+  });
+  const width = Math.max(0, ...rows.map(([form]) => form.length));
+  const lines = [usageLine(command, usage), '', usage.summary];
+  if (rows.length) {
+    lines.push('');
+    for (const [form, help] of rows) lines.push(`  ${form.padEnd(width)}  ${help}`);
+  }
+  if (usage.notes) lines.push('', usage.notes);
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * Parse a command's argv against its declared usage: the strict parser, positionals allowed only
+ * when the usage names some, and the grammar line appended to every rejection. parseArgs reads
+ * only type/short/multiple off each flag and ignores the help keys.
+ */
+export function parseUsage<F extends Record<string, Flag>>(command: string, usage: Usage<F>, args: string[]) {
+  try {
+    return parseFlags({ args, options: usage.flags, allowPositionals: usage.positionals !== undefined });
+  } catch (error) {
+    throw new Error(`${(error as Error).message}\n${usageLine(command, usage)}`, { cause: error });
+  }
+}

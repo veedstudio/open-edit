@@ -186,7 +186,7 @@ E keeps its verbatim text and case; it is the only `.big` span in the beat.
 Run from outside any sandbox:
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 Exit 0 → record. Otherwise apply the MECHANICAL fix for the named element and re-run (≤2 fix cycles):
@@ -201,7 +201,7 @@ Exit 0 → record. Otherwise apply the MECHANICAL fix for the named element and 
 Then record (a SECOND invocation — verify and record are mutually exclusive):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 Manifest (must already exist, verbatim from section 2):

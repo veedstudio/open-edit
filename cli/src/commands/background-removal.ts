@@ -13,7 +13,7 @@ import { type VeedHttp, unwrap } from '../veed/api.ts';
 import { getDefaultSpace, createProject } from '../veed/fabric-routes.ts';
 import { describeWorkspaceChoice, formatWorkspaceTable, resolveWorkspace } from '../veed/workspace.ts';
 import { uploadLocalAsset, readVideoBytes } from '../veed/asset-upload.ts';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { resolveVideoArg, runKeyOf } from '../resolve-video.ts';
 import { FFPROBE, runsDir } from '../config.ts';
 import { submitOnce, await_, download, firstUrl, falKey, completeJob, type Http as FalHttp } from '../providers/fal.ts';
@@ -237,21 +237,23 @@ function noTokenHelp(): void {
   );
 }
 
+export const usage = {
+  summary: "Remove a video's background (free VEED route by default)",
+  positionals: '<video.mp4>',
+  flags: {
+    'mask-only': { type: 'boolean', help: 'Write the alpha mask only, not the composited video' },
+    fast: { type: 'boolean', help: "fal's own model instead of the free VEED route; bills your own fal key" },
+    'no-refine': { type: 'boolean', help: 'Skip the edge refinement pass' },
+    out: { type: 'string', value: '<path>', help: 'Output file (default runs/<key>/background-removed.mp4)' },
+    workspace: { type: 'string', value: '<id>', help: 'VEED workspace to run under' },
+  },
+} satisfies Usage;
+
 export async function backgroundRemoval(argv: string[]): Promise<number> {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: {
-      'mask-only': { type: 'boolean' },
-      fast: { type: 'boolean' },
-      'no-refine': { type: 'boolean' },
-      out: { type: 'string' },
-      workspace: { type: 'string' },
-    },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('background-removal', usage, argv);
   const [videoArg] = positionals;
   if (!videoArg) {
-    console.error('usage: npx @veedstudio/openedit-cli background-removal <video.mp4> [--mask-only] [--fast] [--no-refine] [--out <path>] [--workspace <id>]');
+    console.error(usageLine('background-removal', usage));
     return 1;
   }
   const videoPath = resolveVideoArg(videoArg);

@@ -27,7 +27,7 @@ the work calls for edits, motion graphics, or other compositions.
 ## To run a video
 When the user says "run the open-edit skill on `<video.mp4>`", follow
 `.claude/skills/open-edit/SKILL.md` exactly (the FAST PATH):
-**preflight** (automatically prepare the workspace-local runtime; ask before global installs or updates) →
+**preflight** (automatically prepare the workspace — the CLI package carries the content itself; ask before global installs or updates) →
 **prep** (transcript from the recorded provider — `npx @veedstudio/openedit-cli transcribe`, with `--provider veed` for the hosted route — then `npx @veedstudio/openedit-cli prep`: `meta.json` + `word-timings.json` from
 the transcript's real per-word times + base frames) → **sample ONE style** (`npx @veedstudio/openedit-cli sample-style`, facet-scored, seeded,
 zero tokens → `style.json`; the pool is the recipes-only runtime index `refs/tags.json`, so the draw is
@@ -93,15 +93,18 @@ fast-path/refinement switch.
   it keeps apart: the CONTENT it reads (recipes, gates, brief — the package's own tree unless `OPEN_EDIT_ROOT`
   names a directory that really carries `refs/tags.json`) and the WORKSPACE it writes (`runs/`, the recorded
   provider choice). A checkout also has a top-level `config.ts` of its own, reading the same env vars, for the
-  substrate scripts that run outside the CLI. `docs/` — FLOW (orchestration) · recipe-format (the recipe law). Engine support matrix = the `feature-support.md` asset downloaded with the engine release into `.veed-engine/` (not vendored here).
+  substrate scripts that run outside the CLI. `docs/` — FLOW (orchestration) · recipe-format (the recipe law). Engine support matrix = the `feature-support.md` asset downloaded with the engine release into its install dir (not vendored here).
 
 ## Hard rules (do not drift — these protect output quality)
 - Recipe runs are **deterministic** — the generate-recipe command is the only writer of the final .wv document; never
   hand-edit its output or "improve" a compiled recipe per-run. A gate failure (lint / `--verify` /
   probe-qa) gets the mechanical ladder fix (in the runner) or an honest report — never a redesign. If a
   run genuinely needs a customised recipe (explicit user ask), COPY `refs/html/<id>/recipe.ts` to the
-  scratchpad, fix its relative lib import to the absolute path of `pipeline/recipes/lib.ts`, edit the
-  copy, and run with `--module <copy>` — the library recipes in `refs/html/` are never edited per-run.
+  scratchpad, fix its relative lib import to the absolute path of the content tree's
+  `pipeline/recipes/lib.js` — the compiled module, because an installed content tree sits inside
+  node_modules where a `.ts` import is never type-stripped (`lib.ts` when that tree is a checkout) —
+  edit the copy, and run with `--module <copy>`; the library recipes in `refs/html/` are never edited
+  per-run.
 - **The runtime style pool is RECIPES-ONLY — architecturally.** `refs/tags.json` (v3) contains nothing
   but recipe-backed refs (`sample-style` fail-louds on an entry missing its sheet or module); Selection is by
   FACETS — never by image.
@@ -157,8 +160,8 @@ listed first because it transcribes best, not because it wins ties.
 | `whisperx` | Free, local, offline. Two tiers: `medium` (slower, better) and `small.en` (fastest, weaker on names). CPU by default (CTranslate2 has no GPU path on Apple Silicon); a CUDA-capable box overrides via `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE`. | `npx @veedstudio/openedit-cli transcribe` |
 | `custom` | The user's own service or MCP, and the route for GENERATED narration — the media argument may be an audio file, so a film's own voice track reaches `transcript.json` before any picture exists. **We provide no support code**: you obtain a Whisper-family JSON however their tool works, then map it. No credential ever passes through OpenEdit. | `npx @veedstudio/openedit-cli whisper <json> <media>` |
 
-The choice is recorded in `$OPEN_EDIT_ROOT/.open-edit-prefs.json` — the runtime root, which is not the
-user's project root when the runtime is a managed clone — as `{ transcription: { provider, model? } }`, and is not
+The choice is recorded in `$OPEN_EDIT_ROOT/.open-edit-prefs.json` — the root preflight printed: the
+workspace itself, or the checkout in contributor mode — as `{ transcription: { provider, model? } }`, and is not
 re-asked. Write it with `npx @veedstudio/openedit-cli transcribe --record <provider> [--model <id>]` rather
 than by hand. An absent, corrupt or unrecognised file reads as a cold start with a stated reason, and
 a recorded `model` becomes the default tier for later runs.

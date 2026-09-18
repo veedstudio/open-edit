@@ -6,7 +6,7 @@
 //
 //   openedit prep <video.mp4> [<video2.mp4> ...]
 //   (any path works — absolute or relative to your CWD; outputs land in runs/<key>/ under the runtime root)
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { access, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -72,15 +72,17 @@ async function ensureWordTimings(dir: string, transcriptPath: string, key: strin
   }
 }
 
+export const usage = {
+  summary: 'Probe canvas, synthesize word timings, and cut base frames for source videos',
+  positionals: '<video.mp4> [...]',
+  flags: {},
+} satisfies Usage;
+
 export async function prep(argv: string[]): Promise<number> {
   // Every argument is a video; prep takes no flags at all. Said strictly, so a flag meant for some other
   // command is named here rather than resolved as a file path and reported as a missing video.
-  const { positionals: videos } = parseFlags({
-    args: argv,
-    options: {},
-    allowPositionals: true,
-  });
-  if (videos.length === 0) throw new Error('usage: openedit prep <video.mp4> [...]');
+  const { positionals: videos } = parseUsage('prep', usage, argv);
+  if (videos.length === 0) throw new Error(usageLine('prep', usage));
   for (const file of videos) await prepOne(file);
   console.log('PREP DONE');
   return 0;

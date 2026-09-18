@@ -24,7 +24,7 @@
 //                    index is 100% compiled — the hard filter already does this)
 // Writes runs/<key>/style.json — see StylePick.
 //   openedit sample-style --run <runDir> [--seed N] [--style <id>] [--recipes-only]
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { contentRoot } from '../config.ts';
@@ -260,27 +260,29 @@ export function readStylePick(runDir: string): Pick<StylePick, 'refId' | 'refPat
   };
 }
 
+export const usage = {
+  summary: "Facet-scored, seeded style draw from the workspace's runtime index → style.json",
+  flags: {
+    run: { type: 'string', value: '<runDir>', required: true, help: 'The run whose style.json is written' },
+    seed: { type: 'string', value: 'N', help: 'Seed for the draw; the same seed redraws the same style' },
+    style: { type: 'string', value: '<id>', help: 'Pick this ref instead of drawing' },
+    exclude: { type: 'string', value: '<id>', multiple: true, help: 'Leave this ref out of the draw' },
+    'recipes-only': { type: 'boolean', help: 'Draw only from refs backed by a compiled recipe' },
+  },
+} satisfies Usage;
+
 export function sampleStyleCommand(argv: string[]): number {
   // Strict: an unknown flag is an error. A typo here silently redraws the style someone thought they
   // were overriding, and the run then renders the wrong pick while reporting the wrong id.
-  const { values } = parseFlags({
-    args: argv,
-    options: {
-      run: { type: 'string' },
-      seed: { type: 'string' },
-      style: { type: 'string' },
-      'recipes-only': { type: 'boolean' },
-      exclude: { type: 'string', multiple: true },
-    },
-  });
+  const { values } = parseUsage('sample-style', usage, argv);
   const run = values.run;
-  if (!run) { console.error('usage: openedit sample-style --run <runDir> [--seed N] [--style <id>] [--exclude <id>]... [--recipes-only]'); return 2; }
+  if (!run) { console.error(usageLine('sample-style', usage)); return 2; }
   let seed: number | undefined;
   if (values.seed !== undefined) {
     seed = Number(values.seed);
     if (!Number.isFinite(seed)) { console.error(`--seed must be a number, got "${values.seed}"`); return 2; }
   }
-  const s = sampleStyle(run, { seed, style: values.style, recipesOnly: values['recipes-only'] ?? false, exclude: values.exclude as string[] | undefined });
+  const s = sampleStyle(run, { seed, style: values.style, recipesOnly: values['recipes-only'] ?? false, exclude: values.exclude });
   const cov = s.coverage.filtered ? 'recipes-only pool' : `COVERAGE MODE (${s.coverage.sheets}/${s.coverage.threshold} sheets)`;
   console.log(`[sample-style] ${s.refId} seed=${s.seed} recipe=${s.hasRecipe ? 'yes' : 'no'} energy=${s.energy} ${cov}`);
   console.log(`  alternates: ${s.alternates.join(', ')}`);

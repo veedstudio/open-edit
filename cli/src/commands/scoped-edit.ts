@@ -10,7 +10,7 @@
 // Exit 0 when every difference falls inside the allowed set, 1 otherwise. With no --allow the check
 // is "nothing at all may differ", which is the right gate for a pure re-render.
 import { readFileSync } from 'node:fs';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 
 export interface Drift {
   where: string;
@@ -217,16 +217,20 @@ function removeElement(src: string, id: string): string {
   return src.slice(0, m.index); // unbalanced markup: drop the rest rather than report it as drift
 }
 
+export const usage = {
+  summary: 'Prove an edit stayed inside its stated scope (baseline vs candidate .wv)',
+  positionals: '<baseline.wv> <candidate.wv>',
+  flags: {
+    allow: { type: 'string', value: '<selector|id>', multiple: true, help: 'A selector or element id the edit was allowed to change' },
+  },
+} satisfies Usage;
+
 export function scopedEdit(argv: string[]): number {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: { allow: { type: 'string', multiple: true } },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('scoped-edit', usage, argv);
   const files = positionals;
-  const allow = (values.allow as string[] | undefined) ?? [];
+  const allow = values.allow ?? [];
   if (files.length < 2) {
-    console.error('usage: openedit scoped-edit <baseline.wv> <candidate.wv> [--allow <selector|id>]...');
+    console.error(usageLine('scoped-edit', usage));
     return 2;
   }
   const baseline = readFileSync(files[0], 'utf8');

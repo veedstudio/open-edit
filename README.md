@@ -198,8 +198,9 @@ npx @veedstudio/openedit-cli gates runs/<key> [--doc <subdir>] [--audio <file>] 
 `expect-windows` derives the `verify.expect` timing assertions from a
 document's own gates (`--write` stamps them into the manifest); the chain runs
 it automatically. The design and lint gates come from the content this package
-carries, so they run with no checkout; `OPEN_EDIT_ROOT` pointed at one replaces
-them with that checkout's.
+carries, so they run in-process with no checkout (`design-gate` and `lint` also
+exist as standalone commands); `OPEN_EDIT_ROOT` pointed at a checkout runs that
+checkout's gates instead. `content-root` prints where the content lives.
 
 ### Editing and QA tools
 
@@ -244,14 +245,18 @@ npx @veedstudio/openedit-cli preview runs/<key>
 
 ### init / readiness
 
-`init` is the workspace setup: it checks the machine dependencies (git, Node,
-pnpm, ffmpeg), clones the Open Edit runtime when the workspace isn't already a
-checkout, installs its pinned dependencies, and verifies the render engine.
-Bare `init` applies only safe, workspace-local setup; `--dry` reports without
-writing; `--auto-approve` also applies machine-global installs and clean
-updates, and is only for after a person has approved every reported action.
-Exit 10 means something is awaiting that approval; on success the workspace
-root is printed on stdout.
+`init` is the workspace setup: it checks the machine dependencies (Node,
+ffmpeg), npm-ifies the workspace (a minimal private `package.json` when none
+exists, this CLI exact-pinned as a devDependency, `git init` when git is
+available, `runs/` gitignored, the skill refreshed from packaged content),
+verifies the render engine, and applies clean patch/minor updates of the CLI
+itself — a major release, or one whose engine floor is not met, waits for
+approval. An explicit `--repository`/`--ref` keeps the legacy managed-clone
+path (which needs git and pnpm). Bare `init` applies only safe,
+workspace-local setup; `--dry` reports without writing; `--auto-approve` also
+applies machine-global installs and clean updates, and is only for after a
+person has approved every reported action. Exit 10 means something is awaiting
+that approval; on success the workspace root is printed on stdout.
 
 ```sh
 npx @veedstudio/openedit-cli init --dry --workspace <dir>
@@ -268,6 +273,8 @@ network — and exits 1 when a blocking item is missing.
 | `VEED_ORIGIN` | Overrides the default `https://www.veed.io` origin. |
 | `OPENEDIT_STATE_DIR` | Overrides where login state is stored. |
 | `OPEN_EDIT_ROOT` | Where `runs/<key>/` outputs and `.open-edit-prefs.json` are written (default: the app-data directory below). Pointed at an Open Edit checkout it also replaces the bundled content, so the CLI runs that checkout's recipes and gates instead. |
+| `OPENEDIT_PACKAGE_SOURCE` | Overrides what init pins into a scaffolded workspace (a packed tarball path in tests and CI). |
+| `OPENEDIT_REGISTRY` | Overrides the npm registry the auto-update check consults (default: `https://registry.npmjs.org`). |
 | `VEED_ENGINE_FFMPEG` / `VEED_ENGINE_FFPROBE` | ffmpeg/ffprobe binaries (default: `PATH`; ffprobe defaults beside a configured ffmpeg). |
 | `WHISPERX_BIN` / `WHISPERX_MODEL` | WhisperX binary and fallback model tier (defaults: `whisperx` on `PATH`, `small.en`). |
 | `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE` | WhisperX device/compute (defaults: `cpu`/`int8`). |

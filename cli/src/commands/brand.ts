@@ -10,7 +10,7 @@
 //   brand.ts --file <brand.json> --check     # validate it before a run spends a render on it
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, isAbsolute, join } from 'node:path';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 
 export interface Brand {
   name: string;
@@ -84,12 +84,18 @@ export function briefFor(brand: Brand, baseDir: string): string {
   return lines.join('\n');
 }
 
+export const usage = {
+  summary: 'Validate a brand.json',
+  flags: {
+    file: { type: 'string', value: '<brand.json>', required: true, help: 'The brand file to validate' },
+    brief: { type: 'boolean', help: 'Print the design brief the brand implies, when it validates' },
+    check: { type: 'boolean', help: 'Validate only' },
+  },
+} satisfies Usage;
+
 export function brandCommand(argv: string[]): number {
-  const { values } = parseFlags({
-    args: argv,
-    options: { file: { type: 'string' }, brief: { type: 'boolean' }, check: { type: 'boolean' } },
-  });
-  if (!values.file) { console.error('usage: openedit brand --file <brand.json> [--brief] [--check]'); return 2; }
+  const { values } = parseUsage('brand', usage, argv);
+  if (!values.file) { console.error(usageLine('brand', usage)); return 2; }
   const path = resolve(values.file);
   const brand = JSON.parse(readFileSync(path, 'utf8')) as Brand;
   const problems = validate(brand, dirname(path));

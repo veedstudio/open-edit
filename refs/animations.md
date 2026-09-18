@@ -2,7 +2,7 @@
 
 All 28 pool refs ship a `template.wv` (an engine animation document, rendered with `veed-engine-cli` —
 engine releases: `github.com/veedstudio/weave-renderer-public-releases`), authored to the engine's CSS
-subset (support matrix = `.veed-engine/feature-support.md`, downloaded with the release). Each ref folder:
+subset (support matrix = `feature-support.md`, downloaded into the engine's install dir with the release). Each ref folder:
 `refs/html/<id>/recipe.md` (the prose sheet) · `recipe.ts` (the compiled module) · `template.wv`.
 The effect tables below are a PARTIAL catalogue from the first animation batch — 11 of the 28 pool refs.
 
@@ -42,7 +42,7 @@ Words reveal one at a time in reading order (rise + fade), unless noted.
 
 ## engine behaviour these animations were built around
 These are the findings that shaped the first-batch animations, and only the ones this catalogue's
-refs hit. The current support matrix ships with the release as `.veed-engine/feature-support.md`.
+refs hit. The current support matrix ships with the release as `feature-support.md`, beside the installed engine.
 Each line below is settled by a control render — a document, a control drawing what the claim
 predicts, and a pixel diff between them — and names the probe that settled it; the batch's own
 workarounds are kept where they are the ref's idiom, not where the engine forces them.

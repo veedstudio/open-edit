@@ -1,8 +1,16 @@
 // Prints a valid VEED access token for other tools to consume. This is the
 // process-boundary seam: callers spawn the CLI instead of importing the token
 // store, so login state and refresh live in exactly one codebase.
+import type { Usage } from '../args.ts';
 import { resolveVeedToken } from '../veed/resolve-token.ts';
 import { DEFAULT_TOKEN_PATH } from '../veed/token-store.ts';
+
+export const usage = {
+  summary: 'Print a valid VEED access token for a pipe, refreshing if stale; masked when printed to a terminal',
+  flags: {
+    path: { type: 'boolean', help: 'Print the token store location instead' },
+  },
+} satisfies Usage;
 
 export async function token(opts: { path?: boolean } = {}): Promise<number> {
   // --path reports where the store lives without touching it (no refresh, no network).

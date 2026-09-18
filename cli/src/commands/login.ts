@@ -4,6 +4,7 @@
 //
 //   Run:  openedit login [--manual]
 //   Env:  VEED_ORIGIN optionally overrides the default https://www.veed.io origin.
+import type { Usage } from '../args.ts';
 import { openUrl } from '../open-url.ts';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline/promises';
@@ -128,6 +129,13 @@ async function readCodeFromStdin(expectedState: string): Promise<string> {
   }
   return code;
 }
+
+export const usage = {
+  summary: 'Log in with VEED',
+  flags: {
+    manual: { type: 'boolean', help: 'Paste the redirect URL instead of opening a browser' },
+  },
+} satisfies Usage;
 
 export async function login(opts: { manual?: boolean } = {}): Promise<void> {
   // The atomic token write renames within this dir, so it must exist first.

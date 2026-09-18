@@ -6,8 +6,9 @@
 // Joins are crossfaded, not butt-joined: a butt join clicks at the seam, and a crossfade needs one
 // encode over both sides of it. That is why this re-encodes instead of stream-copying like `concat-chapters`.
 import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import { numberFlag, parseFlags } from '../args.ts';
+import { mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
 import { loadEdl, snapRanges, sourceOrder, sourcePath, type SnappedRange } from '../edl.ts';
 import {
@@ -132,19 +133,20 @@ export function decideColour(sources: { id: string; colour: ColourReport }[]): C
   return first.colour;
 }
 
+export const usage = {
+  summary: 'Assemble the kept ranges of an EDL into one file, crossfading every join',
+  flags: {
+    edl: { type: 'string', value: '<edl.json>', required: true, help: 'The edit decision list to assemble' },
+    out: { type: 'string', value: '<cut.mp4>', required: true, help: 'Where the assembled file is written' },
+    crossfade: { type: 'string', value: '<ms>', help: 'Audio crossfade at each join, at least 1 (default 40)' },
+    crf: { type: 'string', value: '0-51', help: 'x264 quality (default 20)' },
+  },
+} satisfies Usage;
+
 export function applyEdl(argv: string[]): number {
-  const { values } = parseFlags({
-    args: argv,
-    options: {
-      edl: { type: 'string' },
-      out: { type: 'string' },
-      crossfade: { type: 'string' },
-      crf: { type: 'string' },
-    },
-    allowPositionals: false,
-  });
+  const { values } = parseUsage('apply-edl', usage, argv);
   if (!values.edl || !values.out) {
-    throw new Error('usage: openedit apply-edl --edl <edl.json> --out <cut.mp4> [--crossfade <ms>, default 40] [--crf 20]');
+    throw new Error(usageLine('apply-edl', usage));
   }
   const loaded = loadEdl(values.edl);
   // ffmpeg reads `afade=d=0` as UNSET and falls back to its 44100-sample default — nearly a second per
@@ -231,6 +233,7 @@ export function applyEdl(argv: string[]): number {
   const { filter, videoLabel, audioLabel } = buildGraph(ranges, seeks, canvas, colour.tags, crossfadeSec);
 
   const outPath = resolve(values.out);
+  mkdirSync(dirname(outPath), { recursive: true });
   execFileSync(FFMPEG, [
     '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
     ...ranges.flatMap((range, i) => [...(seeks[i] > 0 ? ['-ss', String(seeks[i])] : []), '-i', sourceOf(range.source).path]),

@@ -13,7 +13,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
 
 export interface Track {
@@ -142,15 +142,21 @@ export function mix(runDir: string, specPath: string, outPath: string): string {
   return outPath;
 }
 
+export const usage = {
+  summary: "Build one soundtrack from a run's mix spec (narration/music/sfx, with ducking)",
+  positionals: '<run-dir>',
+  flags: {
+    spec: { type: 'string', value: '<file>', help: 'Mix spec, relative to the run (default audio/mix.json)' },
+    out: { type: 'string', value: '<file>', help: 'Output, relative to the run (default audio/mix.m4a)' },
+    'print-graph': { type: 'boolean', help: 'Print the ffmpeg filtergraph and write nothing' },
+  },
+} satisfies Usage;
+
 export function mixAudio(argv: string[]): number {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: { spec: { type: 'string' }, out: { type: 'string' }, 'print-graph': { type: 'boolean' } },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('mix-audio', usage, argv);
   const [runDir] = positionals;
   if (!runDir) {
-    console.error('usage: openedit mix-audio <run-dir> [--spec audio/mix.json] [--out audio/mix.m4a] [--print-graph]');
+    console.error(usageLine('mix-audio', usage));
     return 2;
   }
   const specPath = join(runDir, values.spec ?? 'audio/mix.json');

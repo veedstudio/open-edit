@@ -15,6 +15,7 @@
 // no longer covers what is about to be bought.
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import type { Usage } from '../args.ts';
 import { join } from 'node:path';
 import { estimateRange, estimateTotalCredits } from '../veed/fabric.ts';
 import {
@@ -257,6 +258,24 @@ export async function runSet(
   return { status: 'generated', clips };
 }
 
+export const usage = {
+  summary: 'One approval covering several shots',
+  flags: {
+    shots: { type: 'string', value: '<shots.json>', help: 'The shots file: one script per clip, priced and approved together' },
+    workspace: { type: 'string', value: '<id>', help: 'The workspace whose AI Playground credits are billed' },
+    key: { type: 'string', value: '<run>', help: 'The run directory under runs/ (default generated)' },
+    character: { type: 'string', value: '<id>', help: 'The presenter preset' },
+    voice: { type: 'string', value: '<id>', help: 'The voice; defaults to the one curated for the character' },
+    image: { type: 'string', value: '<path|url>', help: 'A reference image for the presenter' },
+    yes: { type: 'boolean', help: 'Spend the cost the confirm pass quoted' },
+    resume: { type: 'boolean', help: 'Collect jobs already created and paid for; spends nothing' },
+    abandon: { type: 'string', value: '<sessionId>', help: 'Clear one abandoned charge record; spends nothing' },
+    script: { type: 'string', value: '"spoken words"', help: 'Single-shot script; a set normally keeps its scripts in the shots file' },
+    'ignore-balance': { type: 'boolean', help: 'Treat a low balance reading as a warning, not a refusal' },
+  },
+} satisfies Usage;
+
+// --shots is read here; every other flag is generate's, parsed by generate's own strict parser.
 export async function generateSet(argv: string[]): Promise<number> {
   const { parseArgs, realDeps } = await import('./generate.ts');
   const at = argv.indexOf('--shots');

@@ -26,7 +26,7 @@ export { runKeyOf };
 import { mapWhisperTranscript, type Transcript, type WhisperJson } from '../prep/whisper-mapper.ts';
 import { cachedNote, cachedTranscriptPath, collidingRunKey, transcriptPathFor, wordCount } from '../prep/transcript-cache.ts';
 import { readJsonFile } from '../json-file.ts';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import type { VeedHttp } from '../veed/api.ts';
 import { refreshingHttp } from '../veed/http.ts';
 import { transcribeWithVeed } from '../veed/orchestrate.ts';
@@ -245,9 +245,20 @@ export async function transcribeLocally(
   }
 }
 
-export const USAGE = 'usage: openedit transcribe <video.mp4> [...] [--model <id>] [--language <code>] [--force]\n'
-  + '   or: openedit transcribe --provider veed <video.mp4> [...] [--workspace <id>] [--force]\n'
-  + `   or: openedit transcribe --record <${PROVIDERS.join('|')}> [--model <id>]`;
+export const usage = {
+  summary: "Transcribe videos: WhisperX locally by default, or --provider veed for VEED's hosted transcription",
+  positionals: '<video.mp4> [...]',
+  flags: {
+    provider: { type: 'string', value: 'veed|whisperx', help: 'Which transcription runs (default whisperx, local and free)' },
+    model: { type: 'string', value: '<id>', help: 'WhisperX tier: medium (better) or small.en (fastest)' },
+    language: { type: 'string', value: '<code>', help: 'WhisperX language code; English-only weights otherwise' },
+    workspace: { type: 'string', value: '<id>', help: 'VEED only: the workspace whose transcription credits are billed' },
+    record: { type: 'string', value: `<${PROVIDERS.join('|')}>`, help: 'Record the provider choice for later runs and exit (with --model, its default tier)' },
+    force: { type: 'boolean', help: 'Redo an existing transcript; the hosted provider bills again' },
+  },
+} satisfies Usage;
+
+export const USAGE = usageLine('transcribe', usage);
 
 export interface Args {
   /** In the order given, like the prep command. Empty only when recording a choice. */
@@ -268,18 +279,7 @@ export interface Args {
 // command, so a misspelled --language is refused the same way here as everywhere else (leaving
 // English-only weights on non-English audio would transcribe it as confident nonsense).
 export function parseArgs(argv: string[]): Args {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: {
-      model: { type: 'string' },
-      language: { type: 'string' },
-      record: { type: 'string' },
-      provider: { type: 'string' },
-      workspace: { type: 'string' },
-      force: { type: 'boolean' },
-    },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('transcribe', usage, argv);
   // parseFlags accepts `--model=` as an empty string; an empty value is a mistake, not a selection, so
   // refuse it up front rather than letting '' flow into tier/language/provider selection as a silent blank.
   for (const flag of ['model', 'language', 'record', 'provider', 'workspace'] as const) {

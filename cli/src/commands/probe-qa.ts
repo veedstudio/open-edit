@@ -13,6 +13,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
 
 // Probes are compared on a small fixed grayscale grid — enough to see captions, cheap to extract.
@@ -161,18 +162,23 @@ export function probeRun(runDir: string, doc = 'final'): ProbeResult[] {
   return results;
 }
 
+export const usage = {
+  summary: 'Frame QA of a recorded run vs its source footage',
+  positionals: '<runDir>',
+  flags: {
+    // A film gates one chapter at a time, so the document is not always `final`.
+    doc: { type: 'string', value: '<subdir>', help: 'Document under the run to probe (default final)' },
+    json: { type: 'boolean', help: 'Print the per-beat results as JSON on stdout; the summary stays on stderr' },
+  },
+} satisfies Usage;
+
 export function probeQaCommand(argv: string[]): number {
-  // The value of a flag is not a positional. `--doc chapters/act-1 runs/f` took the chapter as the run.
-  const skip = new Set<number>();
-  argv.forEach((a, i) => { if (a === '--doc') skip.add(i + 1); });
-  const runDir = argv.find((a, i) => !a.startsWith('--') && !skip.has(i));
-  if (!runDir) { console.error('usage: openedit probe-qa <runDir> [--doc final] [--json]'); return 2; }
-  // A film gates one chapter at a time, so the document is not always `final`.
-  const at = argv.indexOf('--doc');
-  const doc = at >= 0 ? argv[at + 1] : 'final';
-  if (at >= 0 && !doc) { console.error('--doc needs a subdirectory'); return 2; }
+  const { values, positionals: [runDir] } = parseUsage('probe-qa', usage, argv);
+  if (!runDir) { console.error(usageLine('probe-qa', usage)); return 2; }
+  const doc = values.doc ?? 'final';
+  if (!doc) { console.error('--doc needs a subdirectory'); return 2; }
   const results = probeRun(runDir, doc);
-  if (argv.includes('--json')) console.log(JSON.stringify(results, null, 2));
+  if (values.json) console.log(JSON.stringify(results, null, 2));
   else for (const r of results) {
     console.log(`beat ${r.beat} ${r.probe}@${r.tSec}s ink=${r.inkPct}% contrast=${r.contrast ?? '-'} ${r.verdict.toUpperCase()}${r.notes.length ? ' — ' + r.notes.join('; ') : ''}`);
   }

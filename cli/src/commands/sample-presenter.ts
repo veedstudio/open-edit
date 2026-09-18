@@ -13,7 +13,7 @@
 //
 // The face is drawn first and the voice from what suits it, so a mismatched pair is not reachable.
 import { seedFromKey, mulberry32 } from '../seeded-random.ts';
-import { assertSafeKey, parseFlags } from '../args.ts';
+import { assertSafeKey, parseUsage, usageLine, type Usage } from '../args.ts';
 import type { FabricCharacter, FabricVoice } from '../veed/fabric.ts';
 import { framingOf, listAllVoices, listCharacters, voiceSuitsFace } from '../veed/fabric.ts';
 import type { VeedHttp } from '../veed/api.ts';
@@ -209,22 +209,25 @@ export function formatProposal(proposal: PresenterProposal, key: string): string
   return lines.join('\n');
 }
 
-const USAGE = 'usage: npx @veedstudio/openedit-cli sample-presenter [--key <run>] [--seed N] [--gender male|female] [--locale <locale>] [--portrait|--landscape]';
+export const usage = {
+  summary: 'Seeded, deterministic Fabric presenter proposal for a run key',
+  flags: {
+    key: { type: 'string', value: '<run>', help: `Run key the proposal is for (default ${DEFAULT_KEY})` },
+    seed: { type: 'string', value: 'N', help: 'Seed for the draw; the same seed proposes the same presenter' },
+    gender: { type: 'string', value: 'male|female', help: 'Narrow the draw to one gender' },
+    locale: { type: 'string', value: '<locale>', help: `Narrow the draw to voices of a locale (default ${DEFAULT_LOCALE})` },
+    portrait: { type: 'boolean', help: 'Portrait framing only; opposite of --landscape' },
+    landscape: { type: 'boolean', help: 'Landscape framing only; opposite of --portrait' },
+  },
+} satisfies Usage;
 
-const OPTIONS = {
-  key: { type: 'string' },
-  seed: { type: 'string' },
-  gender: { type: 'string' },
-  locale: { type: 'string' },
-  portrait: { type: 'boolean' },
-  landscape: { type: 'boolean' },
-} as const;
+const USAGE = usageLine('sample-presenter', usage);
 
-// Shares the strict parseFlags every entry point uses (veed/args.ts) rather than a second hand-rolled reader
+// Shares the strict parser every entry point uses rather than a second hand-rolled reader
 // that can drift from it: an unknown or misspelled flag, or a --seed with no value, is an error, not a silent
 // miss. --key gets the same safe-key guard generate.ts uses, since it ends up in the confirm command run next.
 export function parsePresenterArgs(argv: string[]): PresenterOptions {
-  const { values } = parseFlags({ args: argv, options: OPTIONS });
+  const { values } = parseUsage('sample-presenter', usage, argv);
 
   const key = assertSafeKey(values.key ?? DEFAULT_KEY);
 

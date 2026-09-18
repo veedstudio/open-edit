@@ -13,7 +13,7 @@
 // worth writing down, because it is the one that has to be revisited before anything ships.
 import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { parseFlags } from '../args.ts';
+import { parseUsage, renderUsage, type Usage } from '../args.ts';
 import type { Http } from '../providers/fal.ts';
 import { record, type AssetRecord } from '../providers/assets.ts';
 
@@ -139,12 +139,21 @@ export function unlicensed(assets: AssetRecord[]): AssetRecord[] {
   return assets.filter((a) => a.model === 'sourced' && (!a.meta?.licence || a.meta.licence === 'unknown'));
 }
 
+export const usage = {
+  summary: 'Licensed stills from Wikimedia Commons: search / show / save (terms recorded with the file)',
+  positionals: 'search <query> | show <File:Name> | save <File:Name|url>',
+  flags: {
+    limit: { type: 'string', value: 'N', help: 'search: how many candidate files to list (default 10)' },
+    run: { type: 'string', value: '<run-dir>', help: 'save: the run whose asset manifest records the still' },
+    id: { type: 'string', value: '<asset-id>', help: 'save: the asset id the still is saved under' },
+    licence: { type: 'string', value: '"<terms>"', help: 'save: the terms of a bare URL, which carries none of its own (default unknown)' },
+  },
+  notes: 'search lists candidate Commons files; show prints one file\'s url, size, licence and credit;\n'
+    + 'save records a Commons file or a URL into the run with its terms.',
+} satisfies Usage;
+
 export async function stillsCommand(argv: string[]): Promise<number> {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: { run: { type: 'string' }, id: { type: 'string' }, limit: { type: 'string' }, licence: { type: 'string' } },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('stills', usage, argv);
   const [verb, ...rest] = positionals;
 
   if (verb === 'search') {
@@ -177,11 +186,6 @@ export async function stillsCommand(argv: string[]): Promise<number> {
     return 0;
   }
 
-  console.error(
-    'usage:\n' +
-    '  openedit stills search <query> [--limit 10]           # candidate Commons files\n' +
-    '  openedit stills show <File:Name.svg>                  # its url, size, licence and credit\n' +
-    '  openedit stills save <File:Name.svg|url> --run <dir> --id <asset-id> [--licence "<terms>"]',
-  );
+  console.error(renderUsage('stills', usage));
   return 2;
 }

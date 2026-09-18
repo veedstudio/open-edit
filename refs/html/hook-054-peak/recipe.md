@@ -281,7 +281,7 @@ C_tot = 21 + 5 = 26 > 20 → 2 lines, half = 13. Line 1 fills `an app that` (run
 Run (outside any sandbox):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 The engine prints a benign `ancestor-rotation-overflow-clip-omitted` warning for every arc-char (rotate on
@@ -303,7 +303,7 @@ MECHANICAL fix for the named element and re-run; at most 2 fix cycles:
 Then record (a SECOND invocation — `--verify` and `--record` are mutually exclusive):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 Treat ANY font warning in verify/record output as a STOP (a silent font fallback falsifies the sizing math —

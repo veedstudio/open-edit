@@ -64,7 +64,7 @@ Side alternation is the only variety axis.
 ## 6. VERIFY LOOP
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 bounds on a `b{N}…` id → the runner demotes that beat one row (font × 0.92, capacities recomputed) and
 regenerates; ≤ 2 cycles → `--record`. Manifest: `{"render":{"width":W,"height":H,"fps":FPS,"duration":DUR}}`.

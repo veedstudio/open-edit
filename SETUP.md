@@ -5,26 +5,33 @@ From the project where you want to use Open Edit:
 ```
 npx skills add veedstudio/open-edit --skill open-edit
 ```
-On first use, bare `npx @veedstudio/openedit-cli init` automatically clones the full runtime into `.open-edit/runtime`, installs its pinned
-project dependencies and renderer locally, and registers project hooks for Claude, Codex, and Gemini. It reuses a
-valid Open Edit checkout. It never installs system tools or updates existing code without explicit approval.
+The CLI package is self-contained — recipes, briefs and docs ship inside it; nothing is cloned. On first
+use, bare `npx @veedstudio/openedit-cli init` turns the current folder into an ordinary npm project (a
+minimal private `package.json` when none exists, the CLI exact-pinned as a devDependency, `git init` when
+git is available, `runs/` gitignored), installs the renderer locally, installs the skill, and registers
+project hooks for Claude, Codex, and Gemini. An empty folder needs no questions; a folder that already
+holds other files (or another project's `package.json`) is asked about first — approve it, or point
+`--workspace` at the location you want (a fresh subfolder works well). Your project is reproducible from `package.json` plus its
+lockfile, like any npm project. Init reuses a valid Open Edit checkout when run inside one, and it never
+installs system tools or updates existing code without explicit approval. Later sessions apply clean
+patch/minor CLI updates automatically; a major release waits for your approval.
 
 For local branch testing, install with `--copy` from a checkout, then pass init
-`--repository <local-checkout> --ref <branch>`. Commit the branch first: a Git clone
-cannot include uncommitted worktree changes.
+`--repository <local-checkout> --ref <branch>` — this keeps the legacy managed-clone path (a clone at
+`.open-edit/runtime` runs instead of the packaged content, and it does need Git and pnpm). Commit the
+branch first: a Git clone cannot include uncommitted worktree changes.
 
 Init has three modes: bare applies safe local setup, `--dry` reports without writing, and
 `--auto-approve` applies all reported machine-global dependencies and clean updates. An agent must run
 `--auto-approve` only after showing every proposed action and receiving explicit approval.
 
 ## Requirements
-1. **macOS arm64 or Windows x64**, **Git**, **Node**, and the pnpm version declared in `package.json`.
+1. **macOS arm64 or Windows x64** and **Node**. Git is optional (init versions your project with it
+   when present, and skips that silently when not); pnpm is only needed for a contributor checkout.
    On macOS, preflight offers to install missing tools via Homebrew. On Windows it only prints the
-   commands (`winget install --id Git.Git` / `OpenJS.NodeJS.LTS` / `Gyan.FFmpeg` — or the direct
-   downloads from git-scm.com, nodejs.org, and gyan.dev if winget is absent); run them yourself, then
-   re-run preflight from a NEW terminal so the PATH changes are visible. pnpm is the exception: where
-   `corepack` is present preflight tries it first, and falls back to a global install when the pnpm it
-   resolves does not meet the floor.
+   commands (`winget install --id OpenJS.NodeJS.LTS` / `Gyan.FFmpeg` — or the direct downloads from
+   nodejs.org and gyan.dev if winget is absent); run them yourself, then re-run preflight from a NEW
+   terminal so the PATH changes are visible.
 2. **ffmpeg/ffprobe** (frame extraction + audio mux). On PATH, or set `VEED_ENGINE_FFMPEG` /
    `VEED_ENGINE_FFPROBE`. On Windows, where the global installers want elevation,
    `npx @veedstudio/openedit-cli install-ffmpeg` puts a checksum-verified static build in the

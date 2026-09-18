@@ -213,7 +213,7 @@ DETERMINISTIC — no variety axes: the FIT LAW sizes every accent from its conte
 ## 6. VERIFY LOOP
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 Exit 0 → record. Otherwise apply the MECHANICAL fix for the named element and re-run (≤ 2 fix cycles):
@@ -233,7 +233,7 @@ Exit 0 → record. Otherwise apply the MECHANICAL fix for the named element and 
 Then record (separate invocation, only after exit 0):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 `manifest.json`, verbatim shape:

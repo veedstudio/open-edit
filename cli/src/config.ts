@@ -1,9 +1,9 @@
 // Where the CLI keeps its login state: the platform's own per-user app-data
 // directory, like any installed app — never the working directory or a checkout.
 // OPENEDIT_STATE_DIR overrides for tests and unusual setups.
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, isAbsolute, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { engineBinaryName } from "./platform.ts";
 
@@ -66,7 +66,8 @@ export const WHISPERX_COMPUTE = process.env.OPEN_EDIT_WHISPERX_COMPUTE ?? "int8"
 // so the same two levels up land on the package root either way — and the package root IS the
 // repository root, which is what lets a checkout and an install share one content layout.
 export function packageRoot(): string {
-  return fileURLToPath(new URL("../..", import.meta.url));
+  // resolve() drops the trailing separator a directory URL carries; content-root prints this.
+  return resolve(fileURLToPath(new URL("../..", import.meta.url)));
 }
 
 // The content tree: refs, pipeline, docs, the skill. OPEN_EDIT_ROOT pins it only when the directory
@@ -78,11 +79,53 @@ export function contentRoot(): string {
   return packageRoot();
 }
 
+const PACKAGE_NAME = "@veedstudio/openedit-cli";
+
+function isWorkspaceDir(dir: string): boolean {
+  // The installed package carries these markers too; skipping it lets the walk reach the project
+  // that owns the node_modules, which is where renders belong.
+  if (dir.split(sep).includes("node_modules")) return false;
+  if (existsSync(join(dir, ".open-edit-prefs.json"))) return true;
+  if (existsSync(join(dir, "refs", "tags.json"))) return true;
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    return Boolean(pkg.devDependencies?.[PACKAGE_NAME] ?? pkg.dependencies?.[PACKAGE_NAME]);
+  } catch {
+    return false;
+  }
+}
+
+// Exported: init resolves the same workspace before the project exists, and two answers to "which
+// project is this" is the bug.
+export function findWorkspace(startDir: string): string | null {
+  let dir: string;
+  try {
+    dir = resolve(startDir);
+  } catch {
+    return null;
+  }
+  for (;;) {
+    if (isWorkspaceDir(dir)) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 // Where the CLI WRITES: runs and the recorded provider choice. Never the content root — a published
-// install's content sits in node_modules, which is no place to put a user's renders. Defaults to the
-// app-data dir because a plugin host may have no working directory at all.
+// install's content sits in node_modules, which is no place to put a user's renders.
 export function workspaceRoot(): string {
-  return process.env.OPEN_EDIT_ROOT ?? stateDir();
+  const pinned = process.env.OPEN_EDIT_ROOT;
+  if (pinned) return pinned;
+  // The spawns that follow init inherit none of its env, so the project has to be discovered.
+  let cwd: string;
+  try {
+    cwd = process.cwd();
+  } catch {
+    return stateDir();
+  }
+  // A plugin host may have no useful working directory.
+  return findWorkspace(cwd) ?? stateDir();
 }
 
 export function prefsPath(): string {

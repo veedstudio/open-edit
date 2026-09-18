@@ -220,7 +220,7 @@ timings, same size. There is no coloured flash copy anywhere in this recipe.
 Run (outside any sandbox):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 Exit 0 → record. Otherwise apply the MECHANICAL fix for the named element and re-run; at most 2 fix
@@ -239,7 +239,7 @@ cycles:
 Then record (a SECOND invocation — `--verify` and `--record` are mutually exclusive):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --progress-output --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --progress-output --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 `manifest.json`, verbatim shape (`{DUR}` = `durationSec` from `meta.json`):

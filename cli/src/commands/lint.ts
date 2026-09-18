@@ -1,16 +1,24 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { parseFlags } from "../args.ts";
+import { parseUsage, usageLine, type Usage } from "../args.ts";
 import { contentRoot } from "../config.ts";
 import { loadLintGate, type RenderFacts } from "../gates/content-gates.ts";
+
+export const usage = {
+  summary: "Run the engine-limit gate on one document",
+  positionals: "<template.wv>",
+  flags: {
+    json: { type: "boolean", help: "Print the findings as JSON" },
+  },
+} satisfies Usage;
 
 // The mechanical engine-limit gate, run against the content tree this CLI ships with. The rules are
 // content — they change with the substrate they police — so they are loaded, never reimplemented here.
 export async function lint(argv: string[]): Promise<number> {
-  const { values, positionals } = parseFlags({ args: argv, options: { json: { type: "boolean" } }, allowPositionals: true });
+  const { values, positionals } = parseUsage("lint", usage, argv);
   const [file] = positionals;
   if (!file) {
-    console.error("usage: openedit lint <template.wv> [--json]");
+    console.error(usageLine("lint", usage));
     return 2;
   }
 
