@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseUsage, type Usage } from '../args.ts';
 import { engineDir } from '../config.ts';
 import { ENGINE_RELEASES_REPO as REPO, resolveLatestEngineTag } from '../engine-release.ts';
 import { ENGINE_ASSETS, engineBinaryName, platformKey, probeVersion, unsupportedMessage } from '../platform.ts';
@@ -31,9 +32,17 @@ const download = async (url: string, dest: string, timeoutMs: number) => {
   fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
 };
 
+export const usage = {
+  summary: 'Download and verify the render engine into the app-data dir',
+  positionals: '[<release-tag>]',
+  flags: {},
+  notes: 'Installs or upgrades to the latest release unless a release tag pins one.',
+} satisfies Usage;
+
 export async function installEngine(argv: string[]): Promise<number> {
+  const { positionals: [tag = ''] } = parseUsage('install-engine', usage, argv);
   try {
-    await install(argv[0] ?? '');
+    await install(tag);
     return 0;
   } catch (error) {
     if (error instanceof InstallError) {

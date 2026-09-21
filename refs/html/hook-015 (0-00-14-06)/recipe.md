@@ -253,7 +253,7 @@ If the hero lands in slot 5 (the white aside), no bump — the contrast style IS
 Write the files, then run (verbatim; `<key>` = the run key):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 Exit 0 → record. Exit 1 → apply the MECHANICAL fix for each named element, re-run; at most 2 fix
@@ -276,7 +276,7 @@ cycles:
 Then record (a SECOND invocation — verify and record are mutually exclusive):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 ## 7. DO NOT

@@ -13,7 +13,7 @@
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, FFPROBE } from '../config.ts';
 
 export interface Sample { i: number; sec: number; frame: number; path: string }
@@ -93,14 +93,18 @@ export function extractSceneFrames(video: string, outDir: string, count = 8): Sc
   return plan;
 }
 
+export const usage = {
+  summary: 'Stills for a clip with no beats',
+  positionals: '<video.mp4> <outDir>',
+  flags: {
+    count: { type: 'string', value: 'N', help: 'How many evenly spaced stills to cut (default 8)' },
+  },
+} satisfies Usage;
+
 export function sceneFrames(argv: string[]): number {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: { count: { type: 'string' } },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('scene-frames', usage, argv);
   const [video, outDir] = positionals;
-  if (!video || !outDir) { console.error('usage: openedit scene-frames <video.mp4> <outDir> [--count 8]'); return 2; }
+  if (!video || !outDir) { console.error(usageLine('scene-frames', usage)); return 2; }
   const count = Number(values.count ?? 8);
   if (!Number.isInteger(count) || count < 1) {
     console.error(`--count must be a positive integer, got "${values.count}"`);

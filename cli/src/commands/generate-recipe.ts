@@ -10,7 +10,7 @@
 // Exit: 0 done · 1 a gate failed (lint error, verify after the fix cycles, record, or probe FAIL) ·
 // 2 usage, or a refused input (a --module that does not exist, a style.json pointing outside the
 // recipe library) · 3 no compiled recipe for the sampled ref (caller runs the from-scratch inline pass).
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, resolve, sep } from 'node:path';
@@ -25,6 +25,14 @@ import { reexecFailureReason, reexecWithStripTypes, tsxImportUrl } from '../ts-r
 
 const MAX_FIX_CYCLES = 2;
 
+// Node raises its own code here, which the ERR_UNKNOWN_FILE_EXTENSION path below never sees.
+export function moduleLoadHint(modPath: string, code: string | undefined): string | null {
+  if (code !== 'ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING') return null;
+  const compiled = modPath.replace(/\.ts$/, '.js');
+  const sibling = compiled !== modPath && existsSync(compiled) ? ` — pass the compiled module instead: --module ${compiled}` : '';
+  return `[generate-recipe] ${modPath} is TypeScript inside node_modules, which Node never type-strips${sibling}`;
+}
+
 // --verify's bounds failures name a beat-scoped caption element. Id shapes vary per recipe
 // (#b3p1l2, #b3p1, #b3l2, #b3l1r2, …) but all are `b<beat>` + letter+digit segments; the runner
 // passes the EXACT id as a demotion key and each recipe maps it to its own ladder scope via
@@ -33,25 +41,26 @@ function boundsLineIds(verifyOut: string): string[] {
   return [...verifyOut.matchAll(/FAIL\[bounds\] #(b\d+(?:[a-z]+\d*)*)\b/g)].map((m) => m[1]);
 }
 
+export const usage = {
+  summary: "Run a workspace's compiled recipe for a sampled style, then drive the gate chain",
+  flags: {
+    run: { type: 'string', value: '<runDir>', required: true, help: 'The run whose style.json names the recipe' },
+    module: { type: 'string', value: '<path>', help: 'A customised copy of the recipe to run instead of the library one' },
+    verify: { type: 'boolean', help: "Run the engine's --verify with the mechanical fix ladder" },
+    record: { type: 'boolean', help: 'Record out.silent.mp4 after a clean verify (implies --verify)' },
+    wcag: { type: 'boolean', help: 'Contrast-audit the rendered final between verify and record, detect only' },
+    'wcag-apply': { type: 'boolean', help: 'Also promote a remediated template on measured improvement (implies --wcag)' },
+    'progress-output': { type: 'boolean', help: 'Stream the engine\'s progress lines' },
+  },
+} satisfies Usage;
+
 export async function generateRecipe(argv: string[]): Promise<number> {
   // Strict: an unknown flag is an error, never a no-op. This script once accepted --style, ignored it,
   // and re-rendered the previously sampled ref — printing the OLD id while looking like it had worked.
-  // A flag that changes nothing must say so rather than let a run look like it obeyed.
-  const { values } = parseFlags({
-    args: argv,
-    options: {
-      run: { type: 'string' },
-      module: { type: 'string' },
-      record: { type: 'boolean' },
-      verify: { type: 'boolean' },
-      wcag: { type: 'boolean' },
-      'wcag-apply': { type: 'boolean' },
-      'progress-output': { type: 'boolean' },
-    },
-  });
+  const { values } = parseUsage('generate-recipe', usage, argv);
   const runArg = values.run;
   if (!runArg) {
-    console.error('usage: openedit generate-recipe --run <runDir> [--verify] [--record] [--wcag] [--wcag-apply] [--module <path>]');
+    console.error(usageLine('generate-recipe', usage));
     return 2;
   }
   const runDir = resolve(runArg);
@@ -78,6 +87,11 @@ export async function generateRecipe(argv: string[]): Promise<number> {
   if (moduleOverride) {
     modPath = resolve(moduleOverride);
     if (!existsSync(modPath)) { console.error(`[generate-recipe] --module ${modPath} does not exist`); return 2; }
+    // node_modules is never type-stripped, and every ref ships its compiled module beside the source.
+    if (modPath.endsWith(".ts") && modPath.split(sep).includes("node_modules")) {
+      const compiled = modPath.replace(/\.ts$/, ".js");
+      if (existsSync(compiled)) modPath = compiled;
+    }
     console.log(`[generate-recipe] module ${modPath}`);
   } else {
     const style = readStylePick(runDir);
@@ -101,6 +115,11 @@ export async function generateRecipe(argv: string[]): Promise<number> {
   try {
     recipe = (await import(pathToFileURL(modPath).href)).default as RecipeGenerator;
   } catch (e) {
+    const hint = moduleLoadHint(modPath, (e as NodeJS.ErrnoException).code);
+    if (hint) {
+      console.error(hint);
+      return 2;
+    }
     if ((e as NodeJS.ErrnoException).code !== 'ERR_UNKNOWN_FILE_EXTENSION') throw e;
     // Node never strips types inside node_modules, on any version and under any flag, so re-running
     // an installed package's own .ts walks into the same wall a second time. Where the compiled

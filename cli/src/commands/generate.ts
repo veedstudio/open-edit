@@ -35,7 +35,7 @@ import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { runsDir } from '../config.ts';
 import { runKeyOf } from '../resolve-video.ts';
-import { assertSafeKey, assertSafeSessionId, describeValue, parseFlags } from '../args.ts';
+import { assertSafeKey, assertSafeSessionId, describeValue, parseUsage, usageLine, type Usage } from '../args.ts';
 import {
   chargeFileName, classifyChargeRecords, parseChargeRecord, sessionIdOfChargeFile,
   type ChargeRecord, type ChargeVerdict,
@@ -182,27 +182,31 @@ export function spendPathFor(key: string, sessionId: string): string {
 // here because this module's callers and the docs address them through it.
 export { assertSafeKey, assertSafeSessionId };
 
-const OPTIONS = {
-  script: { type: 'string' },
-  key: { type: 'string' },
-  character: { type: 'string' },
-  image: { type: 'string' },
-  voice: { type: 'string' },
-  workspace: { type: 'string' },
-  abandon: { type: 'string' },
-  yes: { type: 'boolean' },
-  resume: { type: 'boolean' },
-  // Balance is evidence, not truth (a reading can be wrong), so this downgrades that reading from a
-  // refusal to a warning. Overrides nothing else — the approval still has to exist, match, and be fresh.
-  'ignore-balance': { type: 'boolean' },
-} as const;
+export const usage = {
+  summary: 'Fabric generation, two passes: --script quotes and records the approval; --yes spends it',
+  flags: {
+    script: { type: 'string', value: '"spoken words"', help: 'Confirm pass: quote the cost and record the approval' },
+    workspace: { type: 'string', value: '<id>', help: 'The workspace whose AI Playground credits are billed' },
+    key: { type: 'string', value: '<run>', help: 'The run directory under runs/ (default generated)' },
+    character: { type: 'string', value: '<id>', help: 'The presenter preset' },
+    voice: { type: 'string', value: '<id>', help: 'The voice; defaults to the one curated for the character' },
+    image: { type: 'string', value: '<path|url>', help: 'A reference image for the presenter' },
+    yes: { type: 'boolean', help: 'Spend the cost the confirm pass quoted' },
+    resume: { type: 'boolean', help: 'Collect a job already created and paid for; spends nothing' },
+    abandon: { type: 'string', value: '<sessionId>', help: 'Clear one abandoned charge record; spends nothing' },
+    // Balance is evidence, not truth (a reading can be wrong), so this downgrades that reading from a
+    // refusal to a warning. Overrides nothing else — the approval still has to exist, match, and be fresh.
+    'ignore-balance': { type: 'boolean', help: 'Treat a low balance reading as a warning, not a refusal' },
+  },
+  notes: [
+    'Confirm: openedit generate --script "spoken words" --workspace <id> [--key <run>]',
+    'Spend:   openedit generate --key <run> --yes',
+    'Resume:  openedit generate --key <run> --resume',
+    'Abandon: openedit generate --key <run> --abandon <sessionId>',
+  ].join('\n'),
+} satisfies Usage;
 
-const USAGE = [
-  'usage: npx @veedstudio/openedit-cli generate --script "spoken words" --workspace <id> [--key <run>] [--character <id>] [--voice <id>]',
-  '       npx @veedstudio/openedit-cli generate --key <run> --yes     (spends the cost the confirm pass above quoted)',
-  '       npx @veedstudio/openedit-cli generate --key <run> --resume  (collects a job already created and paid for)',
-  '       npx @veedstudio/openedit-cli generate --key <run> --abandon <sessionId>  (clears one abandoned charge record)',
-].join('\n');
+const USAGE = `${usageLine('generate', usage)}\n${usage.notes}`;
 
 const SCRIPT_WITH_YES = [
   '--script cannot be combined with --yes.',
@@ -253,7 +257,7 @@ export function parseArgs(argv: string[]): Args {
     resume: false,
   };
 
-  const { values } = parseFlags({ args: argv, options: OPTIONS });
+  const { values } = parseUsage('generate', usage, argv);
 
   if (values.script !== undefined) result.script = assertNonEmptyScript(values.script);
   if (values.key !== undefined) result.key = values.key;

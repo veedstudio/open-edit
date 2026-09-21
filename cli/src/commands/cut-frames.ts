@@ -17,7 +17,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, existsSync, statSync, copyFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, FFPROBE } from '../config.ts';
 import { probeFps } from '../probe.ts';
 
@@ -142,21 +142,23 @@ export function sheetsForCuts(
   return sheets;
 }
 
+export const usage = {
+  summary: 'Frames at every shot boundary',
+  positionals: '<video>',
+  flags: {
+    out: { type: 'string', value: '<dir>', help: 'Where the frames and contact sheets are written' },
+    json: { type: 'boolean', help: 'Print the cut list as JSON' },
+    threshold: { type: 'string', value: '0.15', help: 'Scene-change score a cut must reach, 0.01 to 1' },
+    after: { type: 'string', value: '3', help: 'Frames to tile after each cut' },
+    'no-sheets': { type: 'boolean', help: 'Skip the contact sheets' },
+  },
+} satisfies Usage;
+
 export function cutFrames(argv: string[]): number {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: {
-      out: { type: 'string' },
-      json: { type: 'boolean' },
-      threshold: { type: 'string' },
-      after: { type: 'string' },
-      'no-sheets': { type: 'boolean' },
-    },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('cut-frames', usage, argv);
   const [video] = positionals;
   if (!video || !existsSync(video)) {
-    console.error('usage: openedit cut-frames <video> [--out <dir>] [--json] [--threshold 0.15] [--after 3] [--no-sheets]');
+    console.error(usageLine('cut-frames', usage));
     return 2;
   }
 

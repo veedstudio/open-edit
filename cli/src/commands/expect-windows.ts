@@ -13,7 +13,7 @@
 //   expect-windows.ts <run-dir> [--write] [--tolerance-ms 40]
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 
 export interface Expectation {
   element: string;
@@ -170,19 +170,25 @@ export function expectationsFor(wv: string, durationMs: number, toleranceMs = 40
   return out;
 }
 
+export const usage = {
+  summary: "Derive verify.expect timing assertions from a document's own gates",
+  positionals: '<run-dir>',
+  flags: {
+    doc: { type: 'string', value: '<subdir>', help: 'Document under the run (default final)' },
+    write: { type: 'boolean', help: 'Stamp the assertions into the manifest instead of printing them' },
+    'tolerance-ms': { type: 'string', value: '<ms>', help: 'Timing tolerance per assertion (default 40)' },
+  },
+} satisfies Usage;
+
 export function expectWindows(argv: string[], opts: { quiet?: boolean } = {}): number {
   // The gate chain derives silently; a human invocation prints what it derived.
   const say = opts.quiet ? () => {} : console.log;
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: { write: { type: 'boolean' }, 'tolerance-ms': { type: 'string' }, doc: { type: 'string' } },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('expect-windows', usage, argv);
   const dir = positionals[0];
-  if (!dir) { console.error('usage: openedit expect-windows <run-dir> [--doc final] [--write] [--tolerance-ms 40]'); return 2; }
+  if (!dir) { console.error(usageLine('expect-windows', usage)); return 2; }
   // A film has one document per chapter. Hardcoding `final` made the gate chain's own --doc flag a
   // lie: it reached lint and the engine and stopped here, on a path that does not exist.
-  const doc = (values.doc as string | undefined) ?? 'final';
+  const doc = values.doc ?? 'final';
   const mfPath = join(dir, doc, 'manifest.json');
   const mf = JSON.parse(readFileSync(mfPath, 'utf8')) as { render: { duration: number }; verify?: { derivedBy?: string; expect: Expectation[] } };
   const wv = readFileSync(join(dir, doc, 'template.wv'), 'utf8');

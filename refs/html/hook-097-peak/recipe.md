@@ -245,7 +245,7 @@ Nothing else changes for the accent unit.
 Run (outside any sandbox):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 (`ancestor-rotation-overflow-clip-omitted` warnings are benign — the strips depend on nothing being
@@ -264,7 +264,7 @@ most 2 fix cycles:
 Then record (a SECOND invocation — `--verify` and `--record` are mutually exclusive):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H},"fps":{FPS},"duration":{DUR}}}   ← W/H/FPS/DUR from meta.json`

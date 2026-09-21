@@ -15,7 +15,7 @@
 //
 // The canvas defaults to the LARGEST input by area, so the sharpest clip keeps its resolution and the
 // others are upscaled to meet it rather than everything collapsing to the smallest.
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -214,14 +214,19 @@ function printAspectReport(inputs: string[], canvas: Size, report: AspectReport[
   );
 }
 
+export const usage = {
+  summary: 'Re-encode clips that disagree onto one canvas',
+  positionals: '<out.mp4> <in1.mp4> <in2.mp4> [...]',
+  flags: {
+    canvas: { type: 'string', value: 'WxH', help: 'Target canvas (default: the largest clip by area)' },
+    fit: { type: 'string', value: 'letterbox|crop|open', help: 'How clips meet the canvas (default letterbox); open only reports and takes no out path' },
+  },
+} satisfies Usage;
+
 export async function concatVideosCommand(argv: string[]): Promise<number> {
   // Strict, with the clip paths as positionals: a mistyped --canvas or --fit must not silently fall
   // through and be treated as one of the files to join.
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: { canvas: { type: 'string' }, fit: { type: 'string' } },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('concat-videos', usage, argv);
   const canvas = values.canvas === undefined ? undefined : parseCanvas(values.canvas);
   const fit = parseFit(values.fit);
 
@@ -229,7 +234,7 @@ export async function concatVideosCommand(argv: string[]): Promise<number> {
     // open reports on the inputs and writes nothing, so every positional is a clip — there is no out path.
     const clips = positionals;
     if (clips.length < 2) {
-      console.error('usage: openedit concat-videos --fit open <in1.mp4> <in2.mp4> [...]');
+      console.error(`usage: openedit concat-videos --fit open <in1.mp4> <in2.mp4> [...]\n${usageLine('concat-videos', usage)}`);
       return 1;
     }
     const { canvas: target, report } = await reportAspects(clips, canvas);
@@ -239,9 +244,7 @@ export async function concatVideosCommand(argv: string[]): Promise<number> {
 
   const [out, ...inputs] = positionals;
   if (!out || inputs.length < 2) {
-    console.error(
-      'usage: openedit concat-videos [--canvas WxH] [--fit letterbox|crop] <out.mp4> <in1.mp4> <in2.mp4> [...]',
-    );
+    console.error(usageLine('concat-videos', usage));
     return 1;
   }
   const used = await concatVideos(inputs, out, { canvas, fit });

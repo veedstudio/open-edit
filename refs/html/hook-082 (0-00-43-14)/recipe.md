@@ -238,7 +238,7 @@ First LINT (mechanical), then VERIFY (both outside any sandbox; the binary is no
 
 ```
 node --import tsx pipeline/scripts/lint-template.ts runs/<key>/final/template.wv
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 Lint exit 1 → fix the named rule, re-lint. Verify exit 0 → record. Else apply the MECHANICAL fix for the
@@ -263,7 +263,7 @@ Oswald never triggers the italic substitution.)
 Then record (a SECOND invocation — `--verify` and `--record` are mutually exclusive):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --progress-output --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --progress-output --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 Then probe-qa (mechanical frame QA — the defects verify can't see):

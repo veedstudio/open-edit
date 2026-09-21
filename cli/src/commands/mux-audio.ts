@@ -8,6 +8,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, FFPROBE } from '../config.ts';
 import { hasAudioStream } from '../probe.ts';
 
@@ -15,6 +16,17 @@ class MuxError extends Error {
   constructor(msg: string, readonly code: number) { super(msg); }
 }
 const fail = (msg: string, code: number): never => { throw new MuxError(msg, code); };
+
+export const usage = {
+  summary: "Mux a run's audio onto its silent render at delivery loudness",
+  positionals: '<run-dir>',
+  flags: {
+    // A film gates one chapter at a time, and its audio is a built mix rather than the source clip's.
+    doc: { type: 'string', value: '<subdir>', help: 'Document under the run to mux (default final)' },
+    audio: { type: 'string', value: '<file>', help: "A built soundtrack to mux instead of the source clip's own track" },
+    'no-loudnorm': { type: 'boolean', help: 'Skip levelling to the delivery loudness' },
+  },
+} satisfies Usage;
 
 export function muxAudio(argv: string[]): number {
   try {
@@ -30,22 +42,11 @@ export function muxAudio(argv: string[]): number {
 }
 
 function run(argv: string[]): void {
-  const [dir, ...rest] = argv;
-  if (!dir) fail('usage: openedit mux-audio <run-dir> [--doc final] [--audio <file>] [--no-loudnorm]', 2);
-  // A film gates and delivers one chapter at a time, and its audio is a built mix rather than the
-  // source clip's track — hardcoding both was why the chain's own --doc flag stopped at the engine.
-  let doc = 'final';
-  let audio = '';
-  let normalise = true;
-  while (rest.length > 0) {
-    const flag = rest.shift();
-    switch (flag) {
-      case '--doc': doc = rest.shift() ?? fail('--doc needs a subdirectory', 2); break;
-      case '--audio': audio = rest.shift() ?? fail('--audio needs a file', 2); break;
-      case '--no-loudnorm': normalise = false; break;
-      default: fail(`mux-audio: unknown flag ${flag}`, 2);
-    }
-  }
+  const { values, positionals: [dir] } = parseUsage('mux-audio', usage, argv);
+  if (!dir) fail(usageLine('mux-audio', usage), 2);
+  const doc = values.doc ?? 'final';
+  const audio = values.audio ?? '';
+  const normalise = !values['no-loudnorm'];
 
   const silent = join(dir!, doc, 'out.silent.mp4');
   const outPath = join(dir!, doc, 'out.mp4');

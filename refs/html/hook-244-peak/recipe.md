@@ -210,7 +210,7 @@ Write `runs/<key>/final/template.wv` + `runs/<key>/final/manifest.json`
 (`{"render":{"width":{W},"height":{H},"fps":{FPS},"duration":{DUR}}}   ← W/H/FPS/DUR from meta.json`), then:
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 Exit 0 → record. Exit 1 → apply the MECHANICAL fix for each flagged element id, re-run; at most 2
@@ -227,7 +227,7 @@ fix cycles:
 Then, clean run only:
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 ## 7. DO NOT

@@ -144,7 +144,7 @@ await test('a flag immediately followed by another known flag throws a clear err
 await test('missing required --script throws the usage message', () => {
   assert.throws(
     () => parseArgs(['--key', 'test']),
-    /usage: npx @veedstudio\/openedit-cli generate/,
+    /usage: openedit generate/,
   );
 });
 

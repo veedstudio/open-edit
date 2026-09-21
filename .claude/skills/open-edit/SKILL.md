@@ -77,17 +77,18 @@ bars. The user asked for clean captions; say you're on it, then deliver.
 
 ## PREFLIGHT — ALWAYS run at session start
 An installed skill contains this file (`scripts/preflight.sh` is the macOS shim that bootstraps Node); the
-setup itself is the published CLI's init command, and the full runtime may not exist yet.
+setup itself is the published CLI's init command, and the CLI package carries all Open Edit content
+(recipes, briefs, docs) inside itself — there is no runtime to clone.
 Resolve **SKILL_ROOT** as the directory containing this `SKILL.md`. Then resolve **WORKSPACE** by the first
 rule that applies:
 
 1. **If SKILL_ROOT sits inside an Open Edit checkout, WORKSPACE is that checkout** — init reuses it,
    and the run exercises that code.
 2. **Otherwise** WORKSPACE is the user's current project root, or the current directory outside a project —
-   init creates its own runtime at `<WORKSPACE>/.open-edit/runtime` and every step below runs there.
+   init makes it an ordinary npm project (a fresh empty folder works) and every step below runs there.
 
-Init names which of the two it resolved (`reusing the local checkout at …` or `will use a managed clone
-at …`); read that line before trusting a run to be testing your changes. Resolve the supplied video to an
+Init names which of the two it resolved (`reusing the local checkout at …` or `uses the packaged
+content …`); read that line before trusting a run to be testing your changes. Resolve the supplied video to an
 absolute path from WORKSPACE before changing working directories.
 
 **If the session opened with a note saying preflight is ready AND naming `OPEN_EDIT_ROOT`, that note IS
@@ -104,33 +105,57 @@ Then run bare init to perform all safe, first-time workspace-local setup automat
 ```
 npx --yes @veedstudio/openedit-cli init --workspace "$WORKSPACE"
 ```
-This performs the first full runtime clone, installs pinned repository dependencies, and installs the
-renderer when their prerequisites already exist. It is idempotent.
+On the package path this npm-ifies the workspace — a minimal private `package.json` when none exists,
+this CLI exact-pinned as a devDependency, `git init` when git is available (skipped silently otherwise),
+committable `.gitignore` entries for `runs/`, `.open-edit-prefs.json` and the legacy `.open-edit/`, the skill refreshed — and
+installs the renderer. A fresh or effectively-empty folder gets all of that with no questions; if the
+folder already holds unrelated files (or is some other npm project), bare init instead prints
+`APPROVAL REQUIRED — use <folder> as the OpenEdit project …`: relay that to the user, and either re-run
+with `--auto-approve` to use the folder or pass `--workspace <their choice>` (a fresh subfolder is the
+easy proposal). A workspace that already chose OpenEdit — the pinned dep, recorded prefs, or the
+installed skill — is never re-asked. It also applies clean patch/minor updates of the CLI itself (a major release, or
+one whose engine floor is not met, is reported and waits for approval like everything else). In a
+checkout it reuses that checkout's code wholesale. It is idempotent.
 
-**Approval law — never weaken this:** machine-global dependencies and updates to existing code are never
-applied by bare init. If `--dry` or bare init prints `APPROVAL REQUIRED`, communicate EVERY exact
-action to the user and wait for an explicit affirmative response. Only when the user approves ALL reported
+**Approval law — never weaken this:** machine-global dependencies are never installed by bare init, and
+the one update it applies itself is the clean patch/minor of this CLI described above (declared engine
+floor met; a major, a raised floor, or an undeclared floor waits like everything else) — every OTHER
+update to existing code waits too. If `--dry` or bare init prints `APPROVAL REQUIRED`, communicate EVERY
+exact action to the user and wait for an explicit affirmative response. Only when the user approves ALL reported
 actions may you run:
 ```
 npx --yes @veedstudio/openedit-cli init --auto-approve --workspace "$WORKSPACE"
 ```
 `--auto-approve` means the user agreed to every currently proposed global install and clean update. Never infer
 approval from the original render request. If the user approves only selected actions, perform only those exact
-commands yourself, then rerun `--dry`. If nothing needs approval, do not mention preflight.
+commands yourself, then rerun `--dry`. If nothing needs approval, do not mention preflight — with one
+exception: a `promoted to packaged content` line means a runtime the user installed earlier stopped being
+read, so relay that one line and where the old clone still sits.
 
-Exit **0** means stdout is **OPEN_EDIT_ROOT**; use it for every repo-relative command below. It does **not**
+Exit **0** means stdout is **OPEN_EDIT_ROOT** — the workspace on the package path, the checkout in
+contributor mode; every `{repo}` below means this directory (runs/ and prefs anchor there). It does **not**
 mean setup is finished — a `--dry` run exits 0 while listing the `WOULD APPLY LOCALLY` work that bare
 preflight performs itself, and then ends on `not ready yet — run bare preflight …`. Read the final
 `preflight:` line, not the exit code: `ready — OPEN_EDIT_ROOT=…` means go. Exit **10** means **only** that
 `APPROVAL REQUIRED` was printed and the user must approve every listed action first. Exit **1** is a hard
 invariant/install error.
-For development, `--repository <URL-or-local-path> --ref <branch>` overrides the initial clone source. A managed
+For development, `--repository <URL-or-local-path> --ref <branch>` keeps the legacy managed-clone path: init
+clones that source to `<WORKSPACE>/.open-edit/runtime` and runs it instead of the packaged content. A managed
 clone records its origin, branch, and commit and rejects conflicting later overrides. A clean checkout is offered
-a fast-forward update; any local or untracked changes are reported and left untouched.
+a fast-forward update; any local or untracked changes are reported and left untouched. A workspace that still
+carries a managed clone from an earlier install is promoted automatically: its recorded preferences move to the
+workspace, one line reports it, and the clone is left on disk, simply no longer read. A clone holding local
+changes, or moved off its recorded commit, is NOT promoted — that work is the user's, so init keeps running
+from the clone and says so.
 
-Immediately after resolving OPEN_EDIT_ROOT, read `$OPEN_EDIT_ROOT/AGENTS.md` completely and follow it before
-running any repository command. Do this explicitly on every agent; never rely on Claude, Codex, Gemini, or another
-client discovering instructions inside the newly cloned runtime automatically.
+Resolve **{content}** — the directory the style bank, recipes, briefs and docs live in:
+```
+npx --yes @veedstudio/openedit-cli content-root
+```
+(The packaged content inside the installed CLI; in a checkout it equals OPEN_EDIT_ROOT.) Immediately after
+resolving OPEN_EDIT_ROOT, read `{content}/AGENTS.md` completely and follow it before running any repository
+command. Do this explicitly on every agent; never rely on Claude, Codex, Gemini, or another client discovering
+those instructions automatically.
 
 ## The flow
 
@@ -173,7 +198,7 @@ the in- and out-points come from somewhere else entirely — a storyboard, or th
   "ranges":      [ { "source": "<id>", "start": 1.6, "end": 7.05, "note": "free text, ignored" } ] }
 ```
 `transcripts` is optional — without it each source's transcript is read from where the transcribe command
-wrote it (`runs/<key>/transcript.json` under the runtime root, `<key>` from the source video's filename).
+wrote it (`{repo}/runs/<key>/transcript.json`, `<key>` from the source video's filename).
 `note` is optional. Every source path must exist for both tools: the ranges are snapped to each source's
 frame grid, and the grid comes from the file. Ranges play in the order written: reorder them freely, a
 beat does not have to keep its chronological place.
@@ -196,8 +221,8 @@ npx @veedstudio/openedit-cli retime-transcript --edl edl.json --out "$OPEN_EDIT_
 ```
 A cut changes WHEN words were said, never WHICH, so the per-word timings you already have are the timings
 of the new file. Write it where `prep` will look for it: `$OPEN_EDIT_ROOT/runs/<key>/transcript.json`,
-where `$OPEN_EDIT_ROOT` is the runtime root preflight printed (NOT the project directory under a managed
-clone) and `<key>` is the assembled file's name without its extension, whitespace turned into
+where `$OPEN_EDIT_ROOT` is the root preflight printed — {repo}, which on the package path IS your
+project directory — and `<key>` is the assembled file's name without its extension, whitespace turned into
 underscores — `runs/cut/` for `cut.mp4`. Skipped when there is no transcript at all: a run with no
 speech has nothing to retime.
 
@@ -477,9 +502,9 @@ first failure. Either way the finished transcripts stay in place and a re-run sk
 
 PROVIDER CHOICE — this whole question exists to caption speech, so **when nothing has to be transcribed
 (no footage, silent source, a graphics-only ask) do not ask it at all** and do not record anything.
-Otherwise read `$OPEN_EDIT_ROOT/.open-edit-prefs.json` first (**the runtime root preflight
-printed, not the user's project root** — under a managed clone those differ, and looking in the wrong
-one re-asks on every run). **If it records a provider, use it and ask
+Otherwise read `$OPEN_EDIT_ROOT/.open-edit-prefs.json` first (**the root preflight printed** — the
+workspace on the package path, the checkout in contributor mode; a legacy managed clone's recorded
+choice was promoted there by init, and looking anywhere else re-asks on every run). **If it records a provider, use it and ask
 nothing.** Only on a cold start (no file, or nothing usable in it) ask ONCE, offering exactly these four.
 **There is no default: picking for the user is the failure mode this question exists to prevent.**
 
@@ -691,8 +716,10 @@ compaction loses it.
   ("black bars" → the bars preset is static, and the concrete ask wins). Preset ids are ARBITRARY
   LABELS, never selectors — "give me a simple style" does NOT mean the preset named `simple`; a
   hype-paced clip answering that ask is better served by `rizz` or `mint` than by a static preset. Then run DESIGN + RENDER variant A with
-  `--module refs/html/classic/<id>/recipe.ts` appended (same command, same gates; no `style.json`
-  exists and none is needed). The pick is INTERNAL like any other (User-facing output): never surface
+  `--module {content}/refs/html/classic/<id>/recipe.js` appended — the compiled module, which runs
+  as plain node anywhere ({content} sits inside node_modules on the package path, where TypeScript
+  sources are never type-stripped; in a checkout the sibling `recipe.ts` works too) (same command,
+  same gates; no `style.json` exists and none is needed). The pick is INTERNAL like any other (User-facing output): never surface
   "classic", "preset", preset ids, or the pool's existence — the user hears at most "going with a clean
   look for this clip". No simplicity hint → never classic; the seeded draw stays the
   default. Classic presets are END styles on the bank side: never donors or craft substrate for any
@@ -701,7 +728,9 @@ compaction loses it.
   **PARAMETER AMENDS stay classic** — "make the text blue", "add an outline", "bigger", "move it up",
   "highlight in green", "all caps": anything expressible as a field of the classic spec (color, outline,
   shadow, size/position fractions, casing, highlight colour, font weight). COPY the preset's `recipe.ts`
-  to the scratchpad, fix its relative `classic-lib.ts` import to the absolute path, edit ONLY the spec
+  to the scratchpad, fix its relative `classic-lib.ts` import to the absolute path of
+  `{content}/refs/html/classic/classic-lib.js` — the compiled module, for the same node_modules reason
+  as the CUSTOMISING block above (`.ts` only when {content} is a checkout) — edit ONLY the spec
   fields in the copy, rerun with `--module <copy>` (same gates; the library recipe is never edited).
   **"Another simple one / different simple style"** re-picks a different classic preset through this
   same route. **A new creative DIRECTION** (a mood, a reference, new layout/motion language, "make it
@@ -814,7 +843,7 @@ Route by the SHAPE of the run (the SAMPLE ONE STYLE script's output + the creati
 - variant A (`recipe=yes` — every default run): **SCRIPT — no agent, no model, zero tokens.** The recipe
   is compiled code. (Rerun the SAMPLE ONE STYLE script if you no longer have its output — same run key → same result.)
   The classic route (SAMPLE ONE STYLE's CLASSIC POOL) is this same variant with
-  `--module refs/html/classic/<id>/recipe.ts` appended.
+  `--module {content}/refs/html/classic/<id>/recipe.js` appended.
 - variant B (creative face-1; also refine re-runs after ANALYSE): INLINE — you execute the from-scratch
   contract (B below) YOURSELF, no subagent. A default run can NEVER route here: the runtime index is
   recipes-only, so an implicit draw always has a recipe.
@@ -858,7 +887,9 @@ major → fix on a `--module` copy and re-run the chain.
 CUSTOMISING (only when the user explicitly asks for a tweak to a recipe run): **NEVER edit a library
 recipe (`refs/html/<id>/recipe.ts`) in place** — it is validated, shared by every run. COPY it to your
 scratchpad first, rewrite its relative lib import to the absolute path of
-`{repo}/pipeline/recipes/lib.ts`, edit the copy, then run the same command with `--module <copy path>`.
+`{content}/pipeline/recipes/lib.js` — the compiled module: {content} sits inside node_modules on the
+package path, where a `.ts` import is never type-stripped (use `lib.ts` only when {content} is a
+checkout) — edit the copy, then run the same command with `--module <copy path>`.
 The default run needs none of this — no copy, no edit; just run the command above.
 
 **B. FROM-SCRATCH (creative face-1)** — the base design contract driven by the USER'S materials (their
@@ -878,7 +909,7 @@ Execution contract (follow it YOURSELF, filling {…}):
 ```
 Author ONE captioned composition over the
 footage as a single-timeline .wv document, verify it with --verify, then render it.
-CONTRACT (obey exactly): READ {repo}/pipeline/director-brief.md — it is the full engine contract (paint order,
+CONTRACT (obey exactly): READ {content}/pipeline/director-brief.md — it is the full engine contract (paint order,
 the opacity/stacking trap, the one safe reveal recipe, engine limits, the single-timeline mechanic, render+verify).
 INPUTS:
   - {repo}/runs/{key}/meta.json — canvas W/H/fps + durationSec + paths (authoritative for the manifest).
@@ -897,21 +928,21 @@ validated, engine-proven recipes from our bank — lift their MECHANICS (timing 
 budgets, engine workarounds), NOT their look, unless the user's materials point the same way.
 USER MATERIALS (design authority): {paths / links / the user's described concept — whatever they brought}.
 CRAFT SUBSTRATE (recipe sheets, engine-proven; nearest by facets):
-  1. {repo}/refs/html/{idA}/recipe.md   2. {repo}/refs/html/{idB}/recipe.md
+  1. {content}/refs/html/{idA}/recipe.md   2. {content}/refs/html/{idB}/recipe.md
 DIRECTION = {the aesthetic lane: content angle + mood + placement intent; NO fonts/palette/device}.
 ENGAGEMENT MODE = {seed copy — verbatim}.
 ANIMATION LEVEL = {word | cue | none}.
 TASK: WRITE THE SYSTEM DOWN FIRST, then author against it.
-  node --import tsx {repo}/pipeline/scripts/design-gate.ts {repo}/runs/{key}
+  npx @veedstudio/openedit-cli design-gate {repo}/runs/{key}
   fails until {repo}/runs/{key}/design/system.json exists and every document obeys it. Author that file
   before any .wv: 2-3 Google @import fonts, a type LADDER (each rung a role + size + its own optical
-  tracking — `opticalTracking(px)` in {repo}/pipeline/recipes/type.ts gives the measured curve), a named
+  tracking — `opticalTracking(px)` in {content}/pipeline/recipes/type.ts gives the measured curve), a named
   palette, spacing, NAMED easings and durations, the reveal unit, the devices in play, and `donors` =
   the recipe ids you took mechanics from (they are checked against the runtime index). `groundedIn` must
   name the run's own content files, and the gate refuses a system whose files do not exist — a design
   authored before the content is a design authored from nothing, which is exactly how a delivered film
   ended up with 23 font sizes and one easing curve used 934 times.
-LEARN THE REPERTOIRE BEFORE YOU DESIGN ANYTHING. Open two or three ref folders under {repo}/refs/html/
+LEARN THE REPERTOIRE BEFORE YOU DESIGN ANYTHING. Open two or three ref folders under {content}/refs/html/
   — the sheet AND the document beside it — and read what the engine is SHOWN doing: how a word is set
   at a different size from the words around it (a beat is a column of separate text blocks, not one
   styled line), how an underline is drawn, what arrows, brackets, corner marks, rules and badges look
@@ -920,11 +951,11 @@ LEARN THE REPERTOIRE BEFORE YOU DESIGN ANYTHING. Open two or three ref folders u
   done, then do it better for the piece in hand. An agent that skips this designs from its own defaults,
   and its own defaults are a centred line of one size — which is the single most common reason a
   delivered piece reads as machine-made.
-COMPOSE, don't type: {repo}/pipeline/recipes/devices.ts (dividers, ground shadow and the rest of the
+COMPOSE, don't type: {content}/pipeline/recipes/devices.ts (dividers, ground shadow and the rest of the
   delivered vocabulary — a rule is a hairline + shadow + stub that DRAWS, never a lone grey line),
-  {repo}/pipeline/design/captions.ts (per-word reveal off the real timings, travelling cursor, lines as
-  blocks), {repo}/pipeline/recipes/geometry.ts (arcs, lattices, springs, clip polygons),
-  {repo}/pipeline/recipes/type.ts (the ladder and the tracking curve).
+  {content}/pipeline/design/captions.ts (per-word reveal off the real timings, travelling cursor, lines as
+  blocks), {content}/pipeline/recipes/geometry.ts (arcs, lattices, springs, clip polygons),
+  {content}/pipeline/recipes/type.ts (the ladder and the tracking curve).
   Contrast over footage comes from the two-layer ground shadow, NOT a scrim box.
 PLACEMENT IS A DECISION, MADE PER BEAT AND WRITTEN DOWN. For every beat say where the block sits, WHY
   there — what is behind it, which way the subject faces, where the frame is empty — and what changed
@@ -963,17 +994,17 @@ Hold the system across all beats; vary scale/composition per beat; escalate hook
 z-index>=1 + a UNIQUE `id` e.g. id="cap3" — see the opacity trap; the id makes --verify name the element in
 its failure lines; each caption visible only in its cue window) +
 {repo}/runs/{key}/final/manifest.json {"render":{"width":W,"height":H,"fps":FPS,"duration":durationSec}}.
-RENDER + VERIFY (OUTSIDE any sandbox — needs a real desktop session; binary = {repo}/.veed-engine/veed-engine-cli — veed-engine-cli.exe on Windows — NOT on PATH):
-  DESIGN GATE (mechanical, no engine): node --import tsx {repo}/pipeline/scripts/design-gate.ts {repo}/runs/{key}
+RENDER + VERIFY (OUTSIDE any sandbox — needs a real desktop session; {engine} = the renderer preflight installed, printed by `npx @veedstudio/openedit-cli engine-path` — app-data on both platforms, moved by `VEED_ENGINE_BIN` or `OPENEDIT_STATE_DIR`, and NOT on PATH, so ask for it rather than typing it):
+  DESIGN GATE (mechanical, no engine): npx @veedstudio/openedit-cli design-gate {repo}/runs/{key}
      — reads every .wv in the run back against design/system.json: a font, size, tracking, colour or
      easing the system does not declare is an error, as is a donor id that is not a real ref. Exit 1 →
      fix the document, or amend the system deliberately. Run it FIRST: every finding is a string in a
      file, and learning it after a record costs minutes of encode to discover what a regex knew instantly.
-  LINT (mechanical, no engine): node --import tsx {repo}/pipeline/scripts/lint-template.ts {repo}/runs/{key}/final/template.wv
+  LINT (mechanical, no engine): npx @veedstudio/openedit-cli lint {repo}/runs/{key}/final/template.wv
      — engine-limit anti-patterns (animated blur, the stacking trap, missing cue ids, per-corner radius).
      Exit 1 → fix the flagged rule, re-lint before verifying.
   VERIFY (analytic, fast, no video, reads manifest render block):
-       {repo}/.veed-engine/veed-engine-cli {repo}/runs/{key}/final --verify=bounds,safezones --verify-report {repo}/runs/{key}/final/verify.json
+       {engine} {repo}/runs/{key}/final --verify=bounds,safezones --verify-report {repo}/runs/{key}/final/verify.json
      It replays the whole timeline offscreen and checks the REAL draw list. Exit 0 = clean. Exit 1 = it prints ONE
      stdout line per problem, naming the element id, e.g.:
        frame 3 t=0.400s FAIL[bounds] #cap3 glyph 14 right 3.1px outside (8.42% of glyph box) viewport 736x1312
@@ -1011,7 +1042,7 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs a real desktop session; binary = 
      fading up posts a deep number nobody sees), `offending_frames` / `longest_run_frames`, per-element scores and
      an `overall_score` (100 = clean; ink-area-time weighted, so a brief
      flash barely moves it and a line HELD outside sinks it — use it to describe, never to triage). To SEE a
-     worst frame: `{repo}/.veed-engine/veed-engine-cli {repo}/runs/{key}/final --headless --frame-num-until-exit {frame} --exit-screenshot {path}.png`.
+     worst frame: `{engine} {repo}/runs/{key}/final --headless --frame-num-until-exit {frame} --exit-screenshot {path}.png`.
      CHROME FIRST: an element whose id ends in `-chrome` is DRESSING (kickers, credits, film-strip labels and
      marks, stickers) — not the spoken line. The convention: a recipe or an authored document puts the suffix on
      the element that DIRECTLY wraps the text (the engine labels a run by its direct parent's id; an id one level
@@ -1119,7 +1150,7 @@ RENDER + VERIFY (OUTSIDE any sandbox — needs a real desktop session; binary = 
      user chose in the WCAG PASS already lives in final/template.wv — the untouched original, or an
      --apply promotion). --verify and --record are mutually exclusive, so this is a
      SECOND invocation:
-       {repo}/.veed-engine/veed-engine-cli {repo}/runs/{key}/final --progress-output --record {repo}/runs/{key}/final/out.silent.mp4
+       {engine} {repo}/runs/{key}/final --progress-output --record {repo}/runs/{key}/final/out.silent.mp4
      --progress-output prints `progress: N/M frames (X%)` lines during the record; recording is long-running —
      watch these to confirm it's alive, but don't narrate them to the user.
   Change NOTHING else — no aesthetic/colour/font/device/animation/timing edits. Author correctly up front (recipe +
@@ -1257,7 +1288,7 @@ Kill the server(s) when the session wraps up.
   from unsourceable fallback-chain members and are HARMLESS. A warning naming YOUR display family
   (`'<Family>' unresolved by Google — rendering with embedded variable fallback`) is REAL — the type
   identity is gone; stop and fix the import/network before recording. (The engine's bundled
-  `.veed-engine/data/fonts/` registry ships as dead Git-LFS pointers in current releases — upstream packaging
+  `data/fonts/` registry ships as dead Git-LFS pointers in current releases — upstream packaging
   bug; only live Google fetches resolve real families.)
 - Ref pool = `refs/tags.json` (v3, the RUNTIME INDEX — recipes only; every entry ships
   `template.wv` + `recipe.md` + `recipe.ts`).

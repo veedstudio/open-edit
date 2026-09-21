@@ -264,7 +264,7 @@ accent per beat; nothing else is styled differently.
 Run from the repo root `{repo}` (outside any sandbox):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 Exit 0 → record. Exit 1 → apply the mechanical fix for the named element, re-run; at most 2 fix
@@ -285,7 +285,7 @@ cycles:
 Then record (a SECOND invocation — `--verify` and `--record` are mutually exclusive):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --progress-output --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --progress-output --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 Manifest line (already given in section 2): `{"render":{"width":{W},"height":{H},"fps":{FPS},"duration":{DUR}}}` — W/H/FPS/DUR from `meta.json`.

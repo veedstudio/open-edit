@@ -286,7 +286,7 @@ line C = 9 → **f46**. Hero: letters that4 does4 one3 thing5 → `thing.`. Word
 Run (outside any sandbox):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify
+{engine} {repo}/runs/<key>/final --verify
 ```
 
 The engine prints a benign `ancestor-rotation-overflow-clip-omitted` warning for every `.ch` (rotate on
@@ -311,7 +311,7 @@ for the named element and re-run; at most 2 fix cycles:
 Then record (a SECOND invocation — `--verify` and `--record` are mutually exclusive):
 
 ```
-{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
+{engine} {repo}/runs/<key>/final --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
 Treat ANY font warning in verify/record output as a STOP (a silent font fallback falsifies the sizing

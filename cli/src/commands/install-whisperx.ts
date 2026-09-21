@@ -17,13 +17,21 @@
 // outright (PEP 668) or, worse, succeeds and contaminates the environment.
 import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import fs from 'node:fs';
+import { parseUsage, type Usage } from '../args.ts';
 import { findOnPath, installHint, isCmdShim, whisperxSupported } from '../platform.ts';
 
 const say = (msg: string) => console.log(`install-whisperx: ${msg}`);
 const warn = (msg: string) => console.error(`install-whisperx: ${msg}`);
 
+export const usage = {
+  summary: 'Install WhisperX into an isolated uv/pipx environment',
+  positionals: '[<version>]',
+  flags: {},
+  notes: 'Pulls in PyTorch, and the first transcription downloads model weights (about 2 GB). Remove with `uv tool uninstall whisperx`.',
+} satisfies Usage;
+
 export async function installWhisperx(args: string[]): Promise<number> {
-  const version = args[0] ?? '';
+  const { positionals: [version = ''] } = parseUsage('install-whisperx', usage, args);
   const spec = `whisperx${version ? `==${version}` : ''}`;
 
   // The interpreter is pinned because on Python 3.14 the resolver produces an install whose

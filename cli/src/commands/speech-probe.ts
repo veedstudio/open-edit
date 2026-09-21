@@ -7,7 +7,7 @@
 // street sits 20 dB above a quiet room and one fixed threshold finds gaps in one but not the other.
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { numberFlag, parseFlags } from '../args.ts';
+import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
 
 const SAMPLE_RATE = 16_000;
@@ -123,20 +123,22 @@ function parseRange(value: string): { start: number; end: number } {
   return { start, end };
 }
 
+export const usage = {
+  summary: 'Measured speech onset, decay and safe cut gaps for a clip or a range',
+  positionals: '<video>',
+  flags: {
+    range: { type: 'string', value: '<seconds>:<seconds>', help: 'Probe only this span of the clip' },
+    window: { type: 'string', value: '<ms>', help: 'Envelope window (default 10)' },
+    gap: { type: 'string', value: '<ms>', help: 'Silence long enough to count as a safe cut gap (default 250)' },
+    json: { type: 'boolean', help: 'Print the measurements as JSON' },
+  },
+} satisfies Usage;
+
 export function speechProbe(argv: string[]): number {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: {
-      range: { type: 'string' },
-      window: { type: 'string' },
-      gap: { type: 'string' },
-      json: { type: 'boolean' },
-    },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('speech-probe', usage, argv);
   const video = positionals[0];
   if (!video) {
-    throw new Error('usage: openedit speech-probe <video> [--range <seconds>:<seconds>] [--window <ms>, default 10] [--gap <ms>, default 250] [--json]');
+    throw new Error(usageLine('speech-probe', usage));
   }
   if (!existsSync(video)) throw new Error(`video not found: ${video}`);
 

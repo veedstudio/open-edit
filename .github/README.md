@@ -25,7 +25,7 @@ your coding agent what you want, and it transcribes, designs, renders and hands 
 
 ## Get started
 
-You need an Apple Silicon Mac (with Homebrew) or a Windows x64 PC, Git, Node 20 or newer, and one of
+You need an Apple Silicon Mac (with Homebrew) or a Windows x64 PC, Node 20 or newer, and one of
 Claude Code, Codex or Gemini CLI. From your project folder, install the skill into your agent:
 
 ```sh
@@ -38,18 +38,18 @@ Then open the agent (`claude`, `codex` or `gemini`) and ask:
 Add subtitles to my video clip.mp4
 ```
 
-The first run sets itself up: it checks for Git, Node, pnpm and ffmpeg and names the command for
-anything missing (Homebrew or corepack on a Mac; on Windows the commands are printed for you to run,
-and ffmpeg is fetched into your user folder with no admin rights), asking before any global install;
-clones its runtime into `.open-edit/` inside your project and registers a session hook in the settings
-of Claude Code, Codex and Gemini CLI; downloads the renderer into your user's app-data folder; and asks
-once how you want speech transcribed. Hosted by VEED
+The first run sets itself up: it checks for Node and ffmpeg and names the command for anything missing
+(Homebrew on a Mac; on Windows the commands are printed for you to run, and ffmpeg is fetched into your
+user folder with no admin rights), asking before any global install; pins itself into your project as a
+dev dependency and registers a session hook in the settings of Claude Code, Codex and Gemini CLI;
+downloads the renderer into your user's app-data folder; and asks once how you want speech
+transcribed. Hosted by VEED
 transcribes best (a veed.io account, [sign up](https://www.veed.io/signup) or
 [log in](https://www.veed.io/login); the free tier covers about ten minutes a month); WhisperX runs
 locally for free (needs `uv` or `pipx`; the first transcription downloads the model, about 2 GB for the
 fast tier and more for the better one; nothing leaves your machine); or bring your own service. When the
 run finishes you get the MP4 with subtitles burned in, a preview open in your browser, and the path to
-the file, which lives under `.open-edit/` in your project.
+the file, which lives under `runs/` in your project.
 
 <a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/openedit-astra.mp4"><img src="../docs/examples/openedit-astra.webp" alt="GPT-6 Astra title sequence made in OpenEdit" width="100%"></a>
 
@@ -151,9 +151,9 @@ rendered badly.
 | --- | --- |
 | Platform | Apple Silicon Mac or Windows x64 PC. Intel Macs are not supported: the renderer ships macOS-arm64 and windows-x64 only |
 | macOS | Built and tested on Tahoe 26.0. Nothing checks the version, so earlier releases may work, untested |
-| Windows | Windows 10 or newer (the installer extracts with the bundled `tar`). Git and Node via winget, pnpm via corepack or npm: preflight prints the exact commands and never runs them itself. ffmpeg is fetched into your user folder for you, no admin rights needed |
+| Windows | Windows 10 or newer (the installer extracts with the bundled `tar`). Node via winget: preflight prints the exact command and never runs it itself. ffmpeg is fetched into your user folder for you, no admin rights needed. Git is optional, used to version your project when present |
 | Linux | Planned; prioritisation depends on demand |
-| Agents | Claude Code, Codex or Gemini CLI. The installed skill prepares the runtime and loads its `AGENTS.md` instructions itself |
+| Agents | Claude Code, Codex or Gemini CLI. The installed skill prepares the workspace and loads the packaged `AGENTS.md` instructions itself |
 
 ## Scope and limitations
 

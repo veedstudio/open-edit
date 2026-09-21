@@ -254,7 +254,7 @@ loses every hole it has. `clip-path: polygon()` does cut a real hole (probe:
 clip-path-polygon-counterform), so that is the route:
 
 ```
-import { svgToClip, clipLogoHtml } from '{repo}/pipeline/recipes/svg-clip.ts';
+import { svgToClip, clipLogoHtml } from '{content}/pipeline/recipes/svg-clip.js';   // .ts only when {content} is a checkout
 const logo = svgToClip('{run}/assets/logo.svg');            // paths → polygons, holes welded in
 const { html } = clipLogoHtml(logo, { id: 'mark', left: 1140, top: 640, height: 26, colour: P.ink });
 ```
@@ -306,12 +306,14 @@ every compiled recipe emits — reads as invisible inside its own window. Those 
 rather than asserted wrongly, which means the check fires today only where a caption carries its own
 text. `tests/expect-visible-nested.test.ts` pins that behaviour; when it starts failing the engine has
 learned to count descendant ink and the assertions cover the whole pool.
-The binary is `{run dir}/../../.veed-engine/veed-engine-cli` (the preflight-managed veed-engine-cli, NOT on PATH).
-0. LINT (mechanical, no engine): `node --import tsx pipeline/scripts/lint-template.ts {run}/final/template.wv`
+`{engine}` is the renderer preflight installed. Ask for its path rather than typing one:
+`npx @veedstudio/openedit-cli engine-path` prints it with the platform, `VEED_ENGINE_BIN` and
+`OPENEDIT_STATE_DIR` already applied. It is NOT on PATH.
+0. LINT (mechanical, no engine): `npx @veedstudio/openedit-cli lint {run}/final/template.wv`
    — catches the engine-limit anti-patterns above (animated blur, the stacking trap, a multi-value radius, missing
    cue ids) before the slower verify. Exit 1 → fix the flagged rule, re-lint.
 1. VERIFY (analytic, fast, no video — the ONLY self-check you perform by default; reads the manifest render block):
-   `.veed-engine/veed-engine-cli {run}/final --verify=bounds,safezones --verify-report {run}/final/verify.json`. It
+   `{engine} {run}/final --verify=bounds,safezones --verify-report {run}/final/verify.json`. It
    replays the whole timeline offscreen and checks the REAL draw list. Exit 0 = clean. Exit 1 = one stdout line per
    problem, naming the element id, e.g.:
      `frame 3 t=0.400s FAIL[bounds] #cap3 glyph 14 right 3.1px outside (8.42% of glyph box) viewport 736x1312`
@@ -334,7 +336,7 @@ The binary is `{run dir}/../../.veed-engine/veed-engine-cli` (the preflight-mana
    timing: add `"verify":{"expect":[{"element":"cap3","visible":true,"from":2.1,"to":3.4}]}` to manifest.json to make
    --verify FAIL[expect-visible]/[expect-hidden] when a caption is on/off screen at the wrong time.
 2. RECORD the deliverable — ONLY after --verify is clean. --verify and --record are mutually exclusive, so this is a
-   SECOND invocation: `.veed-engine/veed-engine-cli {run}/final --progress-output --record {run}/final/out.silent.mp4` (W/H/fps/duration
+   SECOND invocation: `{engine} {run}/final --progress-output --record {run}/final/out.silent.mp4` (W/H/fps/duration
    from manifest.json). --progress-output prints `progress: N/M frames (X%)` lines as it renders — the record can take
    minutes, so run it in the foreground and relay progress to the user rather than going silent.
 Do NOT extract frames or run any ffmpeg/visual self-check unless the execution contract EXPLICITLY instructs it — --verify

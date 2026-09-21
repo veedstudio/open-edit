@@ -57,6 +57,7 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { engineBinPath, engineEnv, wcagRemediatePath } from '../config.ts';
 import { nodeTsArgs } from '../ts-runtime.ts';
 import {
@@ -928,12 +929,18 @@ export function runWcagPass(runDir: string, opts: { apply?: boolean } = {}): Wca
 
 // --- CLI --------------------------------------------------------------------
 
+export const usage = {
+  summary: "Contrast-audit a rendered run via the engine's analyzer",
+  flags: {
+    run: { type: 'string', value: 'runs/<key>', required: true, help: 'The run whose final render is audited' },
+    apply: { type: 'boolean', help: 'Promote the remediated template to final/template.wv (the draft is preserved)' },
+  },
+} satisfies Usage;
+
 export function wcagPass(argv: string[]): number {
-  const i = argv.indexOf('--run');
-  const runDir = i >= 0 ? argv[i + 1] : undefined;
-  const apply = argv.includes('--apply');
+  const { values: { run: runDir, apply } } = parseUsage('wcag-pass', usage, argv);
   if (!runDir) {
-    console.error('usage: openedit wcag-pass --run runs/<key> [--apply]');
+    console.error(usageLine('wcag-pass', usage));
     return 1;
   }
   try {

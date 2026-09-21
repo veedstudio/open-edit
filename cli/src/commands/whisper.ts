@@ -17,7 +17,7 @@
 //
 // The key is derived from the video filename exactly as the transcribe and prep commands derive it,
 // so prep picks the transcript up with no further arguments.
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -27,7 +27,16 @@ import { validateTranscript } from './transcribe.ts';
 import { mapWhisperTranscript, type WhisperJson } from '../prep/whisper-mapper.ts';
 import { cachedNote, cachedTranscriptPath, wordCount } from '../prep/transcript-cache.ts';
 
-const USAGE = 'usage: openedit whisper <whisper.json> <media> [<whisper.json> <media> ...] [--force]  (media = a video or an audio file)';
+export const usage = {
+  summary: "Map a Whisper-family JSON your own service produced into runs/<key>/transcript.json",
+  positionals: '<whisper.json> <media> [<whisper.json> <media> ...]',
+  flags: {
+    force: { type: 'boolean', help: 'Replace a transcript.json that already exists' },
+  },
+  notes: 'media = a video or an audio file',
+} satisfies Usage;
+
+const USAGE = usageLine('whisper', usage);
 
 async function mapOne(jsonArg: string, videoArg: string, force = false): Promise<void> {
   if (!existsSync(jsonArg)) {
@@ -77,11 +86,7 @@ async function mapOne(jsonArg: string, videoArg: string, force = false): Promise
 export async function whisper(argv: string[]): Promise<number> {
   // Pairs of paths; --force is the only flag. Strict, so a stray flag is named instead of being counted
   // as one half of a pair and silently mapping a transcript onto the wrong video.
-  const { values, positionals: args } = parseFlags({
-    args: argv,
-    options: { force: { type: 'boolean' } },
-    allowPositionals: true,
-  });
+  const { values, positionals: args } = parseUsage('whisper', usage, argv);
   // Each video carries its own transcription, so the arguments are pairs; an odd count means one is
   // missing, and guessing which would map a transcript onto the wrong video.
   if (args.length === 0 || args.length % 2 !== 0) {

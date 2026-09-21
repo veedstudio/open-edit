@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ffmpegDir } from '../config.ts';
+import { parseUsage, type Usage } from '../args.ts';
 import { FFMPEG_PROBE, findOnPath, installHint, probeVersion } from '../platform.ts';
 
 // Gyan's builds are the ones the FFmpeg project itself links for Windows.
@@ -134,9 +135,18 @@ async function install(): Promise<void> {
   say('every command finds it automatically; no env vars needed');
 }
 
+export const usage = {
+  summary: 'Install FFmpeg if nothing works already: env override → PATH → app-data download (Windows)',
+  flags: {
+    check: { type: 'boolean', help: 'Report which FFmpeg would be used and exit 1 if none runs; installs nothing' },
+    force: { type: 'boolean', help: 'Reinstall the app-data copy even when an FFmpeg already works' },
+  },
+} satisfies Usage;
+
 export async function installFfmpeg(args: string[]): Promise<number> {
+  const { values } = parseUsage('install-ffmpeg', usage, args);
   try {
-    if (args.includes('--check')) {
+    if (values.check) {
       const found = existing();
       if (!found) {
         say(`not installed (no env override, nothing on PATH, nothing in ${appDataBin()})`);
@@ -147,7 +157,7 @@ export async function installFfmpeg(args: string[]): Promise<number> {
       return 0;
     }
 
-    if (!args.includes('--force')) {
+    if (!values.force) {
       const found = existing();
       if (found) {
         say(`already installed via ${found.where} — ${found.bin}; nothing to do (--force reinstalls the app-data copy)`);

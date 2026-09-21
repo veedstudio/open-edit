@@ -1,18 +1,23 @@
-import { parseFlags } from "../args.ts";
+import { parseUsage, usageLine, type Usage } from "../args.ts";
 import { contentRoot } from "../config.ts";
 import { loadDesignGate, type GateFinding } from "../gates/content-gates.ts";
+
+export const usage = {
+  summary: "Read a run's documents back against its own design system",
+  positionals: "<run-dir>",
+  flags: {
+    doc: { type: "string", value: "<subdir>", help: "Gate one document under the run, a chapter of a longer piece" },
+    json: { type: "boolean", help: "Print the findings as JSON" },
+  },
+} satisfies Usage;
 
 // A run's authored documents read back against its own design system. Same gate the workspace script
 // runs; loaded from content so a published install needs no checkout and no tsx.
 export async function designGate(argv: string[]): Promise<number> {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: { json: { type: "boolean" }, doc: { type: "string" } },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage("design-gate", usage, argv);
   const [runDir] = positionals;
   if (!runDir) {
-    console.error("usage: openedit design-gate <run-dir> [--doc <subdir>] [--json]");
+    console.error(usageLine("design-gate", usage));
     return 2;
   }
 

@@ -88,10 +88,10 @@ test('a clean init becomes the ready note; a failing one carries the report verb
   assert.match(composeContext(0, 'preflight: APPROVAL REQUIRED — x'), /wait for explicit approval/);
 });
 
-test('a ready init that printed its root sends the agent to that AGENTS.md and to no second preflight', () => {
+test('a ready init that printed its root sends the agent to the content root AGENTS.md and to no second preflight', () => {
   const note = composeContext(0, 'preflight: reusing the local checkout at /x\nready — OPEN_EDIT_ROOT=/x/runtime');
   assert.match(note, /OPEN_EDIT_ROOT=\/x\/runtime/);
-  assert.match(note, /read \/x\/runtime\/AGENTS\.md completely/);
+  assert.match(note, /read AGENTS\.md from the content root \(`npx @veedstudio\/openedit-cli content-root`\) completely/);
   assert.match(note, /No further preflight/);
   assert.doesNotMatch(note, /init --dry/);
 });

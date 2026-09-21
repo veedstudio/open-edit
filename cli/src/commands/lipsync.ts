@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { type VeedHttp } from '../veed/api.ts';
 import { uploadLocalAsset, readVideoBytes } from '../veed/asset-upload.ts';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { resolveVideoArg, runKeyOf } from '../resolve-video.ts';
 import { runsDir } from '../config.ts';
 import { submitOnce, await_, download, firstUrl, falKey, completeJob, type Http as FalHttp } from '../providers/fal.ts';
@@ -93,15 +93,19 @@ function noTokenHelp(): void {
   );
 }
 
+export const usage = {
+  summary: 'Re-lipsync a video to new audio (bills your own fal key; VEED login only hosts the files)',
+  positionals: '<video.mp4> <audio.mp3|wav|m4a>',
+  flags: {
+    out: { type: 'string', value: '<path>', help: 'Output file (default runs/<key>/lipsync.mp4)' },
+  },
+} satisfies Usage;
+
 export async function lipsync(argv: string[]): Promise<number> {
-  const { values, positionals } = parseFlags({
-    args: argv,
-    options: { out: { type: 'string' } },
-    allowPositionals: true,
-  });
+  const { values, positionals } = parseUsage('lipsync', usage, argv);
   const [videoArg, audioArg] = positionals;
   if (!videoArg || !audioArg) {
-    console.error('usage: npx @veedstudio/openedit-cli lipsync <video.mp4> <audio.mp3|wav|m4a> [--out <path>]');
+    console.error(usageLine('lipsync', usage));
     return 1;
   }
   const videoPath = resolveVideoArg(videoArg);

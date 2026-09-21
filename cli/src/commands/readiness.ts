@@ -4,6 +4,7 @@
 //
 //   openedit readiness
 import { existsSync } from 'node:fs';
+import { parseUsage, type Usage } from '../args.ts';
 import { FFMPEG, engineBinPath } from '../config.ts';
 import { FFMPEG_PROBE, probeVersion } from '../platform.ts';
 import { VEED_API_BASE } from '../veed/api.ts';
@@ -11,7 +12,13 @@ import { DEFAULT_TOKEN_PATH } from '../veed/token-store.ts';
 
 type Check = { label: string; ok: boolean; detail: string; blocking: boolean };
 
-export function readiness(_argv: string[]): number {
+export const usage = {
+  summary: 'Report what is present vs missing for a run (read-only, no network; exits 1 on a blocking miss)',
+  flags: {},
+} satisfies Usage;
+
+export function readiness(argv: string[]): number {
+  parseUsage('readiness', usage, argv);
   const checks: Check[] = [];
   const add = (label: string, ok: boolean, detail: string, blocking = true): void => {
     checks.push({ label, ok, detail, blocking });

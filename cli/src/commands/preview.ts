@@ -7,6 +7,7 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { createReadStream, rmSync, writeFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { openUrl } from '../open-url.ts';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream';
@@ -147,9 +148,16 @@ export async function createPreviewServer(
   };
 }
 
+export const usage = {
+  summary: 'Localhost read-only preview of a run: scrub footage, follow the transcript, live-swap renders',
+  positionals: 'runs/<key>',
+  flags: {},
+  notes: 'VEED_PREVIEW_NO_OPEN=1 skips opening the browser; the URL is also written to <run>/preview.url.',
+} satisfies Usage;
+
 export async function preview(argv: string[]): Promise<number> {
-  const runDir = argv[0];
-  if (!runDir) { console.error('usage: openedit preview runs/<key>'); return 2; }
+  const { positionals: [runDir] } = parseUsage('preview', usage, argv);
+  if (!runDir) { console.error(usageLine('preview', usage)); return 2; }
   const srv = await createPreviewServer(runDir, {
     openBrowser: process.env.VEED_PREVIEW_NO_OPEN !== '1',
   });

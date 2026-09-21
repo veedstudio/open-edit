@@ -64,7 +64,7 @@ fix loop · DO NOT → simply how the code behaves.
 5. **EMPHASIS** — the ref's own device for hero words + a deterministic pick rule (e.g. "the longest
    content word of the beat; numbers win; last beat's last content word") so no judgment is needed.
 6. **VERIFY LOOP** — verbatim commands:
-   `{repo}/.veed-engine/veed-engine-cli {repo}/runs/<key>/final --verify` → per failure class a MECHANICAL fix
+   `{engine} {repo}/runs/<key>/final --verify` → per failure class a MECHANICAL fix
    (bounds → which value to change by how much; never-visible → what to check; occluded → z rule), re-run
    to exit 0, ≤2 fix cycles → `--record`. Manifest line included verbatim. Ids: the engine labels a text run by
    its DIRECT parent's id, so the id goes on the element that wraps the text. Dressing text (kickers, credits,

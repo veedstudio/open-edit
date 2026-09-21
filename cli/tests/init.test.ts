@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { main, type ExecResult } from '../src/commands/init.ts';
+import { emulateNpmAdd } from './exec-stubs.ts';
 
 // The fixture's engine "binary" is a plain file whose CONTENT is its version; the exec seam answers
 // `--version` by reading it, so no platform-specific stub scripts or shebangs are needed. The
@@ -27,6 +28,8 @@ interface Fixture {
   enginePath: string;
   /** What the stubbed `npx … install-engine` lays down; null = exits 0 without writing anything. */
   engineInstallVersion: string | null;
+  /** The scaffold/update dep-add (`npm install --save-dev …`) exits non-zero when true. */
+  npmAddFails: boolean;
   bins: Record<string, string | null>;
 }
 
@@ -67,6 +70,7 @@ async function fixture(): Promise<Fixture> {
     corepackYields: '10.16.1',
     enginePath: join(root, 'engine', 'veed-engine-cli'),
     engineInstallVersion: '1.0.0',
+    npmAddFails: false,
     bins: {
       git: 'git',
       node: process.execPath,
@@ -149,6 +153,10 @@ const makeExec = (fx: Fixture) => (cmd: string, args: string[], opts: Record<str
     return { status: 0, stdout: '', stderr: '' };
   }
   if (cmd === 'npm') {
+    // The scaffold/update dep-add is emulated by the shared stub; anything else npm does here is
+    // the global pnpm fallback.
+    const added = emulateNpmAdd(fx, args, cwd);
+    if (added) return added;
     appendFileSync(fx.actionLog, 'npm-global-pnpm\n');
     fx.pnpmVersion = '10.16.1';
     fx.installedPnpm = '10.16.1';
@@ -229,7 +237,8 @@ test('dry is immutable; bare preflight performs local setup once', async () => {
   assert.match(await readFile(join(fx.consumer, '.git/info/exclude'), 'utf8'), /^\.open-edit\/$/m);
   assert.deepEqual((await readFile(fx.actionLog, 'utf8')).trim().split('\n').sort(), ['pnpm-install', 'renderer-install']);
 
-  const second = await runPreflight(['--workspace', fx.consumer], fx);
+  // The clone path persists only under its explicit pin; a bare re-run would promote to the package.
+  const second = await runPreflight(common, fx);
   assert.equal(second.status, 0, second.stderr);
   assert.equal((await readFile(fx.actionLog, 'utf8')).trim().split('\n').length, 2);
 });
@@ -295,12 +304,12 @@ test('clean runtime update requires approval and dirty runtime is only reported'
   execFileSync('git', ['commit', '-m', 'second'], { cwd: fx.source });
   const newCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: fx.source, encoding: 'utf8' }).trim();
 
-  const proposed = await runPreflight(['--dry', '--workspace', fx.consumer], fx);
+  const proposed = await runPreflight(['--dry', ...common], fx);
   assert.equal(proposed.status, 10, proposed.stderr);
   assert.match(proposed.stderr, /APPROVAL REQUIRED — fast-forward runtime/);
   assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: runtime, encoding: 'utf8' }).trim(), oldCommit);
 
-  const approved = await runPreflight(['--auto-approve', '--workspace', fx.consumer], fx);
+  const approved = await runPreflight(['--auto-approve', ...common], fx);
   assert.equal(approved.status, 0, approved.stderr);
   assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: runtime, encoding: 'utf8' }).trim(), newCommit);
 
@@ -308,7 +317,7 @@ test('clean runtime update requires approval and dirty runtime is only reported'
   await writeFile(join(fx.source, 'third.txt'), 'third\n');
   execFileSync('git', ['add', 'third.txt'], { cwd: fx.source });
   execFileSync('git', ['commit', '-m', 'third'], { cwd: fx.source });
-  const dirty = await runPreflight(['--auto-approve', '--workspace', fx.consumer], fx);
+  const dirty = await runPreflight(['--auto-approve', ...common], fx);
   assert.equal(dirty.status, 0, dirty.stderr);
   assert.match(dirty.stderr, /has local changes; leaving it untouched/);
   assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: runtime, encoding: 'utf8' }).trim(), newCommit);
@@ -319,7 +328,7 @@ test('pnpm newer than the floor satisfies preflight without reinstalling', async
   const common = ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
 
   assert.equal((await runPreflight(common, fx)).status, 0);
-  const second = await runPreflight(['--workspace', fx.consumer], fx);
+  const second = await runPreflight(common, fx);
   assert.equal(second.status, 0, second.stderr);
   assert.match(second.stderr, /repository dependencies — ready/);
   assert.equal((await readFile(fx.actionLog, 'utf8')).match(/pnpm-install/g)?.length, 1);
@@ -429,6 +438,17 @@ test('the pnpm floor matches package.json packageManager', async () => {
   assert.equal(floor, pinned, 'preflight MIN_PNPM must match package.json packageManager');
 });
 
+// The published packument carries openedit.minEngine, and init grades an offered CLI update against
+// it. Two floors that drift would let an update install itself onto an engine it cannot drive.
+test('the renderer floor matches package.json openedit.minEngine', async () => {
+  const pkg = JSON.parse(await readFile(resolve(import.meta.dirname, '..', '..', 'package.json'), 'utf8')) as { openedit?: { minEngine?: string } };
+  const declared = pkg.openedit?.minEngine;
+  assert.match(declared ?? '', /^\d+\.\d+\.\d+$/, 'package.json must declare openedit.minEngine');
+  const source = await readFile(resolve(import.meta.dirname, '../src/commands/init.ts'), 'utf8');
+  const floor = /^const MIN_ENGINE = '([^']+)'/m.exec(source)?.[1];
+  assert.equal(floor, declared, 'preflight MIN_ENGINE must match package.json openedit.minEngine');
+});
+
 // corepack ships inside Node and installs exactly what packageManager pins, so it is preferred over
 // owning a global package; npm remains the fallback for a Node built without it.
 test('corepack is preferred over a global npm install when it is available', async () => {
@@ -504,7 +524,7 @@ test('init says which runtime it will use, and warns when the invoking checkout 
   assert.match(bypassed.stderr, /this command ran from the checkout/i,
     'no warning that the checkout this ran from is being bypassed');
   assert.ok(bypassed.stderr.includes(repoCheckout), 'the warning does not name the checkout that would be skipped');
-  assert.match(bypassed.stderr, /managed clone/i, 'did not say a managed clone would be used');
+  assert.match(bypassed.stderr, /packaged content/i, 'did not say the packaged content would be used');
 
   const reused = spawnInit(['--dry', '--workspace', repoCheckout], repoCheckout);
   // 10 is "something needs your approval", which a --dry run reports whenever a newer renderer

@@ -15,7 +15,7 @@
 //   creative-log.ts --for <video> --brief          # the accumulated history, ready to paste
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
-import { parseFlags } from '../args.ts';
+import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { workspaceRoot } from '../config.ts';
 
 export interface Attempt { what: string; why: string }
@@ -106,20 +106,22 @@ export function briefFor(source: string): string {
   return parts.join('\n\n');
 }
 
+export const usage = {
+  summary: 'Record accepted/rejected looks per footage, so a later pass knows what to avoid',
+  flags: {
+    for: { type: 'string', value: '<video>', required: true, help: 'The footage the look was tried on' },
+    reject: { type: 'string', value: '"<what>"', help: 'Record a rejected look; needs --why' },
+    accept: { type: 'string', value: '"<aesthetic>"', help: 'Record an accepted look; needs --why' },
+    why: { type: 'string', value: '"<why>"', help: 'The reason, kept with the record' },
+    brief: { type: 'boolean', help: 'Print what has been tried on this footage' },
+  },
+} satisfies Usage;
+
 export function creativeLog(argv: string[]): number {
-  const { values } = parseFlags({
-    args: argv,
-    options: {
-      for: { type: 'string' },
-      reject: { type: 'string' },
-      accept: { type: 'string' },
-      why: { type: 'string' },
-      brief: { type: 'boolean' },
-    },
-  });
+  const { values } = parseUsage('creative-log', usage, argv);
   const source = values.for;
   if (!source) {
-    console.error('usage: openedit creative-log --for <video> [--reject "<what>" --why "<why>"] [--accept "<aesthetic>" --why "<why>"] [--brief]');
+    console.error(usageLine('creative-log', usage));
     return 2;
   }
   if (values.brief) {
