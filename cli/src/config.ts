@@ -157,6 +157,11 @@ export function engineBinPath(): string {
   return process.env.VEED_ENGINE_BIN ?? join(engineDir(), engineBinaryName());
 }
 
+/** The engine's own account of what it renders, downloaded beside its binary with each release. */
+export function engineDocPath(): string {
+  return join(dirname(engineBinPath()), "feature-support.md");
+}
+
 // The engine resolves `ffmpeg` for --record through the OS search path and takes no override of its
 // own, so an explicitly configured ffmpeg is invisible to it unless its directory is on the child's PATH.
 export function engineEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {

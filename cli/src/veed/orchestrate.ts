@@ -26,6 +26,16 @@ export interface TranscribeOptions {
   maxAttempts?: number;
 }
 
+/** How a transport failure reads once a transcription job may exist; the caller keys its advice on it. */
+export const REQUESTED = 'a transcription job was requested, then: ';
+
+function requested<T>(step: Promise<T>): Promise<T> {
+  return step.catch((cause: unknown) => {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw /fetch failed/i.test(message) ? new Error(REQUESTED + message, { cause }) : cause;
+  });
+}
+
 export async function transcribeWithVeed(deps: TranscribeDeps, opts: TranscribeOptions): Promise<Transcript> {
   const { http, readVideoBytes } = deps;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -99,16 +109,18 @@ export async function transcribeWithVeed(deps: TranscribeDeps, opts: TranscribeO
   if (!cdnUrl) throw new Error('VEED: asset is UPLOADED but has no cdnUrl to transcribe');
   log(`asset ready ${cdnUrl}`);
 
-  // 4. start transcription, billed to the workspace resolved above.
-  const started = await startTranscription(http, {
+  // 4. start transcription, billed to the workspace resolved above. Everything before this line costs
+  // nothing to repeat; from here a job may be accepted and billed even when the reply is lost, so a
+  // transport failure is tagged and the caller never reads it as an invitation to re-run.
+  const started = await requested(startTranscription(http, {
     assetId: uploadable.asset.id,
     workspaceId: billedWorkspaceId,
     videoUrl: cdnUrl,
-  });
+  }));
   log(`transcription ${started.id} (${started.status})`);
 
   // 5. poll until the transcript is ready
-  const subtitle = await poll(
+  const subtitle = await requested(poll(
     () => getSubtitle(http, started.id),
     (s) => (s.status === 'error' ? 'failed' : s.status === 'active' ? 'done' : 'wait'),
     'transcription',
@@ -119,7 +131,7 @@ export async function transcribeWithVeed(deps: TranscribeDeps, opts: TranscribeO
           + 'a month; more needs a plan — https://www.veed.io/pricing. Or transcribe locally instead: '
           + 'npx @veedstudio/openedit-cli transcribe <video.mp4>'
         : `VEED: transcription failed (${s.errorReason ?? 'unknown'})`,
-  );
+  ));
   if (!subtitle.subtitles) throw new Error('VEED: transcription active but returned no subtitles track');
 
   // 6. map to the editor's on-disk transcript shape

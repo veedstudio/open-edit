@@ -11,18 +11,21 @@ import { access, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { FFPROBE, runsDir } from '../config.ts';
-import { probeDisplaySize, probeFps } from '../probe.ts';
+import { probeDisplaySize, probeFrameRate } from '../probe.ts';
 import { extractBeatFrames } from '../prep/extract-beat-frames.ts';
 import { resolveVideoArg, runKeyOf } from '../resolve-video.ts';
 import { synthWordTimings, type TimedChunk } from '../prep/synth-word-timings.ts';
 
-interface Canvas { aspect: '9:16' | '16:9'; width: number; height: number; fps: number }
+// `fps` is the nominal rate as a number for frame arithmetic; `frameRate` is ffprobe's exact rational
+// ("24000/1001", or "30" when whole), the spelling the engine's manifest takes without re-approximating.
+interface Canvas { aspect: '9:16' | '16:9'; width: number; height: number; fps: number; frameRate: string }
 
 function probeCanvas(src: string): { canvas: Canvas; durationSec: number } {
   const { width: w, height: h } = probeDisplaySize(src);
   const dur = Number(execFileSync(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', src]).toString().trim());
   if (!Number.isFinite(dur)) throw new Error(`ffprobe: bad duration for ${src}`);
-  const canvas: Canvas = { aspect: h >= w ? '9:16' : '16:9', width: w, height: h, fps: Math.round(probeFps(src) * 1000) / 1000 };
+  const rate = probeFrameRate(src);
+  const canvas: Canvas = { aspect: h >= w ? '9:16' : '16:9', width: w, height: h, fps: Math.round(rate.fps * 1000) / 1000, frameRate: rate.rate.replace(/\/1$/, '') };
   return { canvas, durationSec: dur };
 }
 
@@ -38,11 +41,11 @@ async function prepOne(file: string): Promise<void> {
     transcriptPath: join(dir, 'transcript.json'),
     wordTimingsPath: join(dir, 'word-timings.json'),
     framesDir,
-    aspect: canvas.aspect, width: canvas.width, height: canvas.height, fps: canvas.fps,
+    aspect: canvas.aspect, width: canvas.width, height: canvas.height, fps: canvas.fps, frameRate: canvas.frameRate,
     durationSec: Math.round(durationSec * 1000) / 1000,
   };
   await writeFile(join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
-  console.log(`[meta] ${key}: ${canvas.aspect} ${canvas.width}x${canvas.height}@${canvas.fps} dur=${meta.durationSec}s`);
+  console.log(`[meta] ${key}: ${canvas.aspect} ${canvas.width}x${canvas.height}@${canvas.frameRate} dur=${meta.durationSec}s`);
 
   // The transcription step owns transcript.json (real per-word timings); frames are cut at each beat's mid time.
   await access(meta.transcriptPath).catch(() => { throw new Error(`no ${meta.transcriptPath} — run the transcription step first`); });

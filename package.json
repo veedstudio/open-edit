@@ -31,7 +31,7 @@
     "@veedstudio:registry": "https://registry.npmjs.org"
   },
   "openedit": {
-    "minEngine": "0.10.2"
+    "minEngine": "0.11.0"
   },
   "scripts": {
     "build": "node cli/scripts/build.mjs",

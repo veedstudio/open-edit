@@ -1,9 +1,10 @@
 // Tests for the transcription flow: provider argv, the validation gates, and preference handling.
 // The spawn is injected, so nothing here launches whisperx or ffmpeg.
-// (The SKILL.md warning-triage coupling test stays in the Open Edit repository, beside SKILL.md.)
+// (The skill's warning-triage coupling test stays in the Open Edit repository, beside TRANSCRIPTION.md.)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync as existsNow, writeFileSync as writeNow } from 'node:fs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,8 +23,11 @@ import {
   whisperxModel,
   writePrefs,
   type Run,
+  uploadProxy,
+  PROXY_OVER_BYTES,
 } from '../src/commands/transcribe.ts';
 import { collidingRunKey } from '../src/prep/transcript-cache.ts';
+import { REQUESTED } from '../src/veed/orchestrate.ts';
 import type { Transcript } from '../src/prep/transcript-types.ts';
 import { existsSync } from 'node:fs';
 import { captureConsoleAsync, withRoot } from './helpers/synth.ts';
@@ -286,7 +290,7 @@ test('the recorded tier is what runs when no --model is given', async () => {
   assert.equal(await recordedModel(join(await tempDir(), 'absent.json')), undefined);
 });
 
-// SKILL.md's transcription-warning triage tells agents to look for this exact success line; its side
+// The skill's TRANSCRIPTION.md triage tells agents to look for this exact success line; its side
 // of the pin lives in the Open Edit repository (tests/skill-transcribe-triage.test.ts). Change the
 // format and this fails, instead of the guidance quietly becoming wrong.
 test('the success and cached lines SKILL.md quotes are still emitted', async () => {
@@ -462,3 +466,44 @@ test('a typo in the last path is found before the first upload spends anything',
     assert.match(err, /video not found: .*nope\.mp4/);
   });
 });
+
+test('a failed fetch says "run it again" only while nothing can have been billed', async () => {
+  const root = await tempDir();
+  await withRoot(root, async () => {
+    await writeFile(join(root, 'a.mp4'), '');
+    const failing = (message: string) => captured(() => transcribeVeed([join(root, 'a.mp4')], { force: true, deps: {
+      resolveToken: async () => 'token', transcribeOne: async () => { throw new Error(message); },
+    } }));
+    // a sandbox kills the very first request: nothing uploaded, nothing requested, nothing billed
+    const early = await failing('fetch failed');
+    assert.match(early.out, /nothing was billed/);
+    assert.match(early.out, /OUTSIDE the sandbox/);
+    // the same words once a job was requested may hide one that is running and charged
+    const late = await failing(`${REQUESTED}fetch failed`);
+    assert.match(late.out, /may be running and billed/);
+    assert.doesNotMatch(late.out, /run it again OUTSIDE/);
+    const other = await failing('quota exhausted');
+    assert.doesNotMatch(other.out, /billed/);
+  });
+});
+
+test('uploadProxy: a proxy that encodes is returned; one that fails says why and leaves no temp dir behind', () => {
+  assert.equal(PROXY_OVER_BYTES, 25 * 1024 * 1024);
+  let outPath = '';
+  const ok = uploadProxy('/x/clip.mp4', ((_bin: string, args: string[]) => {
+    outPath = args[args.length - 1]; writeNow(outPath, 'proxy');
+    return { status: 0, stderr: '' };
+  }) as unknown as typeof spawnSync);
+  assert.equal(ok.path, outPath);
+  assert.ok(existsNow(outPath));
+
+  let failedOut = '';
+  const bad = uploadProxy('/x/silent.mp4', ((_bin: string, args: string[]) => {
+    failedOut = args[args.length - 1];
+    return { status: 1, stderr: "Stream map '0:a:0' matches no streams.\n" };
+  }) as unknown as typeof spawnSync);
+  assert.equal(bad.path, null);
+  assert.match((bad as { why: string }).why, /matches no streams/, 'a source with no audio track falls back to the original, and says so');
+  assert.equal(existsNow(join(failedOut, '..')), false, 'the temp dir does not outlive a failed encode');
+});
+

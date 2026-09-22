@@ -260,7 +260,7 @@ test('an engine below the floor fails preflight even after an approved install',
 
   const auto = await runPreflight(['--auto-approve', '--workspace', fx.consumer], fx);
   assert.notEqual(auto.status, 0, `expected failure, got:\n${auto.stderr}`);
-  assert.match(auto.stderr, /0\.10\.2/);
+  assert.match(auto.stderr, /0\.11\.0/);
   assert.doesNotMatch(auto.stdout, /\.open-edit\/runtime/, 'must not report a ready root');
 });
 
@@ -274,7 +274,7 @@ test('a FRESH engine install below the floor fails preflight', async () => {
 
   const r = await runPreflight(['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'], fx);
   assert.notEqual(r.status, 0, `expected failure, got:\n${r.stderr}`);
-  assert.match(r.stderr, /0\.10\.2/);
+  assert.match(r.stderr, /0\.11\.0/);
   assert.doesNotMatch(r.stdout, /\.open-edit\/runtime/, 'must not report a ready root');
 });
 
@@ -288,7 +288,7 @@ test('an engine whose version cannot be read is treated as below the floor', asy
 
   const r = await runPreflight(['--workspace', fx.consumer], fx);
   assert.notEqual(r.status, 0, `expected a non-ready exit, got:\n${r.stderr}`);
-  assert.match(r.stderr, /0\.10\.2/);
+  assert.match(r.stderr, /0\.11\.0/);
   assert.doesNotMatch(r.stdout, /\.open-edit\/runtime/, 'must not report a ready root');
 });
 

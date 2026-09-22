@@ -187,19 +187,19 @@ plain-node process.
 
 ### gates / expect-windows
 
-The whole gate chain — design → lint → verify → wcag → record → probe → mux —
+The whole gate chain — lint → verify → contrast → record → mux —
 as one command over a run directory (run it outside any sandbox; rendering
 needs a real desktop session):
 
 ```sh
-npx @veedstudio/openedit-cli gates runs/<key> [--doc <subdir>] [--audio <file>] [--no-loudnorm]
+npx @veedstudio/openedit-cli gates runs/<key> [--doc <subdir>] [--audio <file>] [--no-mux] [--no-loudnorm] [--no-expect] [--no-wcag] [--no-safezones]
 ```
 
 `expect-windows` derives the `verify.expect` timing assertions from a
 document's own gates (`--write` stamps them into the manifest); the chain runs
-it automatically. The design and lint gates come from the content this package
-carries, so they run in-process with no checkout (`design-gate` and `lint` also
-exist as standalone commands); `OPEN_EDIT_ROOT` pointed at a checkout runs that
+it automatically. The lint gate comes from the content this package
+carries, so it runs in-process with no checkout (`lint` also
+exists as a standalone command); `OPEN_EDIT_ROOT` pointed at a checkout runs that
 checkout's gates instead. `content-root` prints where the content lives.
 
 ### Editing and QA tools
@@ -211,6 +211,9 @@ npx @veedstudio/openedit-cli concat-chapters <run-dir> --doc chapters/act-1 --do
 npx @veedstudio/openedit-cli concat-videos [--canvas WxH] [--fit letterbox|crop|open] <out> <in1> <in2> [...]
 npx @veedstudio/openedit-cli cut-frames <video> [--json]      # frames at every shot boundary
 npx @veedstudio/openedit-cli scene-frames <video> <outDir>    # stills for a clip with no beats
+npx @veedstudio/openedit-cli frames <video> --at 12.5,1:02 --frame 300-306 --every 0.5 --from 8 --to 11 [--sheet]  # stills at the moments you name
+npx @veedstudio/openedit-cli frames --images <image|dir> [...] [--width N] [--cols N]                                   # pictures that already exist, on one sheet
+npx @veedstudio/openedit-cli check-delivery <run-dir> [--doc <subdir>] [--samples N] [--json]                       # the finished file: container, picture against the source, loudness
 npx @veedstudio/openedit-cli scoped-edit <baseline.wv> <candidate.wv> [--allow <selector>]...
 npx @veedstudio/openedit-cli brand --file <brand.json> [--brief] [--check]
 npx @veedstudio/openedit-cli creative-log --for <video> [--reject "…" --why "…"] [--brief]

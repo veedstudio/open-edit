@@ -13,9 +13,9 @@
 //
 // WhisperX device and compute default to cpu/int8, which runs everywhere (CTranslate2 has no GPU path
 // on Apple Silicon); a CUDA-capable box overrides via OPEN_EDIT_WHISPERX_DEVICE / OPEN_EDIT_WHISPERX_COMPUTE.
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { FFMPEG, FFPROBE, WHISPERX_BIN, WHISPERX_COMPUTE, WHISPERX_DEVICE, WHISPERX_MODEL, prefsPath, runsDir } from '../config.ts';
@@ -29,7 +29,7 @@ import { readJsonFile } from '../json-file.ts';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import type { VeedHttp } from '../veed/api.ts';
 import { refreshingHttp } from '../veed/http.ts';
-import { transcribeWithVeed } from '../veed/orchestrate.ts';
+import { REQUESTED, transcribeWithVeed } from '../veed/orchestrate.ts';
 import { NO_LOGIN_HELP, resolveVeedToken } from '../veed/resolve-token.ts';
 
 export const PREFS_PATH = prefsPath();
@@ -316,7 +316,42 @@ export function parseArgs(argv: string[]): Args {
   };
 }
 
+// Transcription reads the AUDIO, and everything else in the file is upload time. Node's fetch gives
+// up after 300 seconds without response headers (undici's default, well inside this client's own
+// fifteen-minute upload deadline) and reports a bare `fetch failed`; a 420 MB camera original did not
+// make it on an ordinary uplink. 25 MB is about what that uplink moves in a quarter of the window.
+export const PROXY_OVER_BYTES = 25 * 1024 * 1024;
+
+/** A 360p copy carrying the source's own audio timeline, or null when ffmpeg cannot make one. */
+export function uploadProxy(videoPath: string, run: typeof spawnSync = spawnSync): { path: string } | { path: null; why: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'openedit-proxy-'));
+  const out = join(dir, 'proxy.mp4');
+  // `-map 0:a:0` is strict on purpose: a source with no audio fails here and the original is uploaded,
+  // rather than a silent proxy being transcribed into nothing.
+  const r = run(FFMPEG, ['-v', 'error', '-y', '-i', videoPath, '-map', '0:v:0', '-map', '0:a:0', '-vf', 'scale=-2:360',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '34', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out],
+    { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', timeout: 10 * 60_000 });
+  if (r.status === 0 && existsSync(out)) return { path: out };
+  rmSync(dir, { recursive: true, force: true });
+  const said = String(r.stderr ?? '').trim().split('\n').slice(-2).join(' | ');
+  return { path: null, why: r.error ? r.error.message : said || `ffmpeg exited ${r.status}` };
+}
+
 async function readVideoBytes(videoPath: string): Promise<{ bytes: Uint8Array; mimeType: string; extension: string }> {
+  const size = (await stat(videoPath)).size;
+  if (size > PROXY_OVER_BYTES) {
+    const proxy = uploadProxy(videoPath);
+    if (proxy.path !== null) {
+      try {
+        const bytes = await readFile(proxy.path);
+        console.log(`  uploading a 360p proxy, ${(bytes.length / 1e6).toFixed(1)} MB instead of ${(size / 1e6).toFixed(0)} MB — transcription reads the audio, which is unchanged`);
+        return { bytes, mimeType: 'video/mp4', extension: 'mp4' };
+      } finally {
+        rmSync(dirname(proxy.path), { recursive: true, force: true });
+      }
+    }
+    console.log(`  could not encode an upload proxy (${proxy.why}); uploading the ${(size / 1e6).toFixed(0)} MB original, which may time out on a slow uplink`);
+  }
   // Buffer IS a Uint8Array; no copy.
   const bytes = await readFile(videoPath);
   const ext = (extname(videoPath).slice(1) || 'mp4').toLowerCase();
@@ -417,7 +452,15 @@ export async function transcribeVeed(videoArgs: string[], options: VeedBatchOpti
       return { video, ok: true };
     } catch (error) {
       // String(error), not error.message: a thrown non-Error has no message.
-      lines.push(`  FAILED: ${error instanceof Error ? error.message : String(error)}`);
+      const message = error instanceof Error ? error.message : String(error);
+      // `fetch failed` carries no cause. Until a job is requested the usual ones are a sandbox that
+      // blocks the VEED hosts or an upload that outlasted the connection, and re-running is free. Past
+      // that point the same words may hide a job that is running and billed.
+      const hint = !/fetch failed/i.test(message) ? ''
+        : message.startsWith(REQUESTED)
+          ? ' — the connection dropped after the job was requested, so it may be running and billed. Do not re-run blindly: check the workspace, and ask before transcribing the same file again'
+          : ' — no transcription job was requested, so nothing was billed. Inside a sandbox the VEED hosts are blocked: run it again OUTSIDE the sandbox (it needs *.veed.io). Outside one, the upload outlasted the connection. It has already failed, so there is nothing to wait for';
+      lines.push(`  FAILED: ${message}${hint}`);
       return { video, ok: false };
     } finally {
       console.log(lines.join('\n'));
@@ -464,7 +507,7 @@ export async function transcribe(argv: string[]): Promise<number> {
     const result = await transcribeLocally(video, { model, language, force });
     const { path, words } = result;
     const key = runKeyOf(video);
-    // The transcribing line's format is pinned: SKILL.md's warning triage tells agents to look for it
+    // The transcribing line's format is pinned: the skill's TRANSCRIPTION.md warning triage tells agents to look for it
     // verbatim. A cached run says so on its own line rather than reshaping the one that is quoted.
     if (result.cached) {
       console.log(`[transcribe] cached: ${cachedNote(path)}`);

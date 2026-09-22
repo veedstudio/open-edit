@@ -128,8 +128,8 @@ offline and to the creative pass at run time.
   two adjacent spans (each keeping its verbatim `delayMs`) with the gap between them zeroed. An orphaned
   "-do" leading a line reads as broken text.
 - **A beat's LAST structure holds; the gate cuts it**: fading the final page out "so it completes at
-  gate close" leaves every beat caption-less for the fade duration — dead-air the late-frame
-  probe catches. Only MID-beat structures need fade-outs (turn-taking); the last one rides the cue gate.
+  gate close" leaves every beat caption-less for the fade duration: dead air at the end
+  of each one. Only MID-beat structures need fade-outs (turn-taking); the last one rides the cue gate.
 - **One content is not validation** (hook-215 among others passed the `fresh-test` fixture and failed
   the next video): word density/pacing changes which timing branches execute, and footage changes which
   placements collide. Validate every sheet on ≥2 contents with different beat densities before calling

@@ -21,13 +21,14 @@ import * as mixAudio from "./commands/mix-audio.ts";
 import * as wcagPass from "./commands/wcag-pass.ts";
 import * as gates from "./commands/gates.ts";
 import * as lint from "./commands/lint.ts";
-import * as designGate from "./commands/design-gate.ts";
 import * as contentRoot from "./commands/content-root.ts";
 import * as enginePath from "./commands/engine-path.ts";
 import * as expectWindows from "./commands/expect-windows.ts";
 import * as generateRecipe from "./commands/generate-recipe.ts";
 import * as sampleStyle from "./commands/sample-style.ts";
-import * as probeQa from "./commands/probe-qa.ts";
+import * as safezoneCheck from "./commands/safezone-check.ts";
+import * as checkDelivery from "./commands/check-delivery.ts";
+import * as measurePlacement from "./commands/measure-placement.ts";
 import * as scopedEdit from "./commands/scoped-edit.ts";
 import * as brand from "./commands/brand.ts";
 import * as creativeLog from "./commands/creative-log.ts";
@@ -35,6 +36,7 @@ import * as concatChapters from "./commands/concat-chapters.ts";
 import * as concatVideos from "./commands/concat-videos.ts";
 import * as sceneFrames from "./commands/scene-frames.ts";
 import * as cutFrames from "./commands/cut-frames.ts";
+import * as frames from "./commands/frames.ts";
 import * as speechProbe from "./commands/speech-probe.ts";
 import * as applyEdl from "./commands/apply-edl.ts";
 import * as retimeTranscript from "./commands/retime-transcript.ts";
@@ -85,13 +87,14 @@ const COMMANDS: Record<string, Command> = {
   "wcag-pass": { usage: wcagPass.usage, run: wcagPass.wcagPass },
   gates: { usage: gates.usage, run: gates.gates },
   lint: { usage: lint.usage, run: lint.lint },
-  "design-gate": { usage: designGate.usage, run: designGate.designGate },
   "content-root": { usage: contentRoot.usage, run: contentRoot.contentRootCommand },
   "engine-path": { usage: enginePath.usage, run: enginePath.enginePathCommand },
   "expect-windows": { usage: expectWindows.usage, run: expectWindows.expectWindows },
   "generate-recipe": { usage: generateRecipe.usage, run: generateRecipe.generateRecipe },
   "sample-style": { usage: sampleStyle.usage, run: sampleStyle.sampleStyleCommand },
-  "probe-qa": { usage: probeQa.usage, run: probeQa.probeQaCommand },
+  "safezone-check": { usage: safezoneCheck.usage, run: safezoneCheck.safezoneCheckCommand },
+  "check-delivery": { usage: checkDelivery.usage, run: checkDelivery.checkDeliveryCommand },
+  "measure-placement": { usage: measurePlacement.usage, run: measurePlacement.measurePlacementCommand },
   "scoped-edit": { usage: scopedEdit.usage, run: scopedEdit.scopedEdit },
   brand: { usage: brand.usage, run: brand.brandCommand },
   "creative-log": { usage: creativeLog.usage, run: creativeLog.creativeLog },
@@ -99,6 +102,7 @@ const COMMANDS: Record<string, Command> = {
   "concat-videos": { usage: concatVideos.usage, run: concatVideos.concatVideosCommand },
   "scene-frames": { usage: sceneFrames.usage, run: sceneFrames.sceneFrames },
   "cut-frames": { usage: cutFrames.usage, run: cutFrames.cutFrames },
+  frames: { usage: frames.usage, run: frames.frames },
   "speech-probe": { usage: speechProbe.usage, run: speechProbe.speechProbe },
   "apply-edl": { usage: applyEdl.usage, run: applyEdl.applyEdl },
   "retime-transcript": { usage: retimeTranscript.usage, run: retimeTranscript.retimeTranscript },

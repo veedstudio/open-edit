@@ -44,10 +44,12 @@ const DEFAULT_REF = 'main';
 // `packageManager`; init runs in a CONSUMER's project, so reading that field at runtime would find
 // their package.json, not the repo's. tests/init.test.ts holds the two together instead.
 const MIN_PNPM = '10.16.1';
-// 0.10.2 is the first release with `--verify=<rules>` (the safe-zone family the skill's SAFE-ZONE CHECK
-// runs); the Windows asset arrived in 0.9.0 and the WCAG analyzer in 0.8.0. The floor is checked before
-// the release API, so a stale engine is caught even when that API is unreachable or rate-limited.
-const MIN_ENGINE = '0.10.2';
+// 0.11.0 is the first release that takes a fractional fps as an exact fraction (`--fps 24000/1001`,
+// manifest `"fps":"24000/1001"`) instead of truncating it; `--verify=<rules>` (the safe-zone family the
+// skill's SAFE-ZONE CHECK runs) arrived in 0.10.2, the Windows asset in 0.9.0 and the WCAG analyzer in
+// 0.8.0. The floor is checked before the release API, so a stale engine is caught even when that API
+// is unreachable or rate-limited.
+const MIN_ENGINE = '0.11.0';
 const PACKAGE_NAME = '@veedstudio/openedit-cli';
 const REGISTRY_DEFAULT = 'https://registry.npmjs.org';
 

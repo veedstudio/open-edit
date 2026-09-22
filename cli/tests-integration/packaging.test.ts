@@ -29,22 +29,15 @@ test('the packed manifest declares the engine floor the auto-update check reads 
 test('the compiled lint gate runs offline from packaged content: plain node, no tsx, no pnpm', () => {
   const dir = tmp('openedit-it-lint-');
   const bad = join(dir, 'bad.wv');
-  writeFileSync(bad, '<html><style>.x{display:grid}</style><body><div class="x">hi</div></body></html>');
+  writeFileSync(bad, '<html><style>.x{color:red} @import url("https://fonts.googleapis.com/css2?family=Inter");</style><body><div class="x">hi</div></body></html>');
   const fail = cli(installed, ['lint', bad], { cwd: dir });
-  assert.equal(fail.status, 1, 'a grid document fails the engine-limit lint');
-  assert.match(fail.stdout, /css-grid/);
+  assert.equal(fail.status, 1, 'a document whose @import comes late fails the lint');
+  assert.match(fail.stdout, /import-not-first/);
 
   const clean = join(dir, 'clean.wv');
   writeFileSync(clean, '<html><body><div>hi</div></body></html>');
   const pass = cli(installed, ['lint', clean], { cwd: dir });
   assert.equal(pass.status, 0, pass.stdout + pass.stderr);
-});
-
-test('the design gate runs from packaged content and reads a run directory', () => {
-  const run = tmp('openedit-it-gate-');
-  const r = cli(installed, ['design-gate', run], { cwd: run });
-  assert.equal(r.status, 1, 'an empty run has no design system — the gate says so');
-  assert.match(r.stdout, /no-design-system/);
 });
 
 test('sample-style draws from the packaged index and stores a relative refPath', () => {

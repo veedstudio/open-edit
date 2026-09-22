@@ -1,13 +1,13 @@
 // Recipe runner — the fast path's DESIGN + RENDER for recipe-backed picks. Loads the compiled recipe for the
 // run's sampled ref (refs/html/<id>/recipe.ts), generates runs/<key>/final/{template.wv,
 // manifest.json} deterministically (zero tokens), then optionally drives the full gate chain:
-// lint → --verify (mechanical ladder fix loop) → --record → probe-qa. Run OUTSIDE any sandbox when
+// lint → --verify (mechanical ladder fix loop) → --record. Run OUTSIDE any sandbox when
 // passing --verify/--record (the engine needs the window-server).
 //   openedit generate-recipe --run <runDir> [--verify] [--record] [--module <path>]
 // --module runs a specific recipe module (standalone runs — no style.json needed — or a CUSTOMISED
 // copy). Never edit a library recipe (refs/html/<id>/recipe.ts) for one run: copy it to the scratchpad,
 // rewrite its relative lib import to the absolute pipeline/recipes/lib.ts path, edit the copy, pass it here.
-// Exit: 0 done · 1 a gate failed (lint error, verify after the fix cycles, record, or probe FAIL) ·
+// Exit: 0 done · 1 a gate failed (lint error, verify after the fix cycles, or record) ·
 // 2 usage, or a refused input (a --module that does not exist, a style.json pointing outside the
 // recipe library) · 3 no compiled recipe for the sampled ref (caller runs the from-scratch inline pass).
 import { parseUsage, usageLine, type Usage } from '../args.ts';
@@ -17,7 +17,6 @@ import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { wcagPass } from './wcag-pass.ts';
 import { contentRoot, engineBinPath, engineEnv, workspaceRoot } from '../config.ts';
-import { probeRun } from './probe-qa.ts';
 import { readStylePick } from './sample-style.ts';
 import { compiledGeneratorRelPath, generatorRelPath, type RecipeGenerator, type RunMeta } from '../recipes-contract.ts';
 import type { WordTimings } from '../prep/synth-word-timings.ts';
@@ -66,9 +65,9 @@ export async function generateRecipe(argv: string[]): Promise<number> {
   const runDir = resolve(runArg);
   const doRecord = values.record ?? false;
   const doVerify = (values.verify ?? false) || doRecord; // record only ever happens on a clean verify
-  // --wcag: opt-in WCAG AA contrast pass between verify and record (DEFAULT on
-  // the creative faces, which run the gates by hand — see the skill; opt-in
-  // here so the recipe fast path stays byte-identical until asked). It runs
+  // --wcag: opt-in WCAG AA contrast pass between verify and record (authored runs get it
+  // inside the `gates` chain; opt-in here so the recipe fast path stays byte-identical
+  // until asked). It runs
   // DETECT-ONLY: it audits real rendered contrast + emits contrast-statistics.json
   // and reports, but changes nothing. It only makes sense inside the gate
   // chain — bare --wcag would run without a rendered final/ to audit.
@@ -166,7 +165,9 @@ export async function generateRecipe(argv: string[]): Promise<number> {
     return JSON.parse(r.stdout);
   };
   const findings = lint();
-  for (const x of findings) console.log(`${x.severity.toUpperCase()}[${x.rule}] ${x.message}`);
+  // A compiled recipe's document is script-owned and its contrast audit is opt-in, so a warn whose
+  // only remedy is editing that document is noise on this path.
+  for (const x of findings.filter((f) => f.rule !== 'text-parent-no-id')) console.log(`${x.severity.toUpperCase()}[${x.rule}] ${x.message}`);
   if (findings.some((x) => x.severity === 'error')) {
     console.error('[generate-recipe] lint failed — fix the recipe module, never the generated document');
     return 1;
@@ -210,20 +211,6 @@ export async function generateRecipe(argv: string[]): Promise<number> {
     const r = spawnSync(engineBinPath(), [finalDir, '--progress-output', '--record', outMp4], { stdio: 'inherit', env: engineEnv(), cwd: workspaceRoot() });
     if (r.status !== 0) { console.error(`[generate-recipe] record failed (exit ${r.status})`); return 1; }
     console.log(`[generate-recipe] recorded ${outMp4}`);
-
-    // Gate 4 — PROBE: mechanical frame QA vs the source (the defects --verify can't see: dead-air
-    // mid-beat, unreadable ink). FAIL → do NOT redesign and do NOT auto-re-render; report honestly
-    // and offer a --seed/--style re-run. Warns are FYI — mention them and proceed.
-    const probes = probeRun(runDir);
-    for (const p of probes.filter((x) => x.verdict !== 'pass')) {
-      console.log(`[probe-qa] beat ${p.beat} ${p.probe}@${p.tSec}s ink=${p.inkPct}% contrast=${p.contrast ?? '-'} ${p.verdict.toUpperCase()}${p.notes.length ? ' — ' + p.notes.join('; ') : ''}`);
-    }
-    const probeFails = probes.filter((x) => x.verdict === 'fail');
-    if (probeFails.length) {
-      console.error(`[generate-recipe] probe-qa: ${probeFails.length} FAIL — report honestly; offer a --seed/--style re-run`);
-      return 1;
-    }
-    console.log(`[generate-recipe] probe-qa clean (${probes.filter((x) => x.verdict === 'warn').length} warn)`);
   }
   return 0;
 }

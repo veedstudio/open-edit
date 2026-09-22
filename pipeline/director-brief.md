@@ -21,7 +21,7 @@ Commit ONE design system in a single pass — do NOT re-litigate the aesthetic o
 extract frames / eyeball the video / run any visual self-check unless the execution contract EXPLICITLY tells you
 to. You do not redesign based on renders, run legibility passes, or chase timing.
 
-Your execution contract (the filled DESIGN + RENDER variant B contract from the SKILL) gives: the run dir, `meta.json` (canvas W/H/fps + `durationSec` + all paths),
+Your execution contract (the filled DESIGN + RENDER variant B contract from the skill's `DESIGN.md`) gives: the run dir, `meta.json` (canvas W/H/fps + `durationSec` + all paths),
 `transcript.json` (captions + windows), the USER'S MATERIALS (their reference/brand/concept — the design
 authority) plus 1-2 recipe SHEETS as craft substrate, the video path, the DIRECTION, the ENGAGEMENT mode,
 and the ANIMATION LEVEL. `analysis.json` (per-beat composition facts) exists ONLY on style-refine runs — when
@@ -61,27 +61,31 @@ never paste them. The same applies to the craft substrate a face-1 pass reads.
 Rules: ONE system, ONE single pass, no aesthetic re-litigation; word delays VERBATIM from
 `word-timings.json`; ingredients come ONLY from the named sheets (no fonts/palette/devices from outside
 them); CRAFT RULES bind (one shadow idiom, cohesive registers, device craft); WV CONTRACT + ENGINE
-LIMITS + the lint → verify → record → probe gates bind exactly as in any run. The blend must not read
+LIMITS + the lint → verify → record gates bind exactly as in any run. The blend must not read
 as any single donor — name the new aesthetic in one line before authoring, then hold it across every beat.
 
 ## Method
-- **IF YOU HAVE NOT RELOADED THE `open-edit` SKILL FOR THIS PASS, DO IT BEFORE YOU AUTHOR ANYTHING —
-  AND AGAIN BEFORE EVERY AUTHORING TOUCH AFTER IT** — the whole skill, invoked again, not a section
-  recalled. You are reading this inside the pass, so "before" means before the first thing you write. Authoring is necessarily the last thing that
-  happens, so it is always the work with the most behind it; the rules that bind it were read long ago
-  and are competing with several hundred tool results. Reloading puts them back on top at the moment
-  they bind. A touch on any caption, graphic, plate, chart, mark, title or motion is an authoring
-  touch, however small it looks — but a mechanical fix to the element a gate flagged is NOT one, and
-  needs no reload. **Reloading is not permission to redesign**: the system is committed once, and what
-  you reload is the contract you author within.
+- **IF YOU HAVE NOT READ THE `open-edit` SKILL'S `DESIGN.md` FOR THIS PASS, DO IT BEFORE YOU AUTHOR ANYTHING** —
+  the whole file. Read it again only if your context was compacted since, or when you start a NEW document (a
+  chapter, a remix, a second variant); a touch on a document you are already authoring needs no re-read. What
+  keeps a long piece consistent is `design/system.json`: every font, size, tracking, colour and easing you
+  author comes out of it, so read the system back before a touch rather than reloading the contract.
+  **The system is committed once**, and a later touch authors within it.
 - Read `meta.json` for W/H/fps/durationSec. Captions + windows (and real per-word timings) come from
   `transcript.json`. If `analysis.json` exists (refine runs only) also read it — it carries, per beat and in
   CANVAS px: `shot`, `subjectBbox`, `faceBbox`, `negSpaceRect` (largest clean zone for type), `brightness`.
-  COMPOSE FROM THOSE NUMBERS when present; when absent, place by the safe margins below and vary position
-  per beat. NEVER read the frames or re-derive framing yourself.
+  COMPOSE FROM THOSE NUMBERS when present. Otherwise compose from `design/placement.json`, which
+  `npx @veedstudio/openedit-cli measure-placement runs/<key>` writes: per cue and in CANVAS px, `subjectBox`,
+  `headBox` (with `headFrom`: `detail` is a guess) and the safe zone in bands (`yPx`, `hPx`, `luma`, `spread`,
+  `detail`, `motion`, `overHead`, `overSubject`), plus the `calmest` band clear of the head. Its one
+  sheet, `design/placement.jpg`, is the only footage picture this pass opens, once, to check those boxes.
+  NEVER read the base frames one by one and never write your own detector or re-derive framing yourself.
 - Study the USER'S MATERIALS — they are the DESIGN AUTHORITY. Learn the design DNA from what they brought:
   positions, fonts, weights, sizes, colours, letter-spacing, shadows, mood (OPEN their images/files — this is
-  the one place you look at supplied visuals; the footage frames stay off-limits). Then read the CRAFT
+  the one place you look at supplied visuals; the base footage frames stay off-limits, and the placement
+  sheet above is the only derived picture of the footage you open). Several images are one
+  look: `npx @veedstudio/openedit-cli frames --images <dir|files>` writes ONE sheet with `images.json` beside it, so open a
+  single image only when a detail is unreadable there. Then read the CRAFT
   SUBSTRATE sheets (validated recipes, `refs/html/<id>/recipe.md`) and lift their MECHANICS only — timing
   idioms, grounding, width budgets, the engine workarounds — never their look, unless the user's materials
   point the same way.
@@ -119,8 +123,8 @@ as any single donor — name the new aesthetic in one line before authoring, the
 - Keep MONUMENTAL headlines INSIDE the canvas — stack to 2-3 lines or size down rather than clip an edge.
   Keep the spoken caption in safe margins (9:16 → top>=11% bottom>=17% left>=6% right>=11%; 16:9 → ~6% inset
   all sides, keep type off the dead-center face, use the left/right thirds).
-- Write the colour into the SVG shape: `stroke=var()` paints NOTHING (probe: svg-stroke-var) and
-  `stroke="currentColor"` paints black (probe: svg-currentcolor-stroke). `fill="none"` for strokes.
+- Write the colour into the SVG shape: `stroke=var()` paints NOTHING (probe: svg-stroke-var).
+  `fill="none"` for strokes.
   Inline `<svg>` and SVG `<text>` both RENDER, and so does an `<img>` whose src is an `.svg` file
   beside the document (probe: img-src-svg) — inline is the convenient form, not the only one. Position a child with the `transform`
   ATTRIBUTE (`transform="translate(x,y)"`) — a CSS `transform:translateY()` on an SVG child does not move it.
@@ -206,7 +210,8 @@ obeyed: it removes real capability from every run that reads this file.
   resolve, and it is the trap that left every graphic of one film on screen to the end.
 - A gate whose keyframe closes exactly on a frame boundary LOSES that frame, and `--verify` does not
   see it. End a window a frame early, or land it off the boundary.
-- `border-radius` slash syntax renders square, and a per-corner radius is ignored — use one value.
+- A `border-radius` with exactly TWO values drops the declaration and renders square; one value and
+  four values both round, and so does the slash form.
 - `-webkit-text-stroke` never paints, on any construct. Ground with an 8-way `text-shadow`.
 - A CSS `transform:translateY()` on an SVG child does not move it — measured on that function only;
   use the `transform` attribute, which does displace the shape.
@@ -215,12 +220,9 @@ obeyed: it removes real capability from every run that reads this file.
 - An SVG path's counterform is filled SOLID — the hole in an O, a D or an e is lost, and `fill-rule`,
   `<mask>` and `<clipPath>` inside the SVG do not cut it (probe: svg-counterform-filled). A logo goes
   through `pipeline/recipes/svg-clip.ts` instead; see MARKS AND LOGOS below.
-- `currentColor` does not inherit on an SVG `stroke`; it paints black. On `fill` it inherits correctly
-  (probe: svg-currentcolor-stroke).
-- `filter: drop-shadow` CLIPS what it is applied to: an inline-SVG child of the container it sits on
-  (probe: drop-shadow-clips-inline-svg), and glyphs on an element that also carries opacity below 1
-  (probe: drop-shadow-opacity-clip — this one did NOT hold on 0.7.3 and does on 0.8.0). Ground type
-  with the two-layer text-shadow instead, and keep the filter off anything that fades.
+- `filter: drop-shadow` CLIPS an inline-SVG child of the container it sits on (probe:
+  drop-shadow-clips-inline-svg). Glyphs under partial opacity are no longer clipped (probe:
+  drop-shadow-opacity-clip, refuted on 0.10.3). Ground type with the two-layer text-shadow anyway.
 - The engine cannot pause or retime a video layer — bake freezes and trims with ffmpeg beforehand.
 
 **Capabilities the brief used to deny. They all render; use them.**
@@ -280,19 +282,24 @@ person from the previous shot stood in front of the next one for a few frames. C
 anything and this is the check; a caption that survives a shot it was never meant to cross shows up in
 the same strips.
 
+Where a frame is to be pulled at all, pull it with this, not a retyped ffmpeg seek or a cv2/PIL loop:
+`npx @veedstudio/openedit-cli frames <video> --at 12.5 --frame 300-306 --every 0.5 --from 8 --to 11
+[--crop x,y,w,h] [--width N] [--sheet] --out {run}/qa/frames` writes the stills, named by frame and
+second, plus `frames.json` listing them. Analysis you then run on those stills is your own; this
+replaces the extraction, and changes nothing about WHEN frames are looked at.
+
 ## RENDER + VERIFY (needs the window-server → run OUTSIDE any sandbox)
 **One command drives the whole chain**, and it is the one to use unless you have a reason not to:
-`npx @veedstudio/openedit-cli gates <run-dir> [--doc <subdir>] [--audio <file>] [--no-design] [--no-wcag] [--no-expect] [--no-probe] [--no-mux] [--no-loudnorm]`
-It runs design → lint → `--verify` → WCAG → `--record` → probe-qa → mux, stops at the first failure and names
+`npx @veedstudio/openedit-cli gates <run-dir> [--doc <subdir>] [--audio <file>] [--no-wcag] [--no-safezones] [--no-expect] [--no-mux] [--no-loudnorm]`
+It runs lint → `--verify` (with the triaged safe-zone check) → contrast → `--record` → mux, stops at the first failure and names
 the gate that failed. `--doc` picks the document under the run — it defaults to `final`, and a film
 gates one chapter at a time (`--doc chapters/act-3 --no-loudnorm`: the level belongs to the whole film,
 and levelling each chapter on its own is how they end up stepping). When every chapter is gated, join them with
 `npx @veedstudio/openedit-cli concat-chapters`, which stream-copies and refuses parts whose format differs —
 NOT `concat-videos.ts`, which re-encodes and normalises the frame rate because its inputs are
-generated clips that disagree by nature. `--no-design` only when a compiled recipe IS the
-system; an authored run without `design/system.json` is the defect that gate exists for. `--no-expect`
+generated clips that disagree by nature. `--no-expect`
 skips deriving the timing assertions, and is not a way to make a failure go away.
-`--no-probe` when there is no source footage to diff frames against; `--no-mux` when there
+`--no-mux` when there
 is no soundtrack (the silent render is copied to `out.mp4`, so the deliverable path never changes).
 The individual steps below are what it runs, and what a failure means.
 
@@ -310,25 +317,26 @@ learned to count descendant ink and the assertions cover the whole pool.
 `npx @veedstudio/openedit-cli engine-path` prints it with the platform, `VEED_ENGINE_BIN` and
 `OPENEDIT_STATE_DIR` already applied. It is NOT on PATH.
 0. LINT (mechanical, no engine): `npx @veedstudio/openedit-cli lint {run}/final/template.wv`
-   — catches the engine-limit anti-patterns above (animated blur, the stacking trap, a multi-value radius, missing
-   cue ids) before the slower verify. Exit 1 → fix the flagged rule, re-lint.
+   — checks how the document is built (ids, the stacking trap, gate windows, `@import` first) and what the installed
+   engine's own feature-support.md declares it will not render or interpolate, before the slower verify. Exit 1 → fix the flagged rule, re-lint.
 1. VERIFY (analytic, fast, no video — the ONLY self-check you perform by default; reads the manifest render block):
-   `{engine} {run}/final --verify=bounds,safezones --verify-report {run}/final/verify.json`. It
+   `npx @veedstudio/openedit-cli safezone-check {run}` (bounds and safe zones, one engine walk). It
    replays the whole timeline offscreen and checks the REAL draw list. Exit 0 = clean. Exit 1 = one stdout line per
    problem, naming the element id, e.g.:
      `frame 3 t=0.400s FAIL[bounds] #cap3 glyph 14 right 3.1px outside (8.42% of glyph box) viewport 736x1312`
      `FAIL[never-visible] #cap5 glyph 2 ink in 300 frames, never fully visible (best 0.00% at frame 0 ...)`
      `frame 2 t=0.200s FAIL[occluded] #cap2 glyph 5 fully covered by later opaque rect`
-     `FAIL[safezone] #b4w31 zone generic-9x16 53.5% of ink outside keep-inside, worst frame 314 t=10.5s, window 10.5..11.3s, 24 offending frames (longest run 24)`
+     `MAJOR #b4w31 — bottom 34px deep, 41.5% of ink, held 24 frames 10.5..11.3s → re-place its block inside the bottom edge: top = 1594 - block height - 8px`
    The rules map to the real defects: bounds (type off the viewport), never-visible (type clipped away EVERY frame,
    e.g. stuck behind a mask/box), occluded (type fully hidden under a later opaque layer — the z-order/opacity trap),
    safezone (glyph ink outside the safe margins above — the `safezones` family picks the preset by canvas aspect,
    and the 9:16 preset IS those margins). Fix ONLY the flagged element (nudge inside the safe zone / fix z-order or
-   the mask) and re-run --verify until exit 0. A safezone line names the WORD span; move the line that positions it,
-   sized from `max_intrusion_px` in verify.json — the skill's SAFE-ZONE CHECK holds the transient/minor/major rule
-   (a slide-in crossing the margin for a few frames is not a placement defect). An engine
-   that prints its usage on `--verify=` predates the rule list: run bare `--verify` and report that safe zones went
-   unchecked. Do NOT change the aesthetic, colours, fonts, device, animation, or timing. (exit 2 = engine render failure = a
+   the mask) and re-run until exit 0. A safe-zone line arrives already triaged (TRANSIENT, MINOR, MAJOR) and
+   names the WORD span, its edge and the fix in px; move the line that positions it by exactly that (a slide-in
+   crossing the margin for a few frames is TRANSIENT and asks for nothing; only a MAJOR exits 1). The command
+   counts correction cycles and says STOP after two: stop correcting, and to deliver as it is re-run the chain
+   with `--no-safezones` and say what sits outside. If it says the safe-zone check did not run (an engine that
+   predates the rule list), report that safe zones went unchecked. Do NOT change the aesthetic, colours, fonts, device, animation, or timing. (exit 2 = engine render failure = a
    real authoring error.) Every text layer needs a unique `id` so the failure lines name it — on the element that
    DIRECTLY wraps the text, since the engine labels a run by its direct parent. Dressing text (kickers, credits,
    labels, stickers — anything that is not the spoken line) ends its id in `-chrome`, which the safe-zone check
@@ -340,10 +348,9 @@ learned to count descendant ink and the assertions cover the whole pool.
    from manifest.json). --progress-output prints `progress: N/M frames (X%)` lines as it renders — the record can take
    minutes, so run it in the foreground and relay progress to the user rather than going silent.
 Do NOT extract frames or run any ffmpeg/visual self-check unless the execution contract EXPLICITLY instructs it — --verify
-is the self-check. Author the timeline correctly up front using the recipe + limits above so --verify passes on the
-first pass; it is a safety net, not a design loop. (The last gate, `probe-qa` — mechanical frame QA vs the source —
-runs right after the record (the SKILL's DESIGN + RENDER step, same turn); it is not part of this verify loop and never a licence to
-eyeball frames.)
+is the self-check, and `npx @veedstudio/openedit-cli check-delivery <run-dir>` measures the finished file
+(container, picture against the source, loudness). Author the timeline correctly up front using the recipe + limits above so --verify passes on the
+first pass; it is a safety net, not a design loop.
 
 ## COMPUTED GEOMETRY — do not re-derive what is already a function
 `pipeline/recipes/geometry.ts` carries the arithmetic behind computed forms, in canvas px, emitting no
@@ -376,10 +383,12 @@ renderable as one that did not.
 ## OUTPUT
 - `{run}/final/template.wv` — the single-timeline document.
 - `{run}/final/manifest.json` — EXACT: `{"render":{"width":{W},"height":{H},"fps":{FPS},"duration":{durationSec}}}`
-  (duration covers the FULL clip).
+  (duration covers the FULL clip). `{FPS}` is meta.json's `frameRate` verbatim: an integer, or for a fractional
+  source rate the exact fraction as a STRING (`"fps":"24000/1001"` for 23.976). Never a decimal: the engine
+  rejects it rather than truncating.
 - `{run}/final/out.silent.mp4` — the render (video only; audio is muxed in the MUX AUDIO step).
 
-## REPORT (fold into your summary — after probe-qa + mux, same turn, no preamble)
+## REPORT (fold into your summary — after mux, same turn, no preamble)
 - aesthetic name + fonts + hex palette + recurring device.
 - animation level used.
 - any element you fixed for a --verify failure (which rule + why), or "verify clean (exit 0)".
