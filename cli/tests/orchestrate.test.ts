@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import type { VeedHttp } from '../src/veed/api.ts';
 import { test } from 'node:test';
-import { transcribeWithVeed } from '../src/veed/orchestrate.ts';
+import { REQUESTED, transcribeWithVeed } from '../src/veed/orchestrate.ts';
 
 // A fake transport that records every call and returns canned, source-shaped responses.
 function makeFake(overrides: { subtitleStatus?: string; errorReason?: string } = {}) {
@@ -182,3 +182,21 @@ await test('any other failure reason is passed through verbatim so it stays debu
   );
 });
 
+
+await test('a transport failure is tagged only once a job was requested; before that it stays bare', async () => {
+  const dropAt = (where: 'put' | 'transcribe' | 'subtitles') => {
+    const { http } = makeFake();
+    const drop = async (): Promise<never> => { throw new Error('fetch failed'); };
+    if (where === 'put') return { ...http, putBytes: drop };
+    if (where === 'transcribe') {
+      return { ...http, postJson: <T>(path: string, body: unknown) => (path.startsWith('/subtitles/') ? drop() : http.postJson<T>(path, body)) };
+    }
+    return { ...http, getJson: <T>(path: string) => (path.startsWith('/subtitles/') ? drop() : http.getJson<T>(path)) };
+  };
+  const failure = (where: 'put' | 'transcribe' | 'subtitles') =>
+    transcribeWithVeed(deps(dropAt(where)), { videoPath: 'v.mp4', maxAttempts: 1 }).then(() => '', (e: Error) => e.message);
+
+  assert.equal(await failure('put'), 'fetch failed', 'nothing requested yet, so nothing says a job may exist');
+  assert.equal(await failure('transcribe'), `${REQUESTED}fetch failed`);
+  assert.equal(await failure('subtitles'), `${REQUESTED}fetch failed`);
+});

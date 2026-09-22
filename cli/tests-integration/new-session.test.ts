@@ -47,9 +47,11 @@ test('the scaffolded project runs the gates offline through ITS OWN pinned CLI',
   const root = cli(projectCli, ['content-root'], { cwd: proj });
   assert.equal(real(root.stdout.trim()), real(projectCli), 'the project CLI reads its own packaged content');
 
-  const gate = cli(projectCli, ['design-gate', join(proj, 'runs', 'nope')], { cwd: proj });
+  const bad = join(proj, 'bad.wv');
+  writeFileSync(bad, '<html><style>.x{color:red} @import url("https://fonts.googleapis.com/css2?family=Inter");</style><body><div class="x">hi</div></body></html>');
+  const gate = cli(projectCli, ['lint', bad], { cwd: proj });
   assert.equal(gate.status, 1);
-  assert.match(gate.stdout, /no-design-system/, 'the compiled design gate runs in the workspace, no tsx');
+  assert.match(gate.stdout, /import-not-first/, 'the compiled lint gate runs in the workspace, no tsx');
 });
 
 // The classic-pool route the skill documents: whisper JSON → prep → --module …/recipe.js (the

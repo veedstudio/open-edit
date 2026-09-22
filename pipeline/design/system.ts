@@ -9,11 +9,11 @@
 // fact nobody revisited. A rule that lives only in a document cannot prevent that: it is a memory
 // competing with several hundred tool results by the time it binds.
 //
-// This is the artifact. It is written from the content, never before it (`assertGrounded` refuses a
-// system built without the run's facts on disk), and `check()` reads back every authored document
-// and fails the ones using anything the system does not declare. A generic default cannot slip in
-// unnoticed, because a value that is not in the system is a finding rather than a judgement call.
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+// This is the artifact: the one file an authored run writes first and authors every value out of.
+// Nothing enforces it at run time. `check()` and its siblings below are the substrate's own test
+// oracle: they prove in the test suite that devices.ts and captions.ts emit only what a system
+// declares, which is what makes composing from them safe.
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { opticalTracking, trackingDeviation } from '../recipes/type.ts';
 
@@ -70,15 +70,6 @@ export interface DesignSystem {
   donors: string[];
   /** The content facts this system was built from. Empty means it was built from nothing. */
   groundedIn: string[];
-  /**
-   * Where the subject is, per cue, measured off the run's own picture. REQUIRED when the run has
-   * footage, because `groundedIn` alone does not distinguish the two kinds of fact: a system can name
-   * the transcript, the cues and the word times, satisfy every existing check, and still have been
-   * authored without anyone looking at the frames. That is exactly what happened — the run that
-   * motivated this listed five grounding files, all of them text, and then placed six of eight
-   * captions on the same edge and two across a face.
-   */
-  placement?: { measuredIn: string; cues: number };
 }
 
 export function systemPath(runDir: string): string {
@@ -95,146 +86,6 @@ export function writeSystem(runDir: string, sys: DesignSystem): void {
   const p = systemPath(runDir);
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, JSON.stringify(sys, null, 2) + '\n');
-}
-
-/**
- * Refuse a system that was not built from the run's own content.
- *
- * This is the rule that could not be written as a sentence. The failing run authored its whole type
- * system before the transcript, the cut and the scene facts existed, precisely because that work was
- * available to do while waiting, and writing it early does not feel like breaking the rule. Requiring
- * the files to exist on disk makes the early version impossible to produce rather than discouraged.
- */
-export function assertGrounded(runDir: string, sys: DesignSystem): void {
-  if (!sys.groundedIn.length) {
-    throw new Error('design system: groundedIn is empty — name the content files this was built from');
-  }
-  const missing = sys.groundedIn.filter((rel) => !existsSync(join(runDir, rel)));
-  if (missing.length) {
-    throw new Error(
-      `design system: it claims to be built from files that do not exist — ${missing.join(', ')}. ` +
-      'A system authored before the content is a system authored from nothing.',
-    );
-  }
-  assertPlacementMeasured(runDir, sys);
-}
-
-const VIDEO = /\.(mp4|mov|webm|mkv|m4v|avi)$/i;
-
-/**
- * Video the run composes over.
- *
- * `meta.json` is asked FIRST, because on an ordinary captioned run the source is never copied into
- * the run at all — prep records `videoPath` pointing at wherever the user's file lives. A version of
- * this that only globbed the run directory returned false for every prep run and for the 12-minute
- * film whose 20 clips sit under `footage/`, which is to say for exactly the runs the placement gate
- * was written to catch. It reported clean and the skill said it would refuse.
- */
-export function runHasFootage(runDir: string): boolean {
-  const meta = join(runDir, 'meta.json');
-  if (existsSync(meta)) {
-    try {
-      const m = JSON.parse(readFileSync(meta, 'utf8')) as { videoPath?: unknown; videos?: unknown[] };
-      // NOT gated on the file being reachable: an unmounted volume or a moved source does not make a
-      // run footage-free, and reading it that way let the placement gate fall silent on exactly the
-      // runs it exists for.
-      if (typeof m.videoPath === 'string' && m.videoPath) return true;
-      if (Array.isArray(m.videos) && m.videos.length) return true;
-    } catch {
-      throw new Error(
-        `${meta} is not readable JSON — whether this run has footage cannot be decided, and guessing ` +
-        'no would skip the placement gate. Fix or delete the file.',
-      );
-    }
-  }
-  // The run's own products are not footage. The gate chain records `<doc>/out.silent.mp4` and copies it
-  // to `<doc>/out.mp4`, both of which the walk reached — so a graphics-only run passed the gate, rendered,
-  // and then failed every gate after it demanding a subject be measured in footage it never had.
-  // `out.tmp.mp4` is what the mux writes before its rename; a mux that dies leaves it behind,
-  // and from then on the run demanded placement for footage it never had.
-  const PRODUCT = /^out(\.silent|\.tmp)?\.(mp4|mov|webm|mkv)$/i;
-  const walk = (dir: string, depth: number): boolean => {
-    let entries: string[];
-    try { entries = readdirSync(dir); } catch { return false; }
-    for (const name of entries) {
-      if (name === 'node_modules' || name.startsWith('.') || name === 'qa') continue;
-      const p = join(dir, name);
-      let stat;
-      try { stat = statSync(p); } catch { continue; }
-      if (stat.isDirectory()) { if (depth > 0 && walk(p, depth - 1)) return true; }
-      else if (VIDEO.test(name) && !PRODUCT.test(name)) return true;
-    }
-    return false;
-  };
-  return walk(runDir, 3);
-}
-
-/** How many cues this run actually has, from whatever prep wrote. */
-function cueCount(runDir: string): number | undefined {
-  for (const [file, key] of [['word-timings.json', 'beats'], ['cues.json', 'cues']] as const) {
-    const p = join(runDir, file);
-    if (!existsSync(p)) continue;
-    try {
-      const parsed = JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>;
-      const list = parsed[key];
-      if (Array.isArray(list)) return list.length;
-    } catch { /* fall through to the next source */ }
-  }
-  return undefined;
-}
-
-/**
- * A run with footage must have measured where the subject is before it designed anything.
- *
- * The count is checked against the run's OWN cue count, not against a number the same pass chose.
- * The first version compared the claim to the file it named and accepted an array, a `.cues` array or
- * the key count of any object — so `{ measuredIn: 'notes.json', cues: 3 }` passed against
- * `{"measured":true,"by":"eye"}`, and `cues: 0` passed against anything. Measuring the
- * picture for every cue IS the work; a gate that takes the author's word for it gates nothing.
- */
-export function assertPlacementMeasured(runDir: string, sys: DesignSystem): void {
-  if (!runHasFootage(runDir)) return;
-  const p = sys.placement;
-  if (!p?.measuredIn) {
-    throw new Error(
-      'design system: this run has footage, so `placement.measuredIn` is required — measure where the ' +
-      'subject is in every cue and name the file. Grounding in the transcript and the cue times is ' +
-      'grounding in the words; placement is decided against the picture.',
-    );
-  }
-  const f = join(runDir, p.measuredIn);
-  if (!existsSync(f)) throw new Error(`design system: placement.measuredIn "${p.measuredIn}" does not exist`);
-  let entries: number;
-  try {
-    const parsed = JSON.parse(readFileSync(f, 'utf8')) as unknown;
-    const list = Array.isArray(parsed) ? parsed
-      : Array.isArray((parsed as { cues?: unknown[] })?.cues) ? (parsed as { cues: unknown[] }).cues
-      : undefined;
-    if (!list) {
-      throw new Error(
-        `design system: placement.measuredIn "${p.measuredIn}" is not a list of measurements — it must be ` +
-        'an array, or an object with a `cues` array. An object of loose keys counts as whatever it holds.',
-      );
-    }
-    entries = list.length;
-  } catch (e) {
-    if (e instanceof SyntaxError) throw new Error(`design system: placement.measuredIn "${p.measuredIn}" is not readable JSON`);
-    throw e;
-  }
-  if (!entries) throw new Error(`design system: placement.measuredIn "${p.measuredIn}" measures nothing`);
-
-  const real = cueCount(runDir);
-  if (real !== undefined && entries < real) {
-    throw new Error(
-      `design system: this run has ${real} cues and "${p.measuredIn}" measures ${entries} — every cue is placed, ` +
-      'so every cue is measured',
-    );
-  }
-  if (p.cues !== entries) {
-    throw new Error(
-      `design system: it claims ${p.cues} cues were measured for placement and "${p.measuredIn}" holds ${entries}`,
-    );
-  }
 }
 
 export interface Finding { rule: string; severity: 'error' | 'warn'; message: string }
@@ -259,69 +110,6 @@ export function checkLadder(sys: DesignSystem): Finding[] {
       });
     }
   }
-  return out;
-}
-
-/**
- * The other direction: a rung, a family or a palette colour the system DECLARES and no document uses.
- * Devices are NOT checked here — a device is a shape, not a token, and nothing in a document names it.
- *
- * `check()` only asks that everything used is declared, which lets a system promise a two-typeface
- * contrast and a nine-rung ladder while the render comes back monotone. That is not hypothetical —
- * one run declared two serif rungs and set the serif once in thirty seconds, and every gate passed.
- * A promise nobody kept is as much a defect as a value nobody declared.
- */
-export function checkDeclaredUsed(docs: string[], sys: DesignSystem): Finding[] {
-  // Read DECLARATIONS, and compare the way `check()` compares. A first version scanned the raw
-  // document text and matched literally: a `font-size` in a comment counted as used, a family whose
-  // quoting differed by one character counted as unused, a rung one third of a pixel off its
-  // declared size counted as unused, and a palette colour a document paints as `rgb()` or `white`
-  // counted as unused. All four are ERRORs, so a conforming document failed its own system's gate.
-  const css = docs.map((d) => expandFontShorthand(declarations(d))).join('\n');
-  const out: Finding[] = [];
-
-  const firstFamily = (stack: string) => stack.split(',')[0].trim().replace(/^['"]|['"]$/g, '');
-  const setFamilies = new Set(
-    [...css.matchAll(/font-family:\s*([^;}]+)/gi)].map((m) => firstFamily(m[1])),
-  );
-  for (const family of sys.fonts) {
-    if (!setFamilies.has(firstFamily(family))) {
-      out.push({
-        rule: 'font-declared-unused',
-        severity: 'error',
-        message: `"${family}" is declared and no document sets it — either use the contrast the system promises, or stop declaring it`,
-      });
-    }
-  }
-
-  const setSizes = [...css.matchAll(/font-size:\s*([\d.]+)px/gi)].map((m) => Number(m[1]));
-  for (const r of sys.ladder) {
-    if (!setSizes.some((px) => Math.abs(px - r.px) < 0.51)) {
-      out.push({
-        rule: 'rung-declared-unused',
-        severity: 'error',
-        message: `the ${r.px}px "${r.role}" rung is declared and no document sets it`,
-      });
-    }
-  }
-
-  const painted = new Set(
-    [...css.matchAll(PAINTS)].flatMap((m) =>
-      [...m[2].replace(/\b(?:url|var)\([^)]*\)/gi, ' ').matchAll(COLOUR_TOKEN)]
-        .map((t) => rgbKey(t[0]))
-        .filter((k): k is string => Boolean(k))),
-  );
-  for (const [name, hex] of Object.entries(sys.palette)) {
-    const key = rgbKey(hex);
-    if (key && !painted.has(key)) {
-      out.push({
-        rule: 'colour-declared-unused',
-        severity: 'warn',
-        message: `palette colour "${name}" (${hex}) is declared and no document paints it`,
-      });
-    }
-  }
-
   return out;
 }
 

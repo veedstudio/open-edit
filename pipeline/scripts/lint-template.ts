@@ -1,11 +1,11 @@
 // Mechanical anti-pattern lint for authored .wv documents — runs BEFORE `--verify` in the gate
-// chain (lint → verify → record; generate-recipe.ts and the inline creative pass alike). Each check
-// enforces a rule the engine contract states in prose
-// (pipeline/director-brief.md ENGINE LIMITS / the opacity trap) or a recipe-format authoring rule:
-// prompt discipline can drift, a regex can't. `error` = the engine renders it wrong or verify can't
-// work with it (exit 1); `warn` = a known shear/legibility risk worth a look (exit 0).
+// chain (lint → verify → record; generate-recipe.ts and the inline creative pass alike). It stands on
+// its own: each check names the construct and what to write instead, and cites nothing outside this
+// file. It checks how a document is BUILT: ids, paint order, gate windows, the stylesheet's first line.
+// It says nothing about what the engine can render; the engine's own feature-support.md does that.
+// `error` = verify or the contrast audit cannot work with it (exit 1); `warn` = worth a look (exit 0).
 //
-// NOT covered here (semantic, stays a sheet/brief rule): color-animation-as-reveal (stylistic colour
+// NOT covered here (semantic, stays the author's call): color-animation-as-reveal (stylistic colour
 // shifts are legit), shrink-to-fit flex around animated children (needs layout, not regex).
 //   node --import tsx pipeline/scripts/lint-template.ts <template.wv> [--json]
 import { readFileSync, existsSync } from 'node:fs';
@@ -71,6 +71,46 @@ function classCoveredByAncestor(src: string, cls: string, zClasses: Set<string>)
 /** Canvas facts from the run's manifest. Timing rules cannot be decided without them. */
 export interface Render { fps: number; duration: number; width?: number; height?: number }
 
+/**
+ * What the engine says about itself, read from the feature-support.md that ships beside its binary.
+ * Nothing here is ours: the lists are parsed at run time, so a new engine release changes the rules.
+ */
+export interface EngineDoc {
+  /** CSS tokens named under "Unsupported (declared)": `prop:value`, a `prop-` family, or a `fn(` name. */
+  unsupported: { token: string; feature: string }[];
+  /** Properties the "Animatable properties" table says interpolate; anything else applies statically. */
+  animatable: Set<string>;
+}
+
+export function parseEngineDoc(md: string): EngineDoc {
+  const unsupported: EngineDoc['unsupported'] = [];
+  const u = md.match(/^### Unsupported[^\n]*\n([\s\S]*?)(?=^### |^## )/m);
+  for (const line of (u?.[1] ?? '').split('\n')) {
+    const m = line.match(/^- \*\*([^*]+)\*\*\s*[—-]+\s*(.*)$/);
+    if (!m) continue;
+    const feature = m[1].trim(); const text = m[2];
+    const tokens = new Set<string>();
+    // The NAME is the feature; the description is prose, which may well name what IS supported by
+    // contrast, so only explicit CSS syntax is taken from it: `prop:value`, a `prop-*` family, or a
+    // hyphenated word the text calls a property.
+    if (/^[a-z]+(?:-[a-z]+)+$/.test(feature)) tokens.add(`${feature}(`);
+    for (const t of text.matchAll(/\b([a-z-]+):([a-z-]+)\b/g)) tokens.add(`${t[1]}:${t[2]}`);
+    for (const t of text.matchAll(/\b([a-z]+(?:-[a-z]+)*)-\*/g)) tokens.add(`${t[1]}-`);
+    for (const t of text.matchAll(/\b([a-z]+-[a-z-]+)\s+propert/g)) tokens.add(`${t[1]}:`);
+    for (const token of tokens) unsupported.push({ token, feature });
+  }
+  const animatable = new Set<string>();
+  const start = md.indexOf('\n## Animatable properties');
+  const rest = start < 0 ? '' : md.slice(start + 1);
+  const next = rest.indexOf('\n## ');
+  const a = next < 0 ? rest : rest.slice(0, next);
+  for (const row of a.matchAll(/^\|\s*`([a-z-]+)`\s*\|\s*yes\s*\|/gm)) animatable.add(row[1]);
+  return { unsupported, animatable };
+}
+
+const ANIM_SHORTHANDS: Record<string, string[]> = { 'border-color': ['border-top-color'], background: ['background-color'] };
+
+
 /** Milliseconds from a CSS time token; undefined when the token is not a time. */
 function ms(tok: string): number | undefined {
   const m = tok.match(/^(-?[\d.]+)(ms|s)$/);
@@ -107,7 +147,7 @@ function attr(tag: string, name: string): string {
 
 const styleAttr = (tag: string): string => attr(tag, 'style');
 
-export function lintTemplate(src: string, render?: Render): Finding[] {
+export function lintTemplate(src: string, render?: Render, engine?: EngineDoc): Finding[] {
   const f: Finding[] = [];
   // Property rules read `css`, and a document that puts its geometry in `style="..."` attributes was
   // invisible to every one of them — which is most generated documents. Inline declarations are
@@ -118,37 +158,48 @@ export function lintTemplate(src: string, render?: Render): Finding[] {
   const css = styleBlocks.length || inlineDecls.length ? [...styleBlocks, ...inlineDecls].join('\n') : src;
   const frames = keyframesBlocks(css);
 
-  for (const kf of frames) {
-    if (/filter:[^;]*blur/.test(kf.body)) {
-      // WARN, not error: the engine HOLDS the initial value (static blur renders fine — measured
-      // 2026-07-14) — degraded fidelity, not breakage; validated recipes ship with
-      // held ramps (hook-015). Surfaced so a fresh author doesn't design around motion that won't happen.
-      f.push({ rule: 'animated-blur', severity: 'warn', message: `@keyframes ${kf.name}: animated filter:blur holds its initial value (no ramp) — prefer opacity/transform` });
+  // THE ENGINE'S OWN WORD. Two lists from feature-support.md, never copied here: what is declared
+  // unsupported, and which properties interpolate. A keyframe on any other property applies statically
+  // and jumps at the stop, which is the class of surprise that used to be written down by hand.
+  if (engine) {
+    for (const { token, feature } of engine.unsupported) {
+      const re = token.endsWith(':') ? new RegExp(`(?:^|[;{\\s])${token.slice(0, -1)}\\s*:`, 'i')
+        : token.endsWith('-') ? new RegExp(`(?:^|[;{\\s])${token}[a-z-]*\\s*:`, 'i')
+        : token.endsWith('(') ? new RegExp(`\\b${token.slice(0, -1)}\\s*\\(`, 'i')
+        : new RegExp(`(?:^|[;{\\s])${token.split(':')[0]}\\s*:\\s*${token.split(':')[1]}\\b`, 'i');
+      if (re.test(css)) f.push({ rule: 'engine-unsupported', severity: 'error', message: `${feature} is declared unsupported by this engine's feature-support.md (${token})` });
+    }
+    if (engine.animatable.size) {
+      const ok = new Set(engine.animatable);
+      for (const [short, longs] of Object.entries(ANIM_SHORTHANDS)) if (longs.some((l) => ok.has(l))) ok.add(short);
+      for (const kf of frames) {
+        const props = new Set([...kf.body.matchAll(/(?:^|[;{\s])([a-z-]+)\s*:/g)].map((m) => m[1]));
+        const still = [...props].filter((p) => !ok.has(p) && !p.startsWith('animation') && !/^offset|^--/.test(p));
+        if (still.length) f.push({ rule: 'not-animatable', severity: 'warn', message: `@keyframes ${kf.name} animates ${still.map((p) => `\`${p}\``).join(', ')}, which this engine does not interpolate (feature-support.md, Animatable properties): the value applies statically and jumps at the stop` });
+      }
     }
   }
 
-  // Every rule below is settled by a control-render probe, named in the rule's own id. A rule
-  // asserting a limit no probe supports removes real capability from every run that lints clean, so
-  // it is a defect of the same class as an invented limitation in the brief.
-  // Retired here because the engine imposes none of them as stated (0.8.0, probe-decided). `br-tag`
-  // is retired for ordinary inline text ONLY: `<br>` is inert between display:inline-block spans
-  // (probe: br-between-inline-blocks), which is why captions put each line in its own block.
-  // var-in-keyframes,
-  // br-tag, css-outline, blend-mode, repeating-gradient, vw-font-size.
-  const unsupported: [RegExp, string, 'error' | 'warn', string][] = [
-    [/display:\s*(inline-)?grid|grid-template/i, 'css-grid', 'error', 'CSS grid is unsupported — use flex'],
-    [/-webkit-text-stroke/i, 'text-stroke', 'error', '-webkit-text-stroke never paints, on any construct (probe: webkit-text-stroke-never-paints) — ground with an 8-way text-shadow'],
-    [/border-radius:[^;}]*\//, 'radius-slash', 'error', 'border-radius slash syntax renders square — single-value only'],
-    [/border-radius:[ \t]*[^\s;}(]+[ \t]+[^\s;}(]+/, 'radius-per-corner', 'error', 'a border-radius with more than ONE value drops the whole declaration and the box renders square — measured on the two-value form as well as the four — use a single value, or a clip-path polygon for asymmetric corners'],
-    [/transform:[^;]*\b(skewX|skewY|matrix)\s*\(/i, 'skew-ignored', 'warn', 'skewX is silently ignored — the element renders axis-aligned (probe: skew-ignored); skewY and matrix are caught by the same rule but were never probed, so treat them as unverified rather than broken. Build the slant with a clip-path polygon if the design needs it'],
-    [/radial-gradient|(?:^|[^-\w])mask(?:-image)?\s*:/im, 'unsupported-paint', 'error', 'radial-gradient and the CSS mask property do not paint — use a clip-path polygon or a flat/linear/conic fill'],
+  // WHAT WE CONFIRMED AND THE ENGINE'S DOCUMENT DOES NOT SAY. Each rule below has a test that renders
+  // the construct through the installed engine and fails the moment the engine no longer has the
+  // defect, naming the rule to delete. A rule the engine has outgrown is removed, not kept for safety.
+  const confirmed: [RegExp, string, 'error' | 'warn', string][] = [
+    [/<img\b[^>]*\ssrc=["']data:/i, 'img-data-uri', 'error', 'an <img> with a data: URI draws nothing — write the bytes to a file beside the document and name it'],
+    [/clip-path\s*:\s*path\s*\(/i, 'clip-path-path-fn', 'error', 'clip-path: path() makes the element disappear — use polygon()'],
+    [/\bstroke=["']var\(/i, 'svg-stroke-var', 'error', 'stroke="var(--x)" on an SVG shape paints nothing — write the colour into the attribute'],
+    [/border-radius\s*:[ \t]*[^\s;}(\/]+[ \t]+[^\s;}(\/]+[ \t]*[;}]/, 'radius-two-value', 'error', 'a border-radius with exactly two values drops the whole declaration and the box renders square — one value, or all four'],
+    [/transform\s*:[^;]*\b(skewX|skewY|matrix)\s*\(/i, 'skew-ignored', 'warn', 'skewX() is silently ignored (the element renders axis-aligned); skewY and matrix are caught here as unverified — build a slant with a clip-path polygon'],
   ];
-  for (const [re, rule, severity, message] of unsupported) {
-    if (re.test(css)) f.push({ rule, severity, message });
+  for (const [re, rule, severity, message] of confirmed) if (re.test(css) || re.test(src)) f.push({ rule, severity, message });
+  for (const svg of src.matchAll(/<svg\b[\s\S]*?<\/svg>/gi)) {
+    if (/<(?!svg)[a-z]+\b[^>]*\sstyle=["'][^"']*transform\s*:/i.test(svg[0])) {
+      f.push({ rule: 'svg-css-transform', severity: 'warn', message: 'a CSS transform on an SVG child does not move it — use the transform ATTRIBUTE (transform="translate(x,y)")' });
+      break;
+    }
   }
 
-  // @import must precede every rule or the engine drops the WHOLE stylesheet — the document then
-  // renders as unstyled flow, which reads as a layout bug rather than a font problem.
+  // CSS requires @import before every other rule; a late one is not applied, and the missing font
+  // then reads as a layout bug rather than a font problem.
   for (const block of src.match(/<style\b[^>]*>([\s\S]*?)<\/style>/gi) ?? []) {
     const inner = block.replace(/<\/?style[^>]*>/gi, '').replace(/\/\*[\s\S]*?\*\//g, '');
     const firstImport = inner.search(/@import/i);
@@ -160,14 +211,13 @@ export function lintTemplate(src: string, render?: Render): Finding[] {
   }
 
   // A positioned element that animates opacity and states no z-index leaves its paint order to
-  // document order. This was carried for months as an engine limit — "loses its stacking context at
-  // opacity 1" — and the probe refutes it (opacity-anim-no-z): the element paints above the video as
-  // CSS says. So this is a WARN about drift, not an error about a limit.
+  // document order, and one reordering changes what covers what. A WARN about drift, not an error.
   // NOT flagged (an enclosing stacking context settles the order for them):
   // non-positioned spans inside their cue, AND any element all of whose occurrences sit under an
   // ancestor carrying z-index >= 1 (the compiled-recipe cue idiom: inline z per cue, positioned .pg
   // pages inside — they paint within the cue's context and cannot fall under the video).
   const opacityFrames = new Set(frames.filter((k) => /(?:^|[^-\w])opacity\s*:/.test(k.body)).map((k) => k.name));
+  const transformFrames = new Set(frames.filter((k) => /(?:^|[^-\w])transform\s*:/.test(k.body)).map((k) => k.name));
   const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
   const zClasses = new Set<string>();
   for (const m of cssNoComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
@@ -179,18 +229,21 @@ export function lintTemplate(src: string, render?: Render): Finding[] {
   for (const m of cssNoComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selector = m[1].trim().split('\n').pop()!.trim();
     const body = m[2];
+    const animNames = [...body.matchAll(/animation(?:-name)?\s*:\s*([^;]+)/g)].flatMap((a) => a[1].split(',').map((x) => x.trim().split(/\s+/)[0]));
+    if (/(?:^|[;{\s])transform\s*:[^;]*rotate\(/.test(body) && animNames.some((n) => transformFrames.has(n))) {
+      f.push({ rule: 'static-transform-wiped', severity: 'warn', message: `rule "${selector}": a static transform with rotate() and an animation that also sets transform — the animation replaces the static one, so bake the rotate into every keyframe` });
+    }
     if (selector.startsWith('@')) continue;
     const anim = body.match(/animation(?:-name)?:\s*([^;]+)/);
     if (!anim) continue;
     const names = anim[1].split(',').map((s) => s.trim().split(/\s+/).find((tok) => opacityFrames.has(tok))).filter(Boolean);
 
-    // TWO ANIMATIONS, ONE PROPERTY. No probe backs this one and none is needed: the defect is a
+    // TWO ANIMATIONS, ONE PROPERTY. The defect is a
     // contradiction the DOCUMENT states about itself, decidable by reading it. Two animations on one
     // element each declare an opacity timeline, so the document names two different visibilities for
     // the same instant; whichever the engine keeps, the other declared window is discarded and
     // nothing reports it. One film shipped 22 graphics that never turned off this way. Exactly one
     // animation may own opacity; every other animation on the element animates transform only.
-    // (Reproduced by the opacity-owned-twice fixture.)
     if (names.length > 1) {
       f.push({ rule: 'opacity-owned-twice', severity: 'error', message: `rule "${selector}" runs ${names.length} animations that all drive opacity (${names.join(', ')}) — the document declares two visibilities for the same instant and one of them is silently discarded; let ONE animation own opacity and make the others transform-only` });
     }
@@ -213,8 +266,7 @@ export function lintTemplate(src: string, render?: Render): Finding[] {
       }
     }
     if (/line-height:\s*(0?\.\d+|1(?:\.0*)?|1\.1\d*)(?![\d.])/.test(body) && !/padding/.test(body)) {
-      // The shear this rule was named for does not happen (probe: lineheight-shear, REFUTED). What a
-      // line-height under 1.2 does is bring a descender within a pixel or two of the next line's caps,
+      // What a line-height under 1.2 does is bring a descender within a pixel or two of the next line's caps,
       // which is a typographic call and not an engine defect — so it is worth saying once, and worth
       // nobody's build.
       f.push({ rule: 'tight-line-height', severity: 'warn', message: `rule "${selector}": text at line-height < 1.2 with no padding headroom — descenders come within a pixel of the next line's caps (give ~0.1em top / 0.15em bottom, or line-height >= 1.2)` });
@@ -232,7 +284,6 @@ export function lintTemplate(src: string, render?: Render): Finding[] {
   // A gate whose keyframe closes EXACTLY on a frame boundary loses that frame, and --verify cannot
   // see it: it checks the draw list, and the draw list is correct — the frame simply lands on the
   // instant the gate flips. One launch card rendered the last frame of every beat blank this way.
-  // Confirmed by probe `frame-boundary-gate-loss`.
   //
   // WARN, not error, and the reason is scope rather than doubt: 43 gates across 13 accepted
   // deliverables land on the grid, because 26 of the 28 compiled recipes emit `animation-duration`
@@ -291,7 +342,7 @@ export function lintTemplate(src: string, render?: Render): Finding[] {
 
   // An element whose entrance starts at or after the document ends never plays. It costs nothing at
   // render time and reads as a missing beat, which is why it survives review: --verify only checks
-  // what IS drawn, so an element that is never drawn raises nothing. Corpus class `timing-offset`.
+  // what IS drawn, so an element that is never drawn raises nothing.
   if (render?.duration) {
     const durMs = render.duration * 1000;
     for (const tag of src.matchAll(/<[^>]*\sstyle=(?:"[^"]*"|'[^']*')[^>]*>/gi)) {
@@ -307,7 +358,7 @@ export function lintTemplate(src: string, render?: Render): Finding[] {
   // A full-canvas backing layer that is not the canvas size. The launch session resized a set of
   // scenes from 1080 to 1440 high and left masks and plates at the old height; the band that opened
   // up was found by eye, scene by scene. Only layers ANCHORED at the origin are judged — a graphic
-  // deliberately bleeding past an edge is design, not a defect. Corpus class `layer-leak`.
+  // deliberately bleeding past an edge is design, not a defect.
   if (render?.width && render?.height) {
     for (const m of cssNoComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const selector = m[1].trim().split('\n').pop()!.trim();
@@ -336,20 +387,41 @@ export function lintTemplate(src: string, render?: Render): Finding[] {
     f.push({ rule: 'cue-missing-id', severity: 'error', message: `${cuesWithoutId} .cue element(s) without a unique id — --verify cannot name them in failure lines` });
   }
 
+  // The engine names a run of text by its DIRECT parent's id. Text in an element without one is not
+  // an error to the renderer, but the contrast audit cannot see it at all ("0 runs audited") and the
+  // verify gates name it by its letters. A warn, because a compiled recipe's document is script-owned.
+  const bodyAt = src.search(/<body\b/i);
+  if (bodyAt >= 0) {
+    const body = src.slice(bodyAt).replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, '');
+    let anonymous = 0;
+    for (const m of body.matchAll(/<([a-z][\w-]*)\b([^>]*)>([^<]+)</gi)) {
+      // A void tag wraps nothing: the text after `<br>` belongs to the element around it.
+      if (!m[3].trim() || /^(body|html)$/i.test(m[1]) || VOID_TAGS.has(m[1].toLowerCase())) continue;
+      if (!/(?:^|\s)id\s*=/.test(m[2])) anonymous++;
+    }
+    if (anonymous > 0) {
+      f.push({ rule: 'text-parent-no-id', severity: 'warn', message: `${anonymous} run(s) of text sit directly in an element with no id — the contrast audit cannot see them and --verify names them by their letters. Put a unique id on the element that DIRECTLY wraps the text` });
+    }
+  }
+
   return f;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const argv = process.argv.slice(2);
   const file = argv.find((a) => !a.startsWith('--'));
-  if (!file) { console.error('usage: node --import tsx pipeline/scripts/lint-template.ts <template.wv> [--json]'); process.exit(2); }
+  if (!file) { console.error('usage: node --import tsx pipeline/scripts/lint-template.ts <template.wv> [--engine-doc <feature-support.md>] [--json]'); process.exit(2); }
   // The manifest sits next to the document; without it the timing rules cannot run.
   let render: Render | undefined;
   try {
     const mf = join(dirname(file), 'manifest.json');
     if (existsSync(mf)) render = JSON.parse(readFileSync(mf, 'utf8')).render;
   } catch { /* a malformed manifest is the renderer's error to report, not this gate's */ }
-  const findings = lintTemplate(readFileSync(file, 'utf8'), render);
+  const docArg = argv.indexOf('--engine-doc');
+  const docPath = docArg >= 0 ? argv[docArg + 1] : process.env.OPENEDIT_ENGINE_DOC;
+  const engine = docPath && existsSync(docPath) ? parseEngineDoc(readFileSync(docPath, 'utf8')) : undefined;
+  if (!engine && !argv.includes('--json')) console.log('lint: no engine document given (--engine-doc <feature-support.md>); the engine\'s own rules were not applied');
+  const findings = lintTemplate(readFileSync(file, 'utf8'), render, engine);
   if (argv.includes('--json')) console.log(JSON.stringify(findings, null, 2));
   else for (const x of findings) console.log(`${x.severity.toUpperCase()}[${x.rule}] ${x.message}`);
   const errors = findings.filter((x) => x.severity === 'error').length;

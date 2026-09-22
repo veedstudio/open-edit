@@ -35,6 +35,13 @@ export interface CaptionOptions {
   cursor?: boolean;
   /** How long the last page holds after its final glyph. */
   tailMs?: number;
+  /**
+   * Prefix for every id this block emits. The engine names a run of text by its DIRECT parent's id,
+   * and the glyph span is that parent: without an id on it the contrast audit finds no text at all and
+   * the verify gates name words by their letters. Defaults to the cue's own first word time, so the
+   * cues of one document never share `cap1` even when the caller passes nothing.
+   */
+  idPrefix?: string;
 }
 
 export interface CaptionBlock {
@@ -79,6 +86,7 @@ export function captionBlock(words: WordTiming[], sys: DesignSystem, opts: Capti
     bottomPx = sys.spacing.safeY,
     cursor = true,
   } = opts;
+  const idPrefix = opts.idPrefix ?? `c${Math.round(words[0]?.delayMs ?? 0)}`;
 
   const r = rung(sys, role);
   const units = toUnits(words);
@@ -106,12 +114,14 @@ export function captionBlock(words: WordTiming[], sys: DesignSystem, opts: Capti
       return nextPage ? pageStart(nextPage) : (u.spans.at(-1)!.delayMs + u.chars * glyphStaggerMs + popMs + (opts.tailMs ?? 600));
     };
 
+    const capId = `${idPrefix}cap${i + 1}`;
+    let glyphN = 0;
     const lineHtml = pageLines.map((line) => {
       const inner = line.map((u) => {
         const spans = glyphs(u, glyphStaggerMs).map((g) => {
           delaysMs.push(g.delayMs);
           pageDelays.push(g.delayMs);
-          return `<span class="g" style="animation-delay:${g.delayMs}ms">${escapeHtml(g.text)}</span>`;
+          return `<span class="g" id="${capId}g${++glyphN}" style="animation-delay:${g.delayMs}ms">${escapeHtml(g.text)}</span>`;
         }).join('');
         // A cursor after every unit, each visible only until the next unit takes over. One is lit at
         // any instant, so it reads as a single bar travelling the line — the donor's mechanic. A width
@@ -133,7 +143,7 @@ export function captionBlock(words: WordTiming[], sys: DesignSystem, opts: Capti
     const next = pages[i + 1];
     // A page holds until the next one starts speaking; the last holds past its final glyph.
     const until = next ? pageStart(next) : last + popMs + (opts.tailMs ?? 600);
-    return `<div class="cap" id="cap${i + 1}" style="animation-delay:${first}ms;animation-duration:${Math.max(popMs, until - first)}ms">${lineHtml}</div>`;
+    return `<div class="cap" id="${capId}" style="animation-delay:${first}ms;animation-duration:${Math.max(popMs, until - first)}ms">${lineHtml}</div>`;
   }).join('');
 
   const html = pageHtml;

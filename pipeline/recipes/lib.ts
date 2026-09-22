@@ -11,6 +11,8 @@ export interface RunMeta {
   width: number;
   height: number;
   fps: number;
+  /** ffprobe's exact rational ("24000/1001"; "30" when whole), written by prep. */
+  frameRate?: string;
   durationSec: number;
 }
 
@@ -162,6 +164,18 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** The manifest's `render.fps`: a whole number, or the exact fraction as a string ("24000/1001"). The
+ *  engine refuses a decimal, which would only approximate the source's rate. */
+export function manifestFps(meta: Pick<RunMeta, 'fps' | 'frameRate'>): number | string {
+  if (meta.frameRate !== undefined) {
+    const m = /^(\d+)(?:\/(\d+))?$/.exec(meta.frameRate);
+    if (!m) throw new Error(`meta.json frameRate "${meta.frameRate}" is not N or N/D`);
+    return m[2] === undefined || m[2] === '1' ? Number(m[1]) : meta.frameRate;
+  }
+  if (Number.isInteger(meta.fps)) return meta.fps;
+  throw new Error(`meta.json carries fps ${meta.fps} but no frameRate — re-run prep so the exact rate is known`);
+}
+
 export function manifestFor(meta: RunMeta): string {
-  return JSON.stringify({ render: { width: meta.width, height: meta.height, fps: meta.fps, duration: meta.durationSec } });
+  return JSON.stringify({ render: { width: meta.width, height: meta.height, fps: manifestFps(meta), duration: meta.durationSec } });
 }

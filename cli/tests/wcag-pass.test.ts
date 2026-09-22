@@ -968,3 +968,19 @@ test('missing-tool: remediate names the in-repo applier path and its env var', (
   assert.ok(msg.includes('WCAG_REMEDIATE'));
   assert.ok(msg.includes('WCAG_REMEDIATE'));
 });
+
+test('autoShadowChoice: takes the shadow rung for every class that has one, and never a recolour or a plate', async () => {
+  const { autoShadowChoice } = await import('../src/commands/wcag-pass.ts');
+  const base = { ids: ['a'], failing: 1, total: 1, colourRuledOut: false, unsampleable: 0 };
+  const soft = { kind: 'shadow' as const, hex: '#000000', recipe: { style: 'soft' as const, layers: 3, blur: 8 }, massPct: 0, worstRatio: 5 };
+  const colour = { kind: 'colour' as const, hex: '#ffffff', massPct: 0, worstRatio: 7 };
+  const plate = { kind: 'background' as const, hex: '#ffffff', backingHex: '#000000', massPct: 0, worstRatio: 21 };
+  const { choice, left } = autoShadowChoice([
+    { ...base, selector: '.cap', label: 'Cap', rungs: [colour, soft, plate] }, // colour is RECOMMENDED first and still not taken
+    { ...base, selector: '.kicker', label: 'Kicker', rungs: [plate] },
+  ]);
+  assert.deepEqual(choice, { schema: 1, chosen: [{ level: 'AA', selector: '.cap', kind: 'shadow', hex: '#000000', recipe: soft.recipe }] });
+  assert.deepEqual(left, ['Kicker'], 'a class with no shadow rung is left alone and named');
+  assert.equal(autoShadowChoice([{ ...base, selector: '.k', label: 'K', rungs: [colour] }]).choice, null);
+});
+

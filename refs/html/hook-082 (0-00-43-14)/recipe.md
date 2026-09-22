@@ -266,16 +266,6 @@ Then record (a SECOND invocation — `--verify` and `--record` are mutually excl
 {engine} {repo}/runs/<key>/final --progress-output --record {repo}/runs/<key>/final/out.silent.mp4
 ```
 
-Then probe-qa (mechanical frame QA — the defects verify can't see):
-
-```
-npx @veedstudio/openedit-cli probe-qa runs/<key>
-```
-
-FAIL → report honestly and offer a `--seed`/`--style` re-run; do NOT redesign or auto-re-render. Warns
-(mid-luminance ink over a bright t-shirt patch sits in the 2.0–3.5 band; a tail probe catching the 6% cue
-fade) → mention and proceed to mux.
-
 ## 8. DO NOT
 
 - No fonts, colours, shadows, sizes, or keyframes beyond this sheet: Oswald 600/700 UPRIGHT only (never
@@ -291,4 +281,4 @@ fade) → mention and proceed to mux.
   `.line` blocks in the flex column, ONE `.slide` inside each); no descendant selectors — flat classes
   exactly as in the skeleton.
 - Never read the video frames; never move the `.cue` beyond the two section-6 anchors (`aL`/`aR` by beat
-  parity — no other placement improvisation, `top`/`height` never move); no `<br>`. No redesign after a verify/probe failure — only the section-7 mechanical fixes.
+  parity — no other placement improvisation, `top`/`height` never move); no `<br>`. No redesign after a verify failure — only the section-7 mechanical fixes.

@@ -3,7 +3,7 @@
 // A long piece is authored one document per chapter, because one `.wv` holding twelve minutes is a
 // document nobody can gate, fix or re-render in part. Each chapter goes through the gate chain and
 // lands its own `out.mp4` — and then nothing joined them WITHOUT TRANSCODING. The gate chain says it
-// runs "design → lint → verify → record → probe → mux"; that is true of a chapter and stops there.
+// runs "lint → verify → contrast → record → mux"; that is true of a chapter and stops there.
 //
 // `concat-videos.ts` also joins mp4s, and is the wrong tool here: it exists for generated clips that
 // disagree — different shapes, some without audio — so it re-encodes onto one canvas and normalises the

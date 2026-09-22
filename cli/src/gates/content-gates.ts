@@ -1,8 +1,8 @@
 // Typed loaders for the gates that ship as CONTENT, co-versioned with the recipes they govern.
 // A published install carries them compiled, so they load in-process as plain node — no tsx, no
 // spawn; a checkout carries only .ts, which tsx resolves through the same call. The shapes mirror
-// the gate modules' own exports (pipeline/scripts/lint-template.ts, pipeline/design/gate.ts).
-import { existsSync } from "node:fs";
+// the gate modules' own exports (pipeline/scripts/lint-template.ts).
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -20,14 +20,17 @@ export interface RenderFacts {
   height?: number;
 }
 
-export type LintGate = (src: string, render?: RenderFacts) => GateFinding[];
+export interface EngineDocFacts { unsupported: { token: string; feature: string }[]; animatable: Set<string> }
+export type LintGate = (src: string, render?: RenderFacts, engine?: EngineDocFacts) => GateFinding[];
+export type EngineDocParser = (md: string) => EngineDocFacts;
 
-export interface DesignGateResult {
-  findings: (GateFinding & { file?: string })[];
-  documents: number;
+/** The engine's own document, parsed by the content tree's own reader; undefined when no engine is installed. */
+export async function loadEngineDoc(contentRoot: string, docPath: string): Promise<EngineDocFacts | undefined> {
+  if (!existsSync(docPath)) return undefined;
+  const mod = await importContentModule(contentRoot, join("pipeline", "scripts", "lint-template"));
+  if (typeof mod.parseEngineDoc !== "function") return undefined;
+  return (mod.parseEngineDoc as EngineDocParser)(readFileSync(docPath, "utf8"));
 }
-
-export type DesignGate = (runDir: string, opts?: { doc?: string }) => DesignGateResult;
 
 async function importContentModule(contentRoot: string, rel: string): Promise<Record<string, unknown>> {
   for (const ext of [".js", ".ts"]) {
@@ -51,12 +54,4 @@ export async function loadLintGate(contentRoot: string): Promise<LintGate> {
     throw new Error(`lint-template under ${contentRoot} exports no lintTemplate function`);
   }
   return mod.lintTemplate as LintGate;
-}
-
-export async function loadDesignGate(contentRoot: string): Promise<DesignGate> {
-  const mod = await importContentModule(contentRoot, join("pipeline", "design", "gate"));
-  if (typeof mod.gate !== "function") {
-    throw new Error(`design gate under ${contentRoot} exports no gate function`);
-  }
-  return mod.gate as DesignGate;
 }

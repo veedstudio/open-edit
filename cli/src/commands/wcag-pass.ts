@@ -1,5 +1,5 @@
-// WCAG text-contrast pass — DEFAULT gate on creative runs (face-1 AND remix),
-// opt-in on the recipe fast path (generate-recipe.ts --wcag). Level AA.
+// WCAG text-contrast pass — runs inside the gate chain on authored runs (as AUTO-SHADOW), opt-in on
+// the recipe fast path (generate-recipe.ts --wcag). Level AA.
 //
 // STATISTICS-NATIVE, two modes:
 //  DETECT (default): sample real backgrounds and analyze them in ONE engine call
@@ -47,7 +47,12 @@
 // a skip. Every text of a class takes the SAME remediation, solved at the
 // class's common denominator, so a class is the unit the user chooses at.
 //
-//   openedit wcag-pass --run runs/<key> [--apply]
+//   openedit wcag-pass --run runs/<key> [--apply | --auto-shadow]
+//
+//  AUTO-SHADOW (--auto-shadow, what the gate chain runs): DETECT, then take the shadow rung for every
+//    failing class that has one and apply it. Never a recolour, never a plate: those change the look
+//    and stay the user's choice. The pick is never written as wcag-choice.json; a real choice file
+//    already on disk is applied as it is. Promoted only on measured improvement.
 //
 // Requires the release engine only (the analyzer and its --statistics output ship
 // in-engine since 0.8.0; the repo floor is 0.9.0); there is no second binary and
@@ -86,6 +91,7 @@ import { hex, type RemediationPlan } from '../wcag/remediate.ts';
 import {
   parseChoiceFile,
   type ChoiceEntry,
+  type ChoiceFile,
   type ChoiceKind,
   type ShadowChoiceRecipe,
 } from '../wcag/wcag-choice.ts';
@@ -102,7 +108,7 @@ export { DEFAULT_BAR, DEFAULT_MIN_LEAD_RATIO };
  * DELIBERATELY the choice schema's own union: the agent transcribes a pick from
  * the printed line into wcag-choice.json, so a rung named anything the schema
  * rejects would abort the apply step. The user-facing word for `background` is
- * "box" — that lives in SKILL.md's prose, never in a value. */
+ * "box" — that lives in the skill's DESIGN.md prose, never in a value. */
 export type RungKind = ChoiceKind;
 
 /** ONE offered remediation, carrying everything the applier needs plus the
@@ -595,6 +601,23 @@ export function wcagDetectDecision(
   };
 }
 
+/**
+ * The automatic remedy: a ground shadow for every failing class that has one reaching AA, and nothing
+ * else. A shadow sits UNDER the type and leaves its colour, size and face alone, so it is the one rung
+ * that can be taken without asking whose design it is; a recolour or a plate changes the look, and
+ * stays the user's call. Classes with no shadow rung are returned as `left`, to be reported. Pure.
+ */
+export function autoShadowChoice(proposals: ClassProposal[]): { choice: ChoiceFile | null; left: string[] } {
+  const chosen: ChoiceFile['chosen'] = [];
+  const left: string[] = [];
+  for (const p of proposals) {
+    const shadow = p.rungs.find((r) => r.kind === 'shadow');
+    if (shadow) chosen.push({ level: 'AA', selector: p.selector, kind: 'shadow', hex: shadow.hex, recipe: shadow.recipe });
+    else left.push(p.label);
+  }
+  return { choice: chosen.length ? { schema: 1, chosen } : null, left };
+}
+
 // Whether the APPLY path runs the remediation applier. A pending choice ALWAYS
 // runs it — a chosen option always takes effect, even on an AA-passing run
 // carrying only an AAA tweak. With no choice, the AUTO path runs only when the
@@ -762,7 +785,10 @@ function audit(templateDir: string, reportPath: string, statsPath: string): Stat
   return readFreshStatistics(statsPath, () =>
     sh(
       engineBinPath(),
-      [templateDir, '--contrast-audit', reportPath, '--audit-fps', '5', '--statistics', statsPath],
+      // Two samples a second. The walk costs time per SAMPLE, so its length follows the rate: at 5 a
+      // twelve-minute film audited for twelve minutes. On a measured document 5, 2 and 1 gave the same
+      // verdicts and the same solved shadow. Not 1: a cue under a second could fall between samples.
+      [templateDir, '--contrast-audit', reportPath, '--audit-fps', '2', '--statistics', statsPath],
       [0, 1],
     ),
   );
@@ -773,7 +799,7 @@ function classOfDir(templateDir: string): (id: string) => string | null {
   return (id) => classes.get(id) ?? null;
 }
 
-export function runWcagPass(runDir: string, opts: { apply?: boolean } = {}): WcagDecision {
+export function runWcagPass(runDir: string, opts: { apply?: boolean; autoShadow?: boolean } = {}): WcagDecision {
   const finalDir = path.join(runDir, 'final');
   const sibling = `${finalDir}.wcag-remediated`; // applier impl detail; removed before return
   // The agent writes final/wcag-choice.json from what the user said; when it is
@@ -798,7 +824,23 @@ export function runWcagPass(runDir: string, opts: { apply?: boolean } = {}): Wca
   // DEFAULT: detect + report, no remediation, no promotion, no sibling dir. An audit of zero runs takes
   // the same exit under --apply: there is nothing to remediate, and the apply path's "0 of 0 fail" would
   // read as clean.
-  if (!opts.apply || before.totalRuns === 0) {
+  // AUTO-SHADOW takes the shadow rung for every failing class that has one, and the pass continues as
+  // an apply, so a run nobody is watching records readable type instead of stopping on a question.
+  // The pick is NOT a user's choice and is never written as one: wcag-choice.json means "the user
+  // chose this", and a machine-written copy of it outlived its document and switched the remedy off
+  // for every later run of that directory. A real choice file already on disk is applied as it is.
+  let auto: { chosen: ChoiceFile['chosen']; left: string[] } | null = null;
+  if (opts.autoShadow && !hasChoice && !before.passed && before.totalRuns > 0) {
+    const { choice, left } = autoShadowChoice(before.proposals);
+    if (!choice) {
+      const d = wcagDetectDecision(before, false);
+      return { ...d, notes: [...d.notes, `auto-shadow: nothing applied — no shadow reaches AA for ${left.join(', ')}; report at delivery`] };
+    }
+    auto = { chosen: choice.chosen, left };
+  }
+
+  const applying = opts.apply || (opts.autoShadow && (hasChoice || auto !== null));
+  if (!applying || before.totalRuns === 0) {
     return wcagDetectDecision(before, hasChoice);
   }
 
@@ -813,23 +855,25 @@ export function runWcagPass(runDir: string, opts: { apply?: boolean } = {}): Wca
   let resolvedChoicePath = '';
   let appliedEntries: Treatment[] = [];
   try {
-    if (shouldRunApplier(before.passed, before.anyApplicable, hasChoice)) {
+    if (shouldRunApplier(before.passed, before.anyApplicable, hasChoice || auto !== null)) {
       // --choice REPLACES --plan (the applier treats them as mutually exclusive
       // modes: auto colours vs user-chosen).
       let sourceArgs: string[];
-      if (hasChoice) {
+      if (hasChoice || auto) {
         // RESOLVE the authored class keys to the elements they name, and REFUSE a
         // selector that names none — an unmatched key would inject CSS selecting
         // nothing, evaluate identically, and still promote unconditionally. The
         // resolved copy is what the applier consumes and is kept as evidence of
         // what was actually targeted; the authored file is left as written.
-        const authored = parseChoiceFile(JSON.parse(readFileSync(choiceFile, 'utf8')));
+        const authored = auto ? { schema: 1 as const, chosen: auto.chosen } : parseChoiceFile(JSON.parse(readFileSync(choiceFile, 'utf8')));
         // A choice file REPLACES the whole remediation block, so it is not
         // additive: a class an earlier apply fixed and this one omits would
         // silently lose its fix, and the run would still report as remediated.
         // The archive is what the current block was built from.
         const archive = path.join(finalDir, 'wcag-choice.applied.json');
-        if (existsSync(archive)) {
+        // The guard protects a USER's earlier pick from a later, narrower one. The automatic shadow is
+        // re-solved from scratch on every run and has no earlier pick to protect.
+        if (!auto && existsSync(archive)) {
           const prior = parseChoiceFile(JSON.parse(readFileSync(archive, 'utf8')));
           const dropped = droppedSelectors(prior.chosen, authored.chosen);
           if (dropped.length > 0) {
@@ -845,7 +889,7 @@ export function runWcagPass(runDir: string, opts: { apply?: boolean } = {}): Wca
           schema: 1 as const,
           chosen: authored.chosen.map((c, i) => ({ ...c, ids: targets[i].ids })),
         };
-        resolvedChoicePath = path.join(finalDir, 'wcag-choice.resolved.json');
+        resolvedChoicePath = path.join(finalDir, auto ? 'wcag-auto-shadow.resolved.json' : 'wcag-choice.resolved.json');
         writeFileSync(resolvedChoicePath, JSON.stringify(resolved, null, 2) + '\n');
         appliedEntries = resolved.chosen;
         sourceArgs = ['--choice', resolvedChoicePath];
@@ -904,13 +948,16 @@ export function runWcagPass(runDir: string, opts: { apply?: boolean } = {}): Wca
   // ONE number, not two. The old pass printed a raw re-sample alongside a
   // "credited" line because the sampler could not see a shadow; with the outcome
   // computed against the constant samples there is nothing to reconcile.
-  const decision = wcagPassDecision(before, after, { choiceApplied: hasChoice && after !== null });
+  // Only a USER's choice promotes unconditionally. The automatic shadow is held to the same bar as the
+  // automatic colour plan: fewer failing runs, or the original stays.
+  const choiceApplied = hasChoice && !auto && after !== null;
+  const decision = wcagPassDecision(before, after, { choiceApplied });
   if (decision.promoted) {
     // FINAL IS FINAL: execute the pure promotion plan (draft preservation,
     // choice archival, pre-apply render snapshot — see planPromotion).
     const plan = planPromotion({
       draftExists: existsSync(path.join(finalDir, 'template.draft.wv')),
-      choiceApplied: hasChoice && after !== null,
+      choiceApplied,
       renderExists: existsSync(path.join(finalDir, 'out.silent.mp4')),
       muxedExists: existsSync(path.join(finalDir, 'out.mp4')),
     });
@@ -924,6 +971,12 @@ export function runWcagPass(runDir: string, opts: { apply?: boolean } = {}): Wca
     // first file moved, which is what keeps a failure from leaving final/ half
     // promoted.
   }
+  if (auto) {
+    const left = auto.left.length ? `; no shadow reaches AA for ${auto.left.join(', ')} — untouched, report at delivery` : '';
+    decision.notes.push(decision.promoted
+      ? `auto-shadow: a ground shadow was added under ${auto.chosen.length} text class(es) (colour, size and face untouched)${left}. Say so in one clause at delivery; the user can ask for another option`
+      : `auto-shadow: tried a ground shadow under ${auto.chosen.length} text class(es) and it did not reduce the failing text, so nothing was changed${left}`);
+  }
   return decision;
 }
 
@@ -934,17 +987,22 @@ export const usage = {
   flags: {
     run: { type: 'string', value: 'runs/<key>', required: true, help: 'The run whose final render is audited' },
     apply: { type: 'boolean', help: 'Promote the remediated template to final/template.wv (the draft is preserved)' },
+    'auto-shadow': { type: 'boolean', help: 'Take the shadow rung for every failing class that has one and apply it; never a recolour or a plate' },
   },
 } satisfies Usage;
 
 export function wcagPass(argv: string[]): number {
-  const { values: { run: runDir, apply } } = parseUsage('wcag-pass', usage, argv);
+  const { values: { run: runDir, apply, 'auto-shadow': autoShadow } } = parseUsage('wcag-pass', usage, argv);
   if (!runDir) {
     console.error(usageLine('wcag-pass', usage));
     return 1;
   }
+  if (apply && autoShadow) {
+    console.error('wcag-pass: --apply and --auto-shadow are two modes; give one');
+    return 1;
+  }
   try {
-    const d = runWcagPass(runDir, { apply });
+    const d = runWcagPass(runDir, { apply, autoShadow });
     console.log(`[wcag-pass] status: ${d.status}${d.promoted ? ' (final/template.wv is now the remediated template; draft preserved)' : ''}`);
     for (const n of d.notes) console.log(`[wcag-pass] ${n}`);
     return 0;
