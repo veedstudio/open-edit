@@ -1,11 +1,12 @@
 // Remembers which workspace the user chose to have billed, so the choice is made once rather than every
 // session. It lives beside the login it belongs to (and is gitignored the same way): it names an account
 // resource that spends real money, so it is local state, never something to commit or share.
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { workspacePath } from '../config.ts';
 
-// The one place this file's location is defined; veed/generate.ts reads and writes it through its injected
-// state helpers, which is why nothing here touches the filesystem.
+// The one place this file's location is defined. commands/generate.ts reads and writes it through its injected
+// state helpers; the free routes only read it, with rememberedWorkspace below.
 export const DEFAULT_WORKSPACE_PATH = workspacePath();
 
 export interface WorkspaceChoice {
@@ -30,4 +31,18 @@ export function parseWorkspaceChoice(raw: string | null): WorkspaceChoice | null
 
 export function serializeWorkspaceChoice(choice: WorkspaceChoice): string {
   return `${JSON.stringify(choice, null, 2)}\n`;
+}
+
+/** The remembered workspace, if any. A choice file that is there but unusable is named, since the project then lands elsewhere. */
+export function rememberedWorkspace(path = DEFAULT_WORKSPACE_PATH, warn: (m: string) => void = console.error): string | undefined {
+  let raw: string | null;
+  try {
+    raw = existsSync(path) ? readFileSync(path, 'utf8') : null;
+  } catch (e) {
+    warn(`the remembered workspace choice at ${path} could not be read (${e instanceof Error ? e.message : String(e)}); it is not used`);
+    return undefined;
+  }
+  const choice = parseWorkspaceChoice(raw);
+  if (!choice && raw?.trim()) warn(`the remembered workspace choice at ${path} holds no workspace id it can use; it is not used`);
+  return choice?.workspaceId;
 }

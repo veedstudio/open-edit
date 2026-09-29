@@ -9,7 +9,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { placeRange, regroup, retime, retimeTranscript } from '../src/commands/retime-transcript.ts';
 import type { Edl, EdlRange, SnappedRange } from '../src/edl.ts';
-import type { Transcript } from '../src/prep/transcript-types.ts';
+import type { Transcript } from '../src/transcript/transcript-types.ts';
 import { TESTSRC, captureConsole, scratchDir, synthClip, withRoot } from './helpers/synth.ts';
 
 const words = (...spec: [string, number, number][]) =>

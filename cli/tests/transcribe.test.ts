@@ -5,9 +5,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync as existsNow, writeFileSync as writeNow } from 'node:fs';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   assertHasAudio,
   assertWhisperxUsable,
@@ -17,18 +18,20 @@ import {
   transcribeVeed,
   readPrefs,
   recordedModel,
+  resolveProvider,
   runKeyOf,
   validateTranscript,
   whisperxArgs,
   whisperxModel,
   writePrefs,
+  type PrefsFailure,
   type Run,
   uploadProxy,
   PROXY_OVER_BYTES,
 } from '../src/commands/transcribe.ts';
-import { collidingRunKey } from '../src/prep/transcript-cache.ts';
+import { collidingRunKey } from '../src/transcript/transcript-cache.ts';
 import { REQUESTED } from '../src/veed/orchestrate.ts';
-import type { Transcript } from '../src/prep/transcript-types.ts';
+import type { Transcript } from '../src/transcript/transcript-types.ts';
 import { existsSync } from 'node:fs';
 import { captureConsoleAsync, withRoot } from './helpers/synth.ts';
 
@@ -140,12 +143,12 @@ test('the argv parser accepts both flag forms and refuses what it does not know'
     { provider: 'veed', videos: ['clip.mp4'] },
     'without --force the flag is absent, not false — the caller decides the default',
   );
-  assert.deepEqual(parseArgs(['clip.mp4', '--model', 'medium']), { provider: 'whisperx', videos: ['clip.mp4'], model: 'medium' });
-  assert.deepEqual(parseArgs(['clip.mp4', '--model=medium']), { provider: 'whisperx', videos: ['clip.mp4'], model: 'medium' });
-  assert.deepEqual(parseArgs(['--language=de', 'clip.mp4']), { provider: 'whisperx', videos: ['clip.mp4'], language: 'de' });
+  assert.deepEqual(parseArgs(['clip.mp4', '--model', 'medium']), { videos: ['clip.mp4'], model: 'medium' });
+  assert.deepEqual(parseArgs(['clip.mp4', '--model=medium']), { videos: ['clip.mp4'], model: 'medium' });
+  assert.deepEqual(parseArgs(['--language=de', 'clip.mp4']), { videos: ['clip.mp4'], language: 'de' });
   assert.deepEqual(
     parseArgs(['--model', 'medium', '--language', 'de', 'clip.mp4']),
-    { provider: 'whisperx', videos: ['clip.mp4'], model: 'medium', language: 'de' },
+    { videos: ['clip.mp4'], model: 'medium', language: 'de' },
   );
 
   // An unknown flag stops the run: a misspelled --language would leave English-only weights on
@@ -163,16 +166,15 @@ test('the argv parser accepts both flag forms and refuses what it does not know'
   assert.throws(() => parseArgs([]), /no video/);
 });
 
-// The prep command takes `<video.mp4> [...]`, so the stage that feeds it must too, or a batch has to be
-// transcribed one command at a time while prep handles the whole list.
+// A batch is one command, not one per file.
 test('several videos in one call, in the order given, with the flags shared', () => {
-  assert.deepEqual(parseArgs(['a.mp4', 'b.mp4', 'c.mp4']), { provider: 'whisperx', videos: ['a.mp4', 'b.mp4', 'c.mp4'] });
+  assert.deepEqual(parseArgs(['a.mp4', 'b.mp4', 'c.mp4']), { videos: ['a.mp4', 'b.mp4', 'c.mp4'] });
   assert.deepEqual(
     parseArgs(['a.mp4', '--model', 'medium', 'b.mp4', '--language=de']),
-    { provider: 'whisperx', videos: ['a.mp4', 'b.mp4'], model: 'medium', language: 'de' },
+    { videos: ['a.mp4', 'b.mp4'], model: 'medium', language: 'de' },
   );
   // the same file twice is the caller's business, not something to silently collapse
-  assert.deepEqual(parseArgs(['a.mp4', 'a.mp4']), { provider: 'whisperx', videos: ['a.mp4', 'a.mp4'] });
+  assert.deepEqual(parseArgs(['a.mp4', 'a.mp4']), { videos: ['a.mp4', 'a.mp4'] });
 });
 
 // The recorded choice is a step in the documented flow, so writing it has to be one command rather
@@ -180,20 +182,24 @@ test('several videos in one call, in the order given, with the flags shared', ()
 test('--record writes the provider choice and needs no video', () => {
   assert.deepEqual(
     parseArgs(['--record', 'whisperx', '--model', 'medium']),
-    { provider: 'whisperx', videos: [], record: 'whisperx', model: 'medium' },
+    { videos: [], record: 'whisperx', model: 'medium' },
   );
-  assert.deepEqual(parseArgs(['--record=veed']), { provider: 'whisperx', videos: [], record: 'veed' });
-  assert.deepEqual(parseArgs(['--record', 'custom']), { provider: 'whisperx', videos: [], record: 'custom' });
+  assert.deepEqual(parseArgs(['--record=veed']), { videos: [], record: 'veed' });
+  assert.deepEqual(parseArgs(['--record', 'custom']), { videos: [], record: 'custom' });
 
   assert.throws(() => parseArgs(['--record', 'deepgram']), /unknown provider "deepgram".*veed, whisperx, custom/s);
+  // Nothing records a workspace, so accepting one here would drop it without a word.
+  for (const argv of [['--record', 'veed', '--workspace', 'ws1'], ['--record', 'veed', '--provider', 'veed', '--workspace', 'ws1']]) {
+    assert.throws(() => parseArgs(argv), /--workspace is chosen per spend and never recorded; pass it on the transcribe run/);
+  }
   assert.throws(() => parseArgs(['--record']), /--record <value>' argument missing/);
   // a transcription run still requires the video
   assert.throws(() => parseArgs([]), /no video/);
-  assert.deepEqual(parseArgs(['clip.mp4']), { provider: 'whisperx', videos: ['clip.mp4'] });
+  assert.deepEqual(parseArgs(['clip.mp4']), { videos: ['clip.mp4'] });
 });
 
-// validateTranscript is the belt for the chunk-window defect: a word outside its chunk makes
-// synth-word-timings discard the whole beat's real times.
+// validateTranscript is the belt for the chunk-window defect: a cue timed from a chunk that does not
+// contain its words starts after, or ends before, its own speech.
 test('validation rejects a word that falls outside its chunk window', () => {
   assert.throws(() => validateTranscript({ text: 'hey there', chunks: [
     { text: 'hey there', timestamp: [0, 1.5], words: [
@@ -254,29 +260,30 @@ test('preferences round-trip', async () => {
   assert.deepEqual((await readPrefs(path)).prefs, { provider: 'veed', model: undefined });
 });
 
-// Anything unreadable is a COLD START with a stated reason, never a crash: the agent then asks.
-test('absent, corrupt and invalid preference files all read as cold start', async () => {
+// Only a missing file, or one that records no provider, is a choice never made. Anything else may hide a
+// choice the user already made, so it is told apart rather than read as a cold start.
+test('each unusable preference file names why, and only an absent choice reads as absent', async () => {
   const dir = await tempDir();
+  const read = async (path: string, body?: unknown) => {
+    if (body !== undefined) await writeFile(path, typeof body === 'string' ? body : JSON.stringify(body));
+    const recorded = await readPrefs(path);
+    assert.equal(recorded.prefs, undefined);
+    const { state, reason } = recorded as PrefsFailure;
+    return `${state}: ${reason}`;
+  };
 
-  const absent = await readPrefs(join(dir, 'nope.json'));
-  assert.equal(absent.prefs, undefined);
-  assert.match(absent.reason as string, /no provider recorded/);
+  assert.match(await read(join(dir, 'nope.json')), /^absent: .*nope\.json does not exist$/);
+  assert.match(await read(join(dir, 'empty.json'), { transcription: {} }), /^absent: .*records no provider$/);
+  assert.match(await read(join(dir, 'bare.json'), {}), /^absent: .*records no provider$/);
 
-  const corrupt = join(dir, 'corrupt.json');
-  await writeFile(corrupt, '{ not json');
-  assert.match((await readPrefs(corrupt)).reason as string, /not valid JSON/);
+  assert.match(await read(dir), /^unreadable: .*could not be read \(EISDIR\)$/);
 
-  const unknown = join(dir, 'unknown.json');
-  await writeFile(unknown, JSON.stringify({ transcription: { provider: 'deepgram' } }));
-  assert.match((await readPrefs(unknown)).reason as string, /no usable provider.*veed, whisperx, custom/);
-
-  const empty = join(dir, 'empty.json');
-  await writeFile(empty, JSON.stringify({ transcription: {} }));
-  assert.equal((await readPrefs(empty)).prefs, undefined);
-
-  const wrongShape = join(dir, 'shape.json');
-  await writeFile(wrongShape, JSON.stringify(['veed']));
-  assert.match((await readPrefs(wrongShape)).reason as string, /no usable provider/);
+  assert.match(await read(join(dir, 'corrupt.json'), '{ not json'), /^damaged: .*is not valid JSON$/);
+  assert.match(
+    await read(join(dir, 'unknown.json'), { transcription: { provider: 'deepgram' } }),
+    /^damaged: .*records the provider "deepgram", not one of veed, whisperx, custom$/,
+  );
+  assert.match(await read(join(dir, 'shape.json'), ['veed']), /^damaged: .*is not a \{ "transcription"/);
 });
 
 // The recorded tier has to actually reach the runner, or choosing "medium" once means nothing.
@@ -290,6 +297,130 @@ test('the recorded tier is what runs when no --model is given', async () => {
   assert.equal(await recordedModel(join(await tempDir(), 'absent.json')), undefined);
 });
 
+// --- which provider runs ----------------------------------------------------------
+// The skill runs a bare `transcribe <video>`, so the bare form must run the user's recorded choice and
+// never make one for them.
+
+const PREFS = '/ws/.open-edit-prefs.json';
+
+test('with no --provider the recorded provider runs, and the run says so', () => {
+  const veed = resolveProvider({}, { prefs: { provider: 'veed' } }, PREFS);
+  assert.equal(veed.provider, 'veed');
+  assert.equal(veed.note, `[transcribe] veed, the provider recorded in ${PREFS}`);
+
+  const wx = resolveProvider({}, { prefs: { provider: 'whisperx', model: 'medium' } }, PREFS);
+  assert.deepEqual(wx, { provider: 'whisperx', model: 'medium', note: `[transcribe] whisperx (medium), the provider recorded in ${PREFS}` });
+  assert.equal(resolveProvider({ model: 'small.en' }, { prefs: { provider: 'whisperx', model: 'medium' } }, PREFS).model, 'small.en', '--model overrides the recorded tier');
+  assert.equal(resolveProvider({ workspace: 'ws1' }, { prefs: { provider: 'veed' } }, PREFS).provider, 'veed', 'a recorded veed takes --workspace');
+});
+
+test('--provider overrides the recorded one; a named whisperx keeps the recorded tier', () => {
+  assert.deepEqual(resolveProvider({ provider: 'veed' }, { prefs: { provider: 'whisperx', model: 'medium' } }, PREFS), { provider: 'veed' });
+  assert.deepEqual(resolveProvider({ provider: 'whisperx' }, { prefs: { provider: 'whisperx', model: 'medium' } }, PREFS), { provider: 'whisperx', model: 'medium' });
+  assert.deepEqual(resolveProvider({ provider: 'whisperx' }, { prefs: { provider: 'veed' } }, PREFS), { provider: 'whisperx', model: undefined });
+});
+
+// There is no default provider: a transcript from one the user never chose is cached and outlives the
+// mistake, so a bare run with no choice recorded stops and says why.
+test('with no choice recorded a bare run refuses, naming the reason and the ways forward', () => {
+  for (const reason of [`${PREFS} does not exist`, `${PREFS} records no provider`]) {
+    assert.throws(() => resolveProvider({}, { state: 'absent', reason }, PREFS), (error: Error) => {
+      assert.ok(error.message.startsWith(`no transcription provider is recorded: ${reason}.`), error.message);
+      assert.match(error.message, /There is no default, the user chooses: ask them \(the open-edit skill's TRANSCRIPTION\.md/);
+      assert.match(error.message, /transcribe --record <veed\|whisperx\|custom>.*--provider veed\|whisperx.*whisper <json> <media>/s);
+      return true;
+    });
+  }
+  assert.throws(() => resolveProvider({ workspace: 'ws1' }, { state: 'absent', reason: `${PREFS} does not exist` }, PREFS), /no transcription provider is recorded/);
+  // Naming the provider IS the user's choice for this run, so it still runs with nothing recorded.
+  assert.deepEqual(resolveProvider({ provider: 'whisperx' }, { state: 'absent', reason: `${PREFS} does not exist` }, PREFS), { provider: 'whisperx', model: undefined });
+  assert.deepEqual(resolveProvider({ provider: 'veed' }, { state: 'damaged', reason: `${PREFS} is not valid JSON` }, PREFS), { provider: 'veed' });
+});
+
+// A choice may sit behind an unreadable or damaged file, so neither sends the agent back to the question
+// the user already answered; each names the file and what to fix.
+test('an unreadable or damaged prefs file is refused as such, never as nothing recorded', () => {
+  const refusal = (recorded: PrefsFailure): string => {
+    try {
+      resolveProvider({}, recorded, PREFS);
+    } catch (error) {
+      return (error as Error).message;
+    }
+    assert.fail('a bare run with no usable prefs did not refuse');
+  };
+  // The agent cannot see the recorded provider through an unreadable file, so --provider is only ever the user's
+  // answer, never a pick of its own.
+  const unreadable = refusal({ state: 'unreadable', reason: `${PREFS} could not be read (EACCES)` });
+  assert.ok(unreadable.startsWith(`${PREFS} could not be read (EACCES), so the choice recorded there cannot be read.`), unreadable);
+  assert.match(unreadable, /Either fix what is at that path \(its permissions, or a directory standing in its place\), or ask the user to name their provider again and pass it for this run with --provider veed\|whisperx\. Never pick one for them\./);
+  assert.doesNotMatch(unreadable, /Do not ask the user again/);
+
+  const damaged = refusal({ state: 'damaged', reason: `${PREFS} is not valid JSON` });
+  assert.ok(damaged.startsWith(`${PREFS} is not valid JSON, so`), damaged);
+  assert.match(damaged, /Do not ask the user again: read the file for the provider it names and record that one with npx @veedstudio\/openedit-cli transcribe --record <veed\|whisperx\|custom>/);
+  // --record rewrites the file whole, so a re-record without --model loses the WhisperX tier the user chose.
+  assert.match(damaged, /--record <veed\|whisperx\|custom> --model <tier>, keeping the tier it names; drop --model only if it names none/);
+
+  for (const message of [unreadable, damaged]) {
+    assert.doesNotMatch(message, /no transcription provider is recorded|ask them/);
+    assert.match(message, /--provider veed\|whisperx/);
+  }
+});
+
+test('a recorded custom provider is refused with the command that maps it, never run as WhisperX', () => {
+  assert.throws(
+    () => resolveProvider({}, { prefs: { provider: 'custom' } }, PREFS),
+    /recorded in \/ws\/\.open-edit-prefs\.json is custom.*whisper <json> <media>/s,
+  );
+  assert.equal(resolveProvider({ provider: 'whisperx' }, { prefs: { provider: 'custom' } }, PREFS).provider, 'whisperx');
+});
+
+test('the recorded provider refuses the other provider\'s flags, as --provider does', () => {
+  assert.throws(() => resolveProvider({ model: 'medium' }, { prefs: { provider: 'veed' } }, PREFS), /WhisperX flags; the recorded provider is veed/);
+  assert.throws(() => resolveProvider({ language: 'de' }, { prefs: { provider: 'veed' } }, PREFS), /WhisperX flags/);
+  assert.throws(() => resolveProvider({ workspace: 'ws1' }, { prefs: { provider: 'whisperx' } }, PREFS), /--workspace applies only/);
+});
+
+// Through the real entry point, so the prefs file is actually read from the workspace root. A missing
+// video stops each run before ffmpeg, whisperx or the network is reached.
+test('the command reads the recorded provider from the workspace it runs in', async () => {
+  const { execFile } = await import('node:child_process');
+  const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
+  const root = await tempDir();
+  const run = () => new Promise<{ code: number; out: string; err: string }>((resolve) => {
+    execFile(process.execPath, ['--import', 'tsx', cliPath, 'transcribe', join(root, 'absent.mp4')],
+      { encoding: 'utf8', env: { ...process.env, OPEN_EDIT_ROOT: root } },
+      (error, out, err) => resolve({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, out, err }));
+  });
+  const prefs = join(root, '.open-edit-prefs.json');
+
+  // The refusal comes before the video is even looked at, so nothing is written under runs/.
+  const cold = await run();
+  assert.equal(cold.code, 1);
+  assert.match(cold.err, /no transcription provider is recorded: .*\.open-edit-prefs\.json does not exist/);
+  assert.doesNotMatch(cold.err, /video not found/);
+  assert.doesNotMatch(cold.out, /whisperx/);
+  assert.equal(existsSync(join(root, 'runs')), false);
+
+  await mkdir(prefs);
+  assert.match((await run()).err, /\.open-edit-prefs\.json could not be read \(EISDIR\), so the choice recorded there cannot be read\. .*Never pick one for them/);
+  await rm(prefs, { recursive: true });
+  await writeFile(prefs, '{ not json');
+  assert.match((await run()).err, /\.open-edit-prefs\.json is not valid JSON, so .*Do not ask the user again/);
+  await writeFile(prefs, JSON.stringify({ transcription: { provider: 'VEED' } }));
+  assert.match((await run()).err, /records the provider "VEED", not one of veed, whisperx, custom, so /);
+
+  await writePrefs({ provider: 'whisperx', model: 'medium' }, prefs);
+  const recorded = await run();
+  assert.ok(recorded.out.includes(`whisperx (medium), the provider recorded in ${prefs}`), recorded.out);
+
+  await writePrefs({ provider: 'custom' }, prefs);
+  const custom = await run();
+  assert.equal(custom.code, 1);
+  assert.match(custom.err, /is custom, which this command does not run/);
+  assert.doesNotMatch(custom.out, /whisperx/);
+});
+
 // The skill's TRANSCRIPTION.md triage tells agents to look for this exact success line; its side
 // of the pin lives in the Open Edit repository (tests/skill-transcribe-triage.test.ts). Change the
 // format and this fails, instead of the guidance quietly becoming wrong.
@@ -298,7 +429,7 @@ test('the success and cached lines SKILL.md quotes are still emitted', async () 
   const source = await readFile(new URL('../src/commands/transcribe.ts', import.meta.url), 'utf8');
   assert.match(source, /console\.log\(`\[transcribe\] whisperx: \$\{words\} words -> \$\{path\}`\)/);
   assert.match(source, /console\.log\(`\[transcribe\] cached: \$\{cachedNote\(path\)\}`\)/);
-  const cache = await readFile(new URL('../src/prep/transcript-cache.ts', import.meta.url), 'utf8');
+  const cache = await readFile(new URL('../src/transcript/transcript-cache.ts', import.meta.url), 'utf8');
   assert.match(cache, /already exists \(--force to transcribe it again\)/);
 });
 

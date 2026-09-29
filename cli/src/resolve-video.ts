@@ -1,8 +1,6 @@
 // One resolution rule for a video argument, and the ONE run-key derivation naming a
-// runs/<key> directory. This mirrors the same law in the Open Edit repository
-// (the repository's own copy retired when its last importer migrated) — every command
-// that names a runs/<key> directory routes through it; the test vectors
-// in tests/resolve-video.test.ts pin it. An absolute path passes through,
+// runs/<key> directory: every command that names one routes through it, and the test
+// vectors in cli/tests/resolve-video.test.ts pin it. An absolute path passes through,
 // anything else resolves from the CWD — in both cases even when the file is missing,
 // so errors name the real path.
 import { basename, extname, isAbsolute, resolve } from 'node:path';

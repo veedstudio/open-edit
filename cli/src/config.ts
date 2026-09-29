@@ -3,9 +3,8 @@
 // OPENEDIT_STATE_DIR overrides for tests and unusual setups.
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { engineBinaryName } from "./platform.ts";
 
 export function stateDir(): string {
   const explicit = process.env.OPENEDIT_STATE_DIR;
@@ -27,11 +26,8 @@ export function clientPath(): string {
   return join(stateDir(), "client.json");
 }
 
-// --- media tools: the same env contract the Open Edit repository's config.ts reads,
-// so one environment configures both codebases identically during the migration. ---
-
-// Where install-ffmpeg puts its no-admin copy (app-data, like the engine — a plugin host
-// may have no working directory to install into).
+// Where install-ffmpeg puts its no-admin copy (app-data: a plugin host may have no working
+// directory to install into).
 export function ffmpegDir(): string {
   return join(stateDir(), "ffmpeg");
 }
@@ -42,14 +38,36 @@ const appDataFfmpegTool = (name: string): string | null => {
   return existsSync(file) ? file : null;
 };
 
-// ffmpeg — base-frame extraction + audio work. Env override → app-data install → PATH.
-export const FFMPEG = process.env.VEED_ENGINE_FFMPEG ?? appDataFfmpegTool("ffmpeg") ?? "ffmpeg";
+const ffprobeBeside = (ffmpeg: string): string => ffmpeg.replace(/ffmpeg([^/\\]*)$/, "ffprobe$1");
 
-// ffprobe (source dims + duration → canvas aspect). Defaults next to FFMPEG when that path is set, else PATH.
-export const FFPROBE = process.env.VEED_ENGINE_FFPROBE
-  ?? (process.env.VEED_ENGINE_FFMPEG
-    ? process.env.VEED_ENGINE_FFMPEG.replace(/ffmpeg([^/\\]*)$/, "ffprobe$1")
-    : appDataFfmpegTool("ffprobe") ?? "ffprobe");
+// An ffprobe beside OPENEDIT_FFMPEG is attributed to that variable, since it is the one to fix.
+export type FfmpegSource = "OPENEDIT_FFMPEG" | "OPENEDIT_FFPROBE" | "app-data install" | "PATH";
+export interface FfmpegTool { bin: string; from: FfmpegSource }
+
+// Each tool: its env override → app-data install → PATH, and a set OPENEDIT_FFMPEG puts ffprobe beside it
+// unless OPENEDIT_FFPROBE is set. An empty variable counts as unset (spawning '' fails every command);
+// init and install-ffmpeg call this too, so they check the pair every command runs.
+export function resolveFfmpegPair(
+  env: Record<string, string | undefined> = process.env,
+  appDataTool: (name: string) => string | null = appDataFfmpegTool,
+): { ffmpeg: FfmpegTool; ffprobe: FfmpegTool } {
+  const fallback = (name: string): FfmpegTool => {
+    const local = appDataTool(name);
+    return local ? { bin: local, from: "app-data install" } : { bin: name, from: "PATH" };
+  };
+  const ffmpegEnv = env.OPENEDIT_FFMPEG || "";
+  const ffprobeEnv = env.OPENEDIT_FFPROBE || "";
+  return {
+    ffmpeg: ffmpegEnv ? { bin: ffmpegEnv, from: "OPENEDIT_FFMPEG" } : fallback("ffmpeg"),
+    ffprobe: ffprobeEnv
+      ? { bin: ffprobeEnv, from: "OPENEDIT_FFPROBE" }
+      : ffmpegEnv ? { bin: ffprobeBeside(ffmpegEnv), from: "OPENEDIT_FFMPEG" } : fallback("ffprobe"),
+  };
+}
+
+const ffmpegPair = resolveFfmpegPair();
+export const FFMPEG = ffmpegPair.ffmpeg.bin;
+export const FFPROBE = ffmpegPair.ffprobe.bin;
 
 // WhisperX — the local, free transcription provider. Default: PATH.
 export const WHISPERX_BIN = process.env.WHISPERX_BIN ?? "whisperx";
@@ -64,35 +82,43 @@ export const WHISPERX_COMPUTE = process.env.OPEN_EDIT_WHISPERX_COMPUTE ?? "int8"
 
 // The package root. This module is cli/src/config.ts under tsx and cli/dist/config.js when published,
 // so the same two levels up land on the package root either way — and the package root IS the
-// repository root, which is what lets a checkout and an install share one content layout.
+// repository root, which is what lets init read the skill from a checkout and an install alike.
 export function packageRoot(): string {
-  // resolve() drops the trailing separator a directory URL carries; content-root prints this.
+  // resolve() drops the trailing separator a directory URL carries.
   return resolve(fileURLToPath(new URL("../..", import.meta.url)));
-}
-
-// The content tree: refs, pipeline, docs, the skill. OPEN_EDIT_ROOT pins it only when the directory
-// really carries content — a workspace that merely exported the variable would otherwise hide the
-// content the package ships with, and every recipe run would fail on an index that was never there.
-export function contentRoot(): string {
-  const pinned = process.env.OPEN_EDIT_ROOT;
-  if (pinned && existsSync(join(pinned, "refs", "tags.json"))) return pinned;
-  return packageRoot();
 }
 
 const PACKAGE_NAME = "@veedstudio/openedit-cli";
 
+const readPackageJson = (dir: string): Record<string, any> | null => {
+  try {
+    return JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
+};
+
+// Files only a source checkout carries: an installed copy has no pnpm lockfile (npm drops it from
+// every pack) and no cli/src (`files` ships cli/dist).
+export function hasCheckoutLayout(dir: string): boolean {
+  return existsSync(join(dir, "pnpm-lock.yaml")) && existsSync(join(dir, "cli", "src", "cli.ts"));
+}
+
+// A source checkout of this package. The name keeps any other pnpm project with a cli/src/cli.ts
+// from passing, which init would reuse in place and install into without asking.
+export function isOpenEditCheckout(dir: string): boolean {
+  return hasCheckoutLayout(dir) && readPackageJson(dir)?.name === PACKAGE_NAME;
+}
+
 function isWorkspaceDir(dir: string): boolean {
-  // The installed package carries these markers too; skipping it lets the walk reach the project
-  // that owns the node_modules, which is where renders belong.
+  // Renders belong to the project that owns a node_modules, never to a dependency inside it, even one
+  // that itself depends on this package.
   if (dir.split(sep).includes("node_modules")) return false;
   if (existsSync(join(dir, ".open-edit-prefs.json"))) return true;
-  if (existsSync(join(dir, "refs", "tags.json"))) return true;
-  try {
-    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-    return Boolean(pkg.devDependencies?.[PACKAGE_NAME] ?? pkg.dependencies?.[PACKAGE_NAME]);
-  } catch {
-    return false;
-  }
+  // A checkout of this package is its own workspace, so a contributor's runs stay in the checkout.
+  if (isOpenEditCheckout(dir)) return true;
+  const pkg = readPackageJson(dir);
+  return Boolean(pkg?.devDependencies?.[PACKAGE_NAME] ?? pkg?.dependencies?.[PACKAGE_NAME]);
 }
 
 // Exported: init resolves the same workspace before the project exists, and two answers to "which
@@ -112,8 +138,8 @@ export function findWorkspace(startDir: string): string | null {
   }
 }
 
-// Where the CLI WRITES: runs and the recorded provider choice. Never the content root — a published
-// install's content sits in node_modules, which is no place to put a user's renders.
+// Where the CLI WRITES: runs and the recorded provider choice. Never the package root — a published
+// install sits in node_modules, which is no place to put a user's renders.
 export function workspaceRoot(): string {
   const pinned = process.env.OPEN_EDIT_ROOT;
   if (pinned) return pinned;
@@ -148,37 +174,7 @@ export function voiceRatesPath(): string {
   return join(stateDir(), "voice-rates.json");
 }
 
-// Where the render engine is installed (a downloaded binary, like any other app data).
-export function engineDir(): string {
-  return join(stateDir(), "engine");
-}
-
-export function engineBinPath(): string {
-  return process.env.VEED_ENGINE_BIN ?? join(engineDir(), engineBinaryName());
-}
-
-/** The engine's own account of what it renders, downloaded beside its binary with each release. */
-export function engineDocPath(): string {
-  return join(dirname(engineBinPath()), "feature-support.md");
-}
-
-// The engine resolves `ffmpeg` for --record through the OS search path and takes no override of its
-// own, so an explicitly configured ffmpeg is invisible to it unless its directory is on the child's PATH.
-export function engineEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  if (!isAbsolute(FFMPEG)) return base;
-  const dir = dirname(FFMPEG);
-  const key = Object.keys(base).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
-  const current = base[key] ?? "";
-  if (current.split(delimiter).includes(dir)) return base;
-  return { ...base, [key]: current ? `${dir}${delimiter}${current}` : dir };
-}
-
-// The WCAG remediation applier, spawned as its OWN plain-node process (application policy stays
-// out of the analyzer's). It ships inside this package; the sibling path carries whatever
-// extension THIS module runs as (.ts under tsx in development, .js from dist when published) —
-// plain node runs both; ts-runtime.ts adds a type-stripping flag when the .ts case needs one.
-export function wcagRemediatePath(): string {
-  if (process.env.WCAG_REMEDIATE) return process.env.WCAG_REMEDIATE;
-  const ext = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
-  return fileURLToPath(new URL(`./wcag/remediate${ext}`, import.meta.url));
+// Where install-browser puts the pinned headless Chrome the HTML renderer drives.
+export function browserDir(): string {
+  return join(stateDir(), "browser");
 }

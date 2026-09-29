@@ -88,12 +88,64 @@ test('a clean init becomes the ready note; a failing one carries the report verb
   assert.match(composeContext(0, 'preflight: APPROVAL REQUIRED — x'), /wait for explicit approval/);
 });
 
-test('a ready init that printed its root sends the agent to the content root AGENTS.md and to no second preflight', () => {
+test('a ready init that printed its root names the root and sends the agent to no second preflight', () => {
   const note = composeContext(0, 'preflight: reusing the local checkout at /x\nready — OPEN_EDIT_ROOT=/x/runtime');
   assert.match(note, /OPEN_EDIT_ROOT=\/x\/runtime/);
-  assert.match(note, /read AGENTS\.md from the content root \(`npx @veedstudio\/openedit-cli content-root`\) completely/);
+  assert.doesNotMatch(note, /AGENTS\.md/);
   assert.match(note, /No further preflight/);
   assert.doesNotMatch(note, /init --dry/);
+});
+
+// Codex and Gemini do not look in .claude/skills, so a ready note that names no skill leaves them without one.
+// The skill sits under the root, which on a pinned managed clone is not the workspace.
+test('every ready note names the skill file under the root init reported', () => {
+  // The note joins with the platform's separator, so the expectation must too or Windows fails it.
+  const pointer = `the open-edit skill is ${join('/x/runtime', '.claude', 'skills', 'open-edit', 'SKILL.md')}.`;
+  const note = composeContext(0, 'ready — OPEN_EDIT_ROOT=/x/runtime');
+  assert.ok(note.includes(pointer), note);
+  const rootless = composeContext(0, 'preflight: reusing the local checkout at /x');
+  assert.match(rootless, /the open-edit skill is \.claude\/skills\/open-edit\/SKILL\.md under OPEN_EDIT_ROOT\./);
+});
+
+// SKILL.md skips its Setup on one exact sentence. The approval note quotes init's own report, and init
+// prints its `ready — OPEN_EDIT_ROOT=` line even with approvals pending, so a looser trigger would let
+// the agent skip the step that relays them.
+test('only the rooted ready note says what SKILL.md skips setup on', async () => {
+  const skill = await readFile(join(import.meta.dirname, '../../.claude/skills/open-edit/SKILL.md'), 'utf8');
+  const phrase = /or when a session-opening note says\s+`([^`]+)`/.exec(skill)?.[1];
+  assert.ok(phrase, 'SKILL.md no longer states the note that skips setup');
+  const [before, after] = phrase.split('<path>');
+  assert.ok(after !== undefined, `the skip phrase names no root: ${phrase}`);
+  const says = (note: string) => {
+    const at = note.indexOf(before);
+    return at >= 0 && note.indexOf(after, at + before.length) >= 0;
+  };
+
+  const ready = composeContext(0, 'preflight: reusing the local checkout at /x\npreflight: ready — OPEN_EDIT_ROOT=/x/runtime');
+  assert.ok(says(ready), ready);
+  assert.ok(ready.includes(`${before}/x/runtime${after}`), 'the phrase does not carry the root init reported');
+
+  const notReady = [
+    composeContext(0, 'preflight: reusing the local checkout at /x'),
+    composeContext(10, [
+      'preflight: APPROVAL REQUIRED — update renderer from 0.6.1 to at least 0.11.0',
+      'preflight: ready — OPEN_EDIT_ROOT=/ws',
+      'preflight: run with --auto-approve only after the user approves every action above',
+    ].join('\n')),
+    composeContext(0, 'preflight: APPROVAL REQUIRED — install FFmpeg globally\npreflight: ready — OPEN_EDIT_ROOT=/ws'),
+  ];
+  for (const note of notReady) assert.ok(!says(note), note);
+});
+
+// The first session in a workspace, and any harness with hooks off, never gets the note, so the agent's own
+// init run must complete Setup too, on the very line init prints.
+test('SKILL.md counts its own init run ending ready as done setup', async () => {
+  const skill = await readFile(join(import.meta.dirname, '../../.claude/skills/open-edit/SKILL.md'), 'utf8');
+  const line = /done when your own init run below ends on\s+`([^`]+)…`/.exec(skill)?.[1];
+  assert.ok(line, 'SKILL.md no longer says its own init run completes setup');
+  const init = await readFile(join(import.meta.dirname, '../src/commands/init.ts'), 'utf8');
+  // Any variable may carry the root; what must hold is that init prints this exact prefix before it.
+  assert.ok(init.includes(`say(\`${line}\${`), `init no longer prints ${line}`);
 });
 
 test('the Gemini note is valid SessionStart JSON; the others are plain text', () => {

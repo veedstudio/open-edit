@@ -1,4 +1,4 @@
-// Tests for veed/sample-presenter.ts: the selection, seeding and filtering, driven with injected listings
+// Tests for commands/sample-presenter.ts: the selection, seeding and filtering, driven with injected listings
 // so nothing touches the network and nothing is ever proposed by accident.
 //   Run:  node --import tsx tests/sample-presenter.test.ts
 import assert from 'node:assert/strict';

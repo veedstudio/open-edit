@@ -7,7 +7,7 @@
 //   5. If 3 vanished: npx @veedstudio/openedit-cli generate --key my-run --abandon <sessionId>  (clears one record)
 //
 // Which workspace pays is the user's decision: with no --workspace and no remembered choice the confirm
-// pass stops and prints every workspace with its balance. A remembered choice (veed/.veed-workspace.json) is
+// pass stops and prints every workspace with its balance. A remembered choice (workspace.json in the app-data dir) is
 // not a confirmed one, so the spend pass refuses until the command names the workspace, and refuses a
 // different one from the approval. A run that spends reports what it was approved for, plus what the balance
 // did, into runs/<key>/.fabric-spend-<sessionId>.json.
@@ -26,7 +26,8 @@
 // record). See veed/charge-records.ts.
 //
 // Writes runs/<key>/<key>.mp4, whose filename must derive back to <key> via runKeyOf (resolve-video.ts, the
-// rule go.ts and prep.ts share). The default run only ever CONFIRMS, since generation spends real credits.
+// rule the transcription commands share). The default run only ever CONFIRMS, since generation spends real
+// credits.
 // The flow lives in run() with HTTP client, token, download and file write injected (like orchestrate.ts's
 // transcribeWithVeed) so the spend gate is testable offline; main() supplies the real ones.
 import { createHash, randomUUID } from 'node:crypto';
@@ -1087,7 +1088,7 @@ async function collect(
   }
 
   const bytes = await deps.download(url);
-  // The filename must derive back to `key` via runKeyOf (as go.ts and prep.ts do), or this run silently
+  // The filename must derive back to `key` via runKeyOf (as transcribe does), or this run silently
   // collides with whatever run that filename would derive to.
   const out = join(runsDir(), key, `${key}.mp4`);
   if (runKeyOf(out) !== key) {

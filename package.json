@@ -9,29 +9,16 @@
   },
   "files": [
     "cli/dist",
-    "refs/html",
-    "!refs/html/**/transcript.json",
-    "!refs/html/**/word-timings.json",
-    "refs/tags.json",
-    "refs/animations.md",
-    "pipeline",
-    "veed",
-    "docs/FLOW.md",
-    "docs/recipe-format.md",
-    "AGENTS.md",
     ".claude/skills/open-edit",
     "LICENSE",
     "NOTICE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20.18.1"
   },
   "publishConfig": {
     "access": "public",
     "@veedstudio:registry": "https://registry.npmjs.org"
-  },
-  "openedit": {
-    "minEngine": "0.11.0"
   },
   "scripts": {
     "build": "node cli/scripts/build.mjs",
@@ -41,12 +28,12 @@
     "typecheck:cli": "tsc -p cli/tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@types/culori": "^4.0.1",
     "@types/node": "^22.0.0",
     "tsx": "4.21.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "culori": "^4.0.2"
+    "playwright-core": "1.63.0",
+    "undici": "^7.30.0"
   }
 }

@@ -1,4 +1,4 @@
-// Tests pipeline/scripts/concat-videos.ts. The pure parts — canvas choice, filter graph, argv — are
+// Tests commands/concat-videos.ts. The pure parts — canvas choice, filter graph, argv — are
 // asserted directly; the join itself is exercised for real against two clips ffmpeg synthesises here,
 // with DIFFERENT aspect ratios, because that is the case the obvious implementation gets wrong.
 //   Run:  node --import tsx tests/concat-videos.test.ts
@@ -169,8 +169,8 @@ for (const fit of ['letterbox', 'crop'] as const) {
 
 await test('a clip with NO audio track still joins — the concat synthesises silence for it', async () => {
   // Before the fix, filterGraph maps [1:a] for the silent clip and ffmpeg aborts the whole run with
-  // "Stream specifier :a matches no streams". AGENTS.md supports audio-less motion-graphics shots, so
-  // this must join like any other and the output must carry an audio track.
+  // "Stream specifier :a matches no streams". A motion-graphics shot is commonly silent, so it must
+  // join like any other and the output must carry an audio track.
   const dir = await mkdtemp(join(tmpdir(), 'concat-'));
   try {
     const voiced = join(dir, 'voiced.mp4');

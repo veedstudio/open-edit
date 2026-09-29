@@ -1,13 +1,11 @@
-// MUX AUDIO — restore the soundtrack. veed-engine-cli renders video only; this muxes the original audio
-// onto the clean silent render, levelled to the delivery target. Deterministic; ffmpeg only, no sandbox exit needed.
+// MUX AUDIO — put sound on a render. A render is picture only; this muxes a track onto it, levelled
+// to the delivery target. Deterministic; ffmpeg only.
 //
-//   openedit mux-audio <run-dir> [--doc final] [--audio <file>] [--no-loudnorm]
-// Audio comes from --audio when given, else from <run-dir>/meta.json's source video. Muxes
-// <run-dir>/<doc>/out.silent.mp4 -> out.mp4, where <doc> defaults to final.
-//   VEED_ENGINE_FFMPEG  ffmpeg (default: ffmpeg on PATH)
+//   openedit mux-audio --video <file> --audio <file> --out <file> [--no-loudnorm]
+//   OPENEDIT_FFMPEG  ffmpeg (default: the app-data install, else ffmpeg on PATH)
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { basename, dirname, extname, join } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, FFPROBE } from '../config.ts';
 import { hasAudioStream } from '../probe.ts';
@@ -18,12 +16,11 @@ class MuxError extends Error {
 const fail = (msg: string, code: number): never => { throw new MuxError(msg, code); };
 
 export const usage = {
-  summary: "Mux a run's audio onto its silent render at delivery loudness",
-  positionals: '<run-dir>',
+  summary: 'Mux an audio track onto a silent render at delivery loudness',
   flags: {
-    // A film gates one chapter at a time, and its audio is a built mix rather than the source clip's.
-    doc: { type: 'string', value: '<subdir>', help: 'Document under the run to mux (default final)' },
-    audio: { type: 'string', value: '<file>', help: "A built soundtrack to mux instead of the source clip's own track" },
+    video: { type: 'string', required: true, value: '<file>', help: 'The picture to mux onto' },
+    audio: { type: 'string', required: true, value: '<file>', help: 'The track to lay on it: the source clip, or a built soundtrack' },
+    out: { type: 'string', required: true, value: '<file>', help: 'Where to write the result' },
     'no-loudnorm': { type: 'boolean', help: 'Skip levelling to the delivery loudness' },
   },
 } satisfies Usage;
@@ -42,30 +39,14 @@ export function muxAudio(argv: string[]): number {
 }
 
 function run(argv: string[]): void {
-  const { values, positionals: [dir] } = parseUsage('mux-audio', usage, argv);
-  if (!dir) fail(usageLine('mux-audio', usage), 2);
-  const doc = values.doc ?? 'final';
-  const audio = values.audio ?? '';
+  const { values } = parseUsage('mux-audio', usage, argv);
+  const { video: silent, audio: src, out: outPath } = values;
   const normalise = !values['no-loudnorm'];
-
-  const silent = join(dir!, doc, 'out.silent.mp4');
-  const outPath = join(dir!, doc, 'out.mp4');
-  if (!existsSync(silent)) fail(`mux: missing ${silent} (render first)`, 1);
-
-  // The audio is either a track that was BUILT for this run (a mix of narration, music and effects) or
-  // the source clip's own. Only the second needs meta.json — a run with no footage has none, and
-  // requiring it was why the footage-free path failed at its last gate.
-  let src: string;
-  if (audio) {
-    src = audio;
-    if (!existsSync(src)) fail(`mux: no audio at ${src}`, 1);
-  } else {
-    const metaPath = join(dir!, 'meta.json');
-    if (!existsSync(metaPath)) fail(`mux: no ${metaPath} and no --audio — say which track to lay on`, 2);
-    const videoPath = (JSON.parse(readFileSync(metaPath, 'utf8')) as { videoPath?: string }).videoPath ?? '';
-    if (!videoPath || !existsSync(videoPath)) fail(`mux: could not resolve source video from ${metaPath}`, 1);
-    src = videoPath;
+  if (!silent || !src || !outPath) {
+    throw new MuxError(`mux: pass --video, --audio and --out together\n${usageLine('mux-audio', usage)}`, 2);
   }
+  if (!existsSync(silent)) fail(`mux: no video at ${silent}`, 1);
+  if (!existsSync(src)) fail(`mux: no audio at ${src}`, 1);
 
   const probe = (args: string[]) => {
     try {
@@ -75,30 +56,27 @@ function run(argv: string[]): void {
     }
   };
 
-  // -map 1:a:0? tolerates a source with no audio track (out.mp4 then == silent render).
-  // Write to a tmp name and rename: out.mp4 is watched live by the preview server, so its
-  // existence must mean completeness (a moov-less in-progress file plays as broken "done").
-  // +faststart keeps moov up front (the engine records it that way; default muxing would move it
-  // to the tail, making the deliverable start slower anywhere without Range support).
-  const tmp = join(dir!, doc, 'out.tmp.mp4');
+  // Write to a tmp name and rename, so the output's existence means completeness (a moov-less
+  // in-progress file plays as a broken "done").
+  // +faststart keeps moov up front (default muxing would move it to the tail, making the
+  // deliverable start slower anywhere without Range support).
+  // Named per attempt and beside the output, so two muxes into one folder cannot share a partial file
+  // and the final rename never crosses a filesystem.
+  const tmp = join(dirname(outPath), `.${basename(outPath, extname(outPath))}.${process.pid}.tmp${extname(outPath) || '.mp4'}`);
+  mkdirSync(dirname(outPath), { recursive: true });
   // The PICTURE decides the length. `-shortest` let a built mix truncate the film — a 2s track over a
   // 6s render wrote a 2s deliverable and exited 0, which destroys work without saying so.
   const vdur = probe(['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=duration', '-of', 'csv=p=0', silent])
     || probe(['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', silent]);
   if (!vdur) fail(`mux: could not read the duration of ${silent}`, 1);
 
+  // A named track with no audio in it is a mistake, and a silent deliverable that exits 0 hides it.
+  if (!hasAudioStream(src)) fail(`mux: ${src} has no audio stream — nothing to lay on the render`, 1);
   // Camera audio commonly lands several decibels under the delivery target and plays quieter than its
   // neighbours in a feed; the track is re-encoded here anyway, so the correction costs one measurement
   // pass. --no-loudnorm keeps the source level for one chapter of a longer piece, whose level belongs
   // to the whole film.
-  const hasAudio = hasAudioStream(src);
-  // A source video with no track is a silent film and muxes as-is; a track the user NAMED with no
-  // audio in it is a mistake, and a silent deliverable that exits 0 would pass the whole gate chain.
-  if (audio && !hasAudio) fail(`mux: ${src} has no audio stream — nothing to lay on the render`, 1);
-  let loudness: Loudnorm;
-  if (!normalise) loudness = { mode: 'none', filter: null, why: 'not requested' };
-  else if (!hasAudio) loudness = { mode: 'none', filter: null, why: 'the source has no audio track — nothing to normalise' };
-  else loudness = loudnormFilter(src);
+  const loudness: Loudnorm = normalise ? loudnormFilter(src) : { mode: 'none', filter: null, why: 'not requested' };
   if (normalise && loudness.mode !== 'measured') {
     console.log(`mux: loudness ${loudness.mode === 'dynamic' ? 'corrected dynamically' : 'left as recorded'} — ${loudness.why}`);
   }
@@ -106,13 +84,14 @@ function run(argv: string[]): void {
   try {
     execFileSync(FFMPEG, [
       '-y', '-hide_banner', '-loglevel', 'error', '-i', silent, '-i', src,
-      '-map', '0:v:0', '-map', '1:a:0?', '-c:v', 'copy',
+      '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
       ...(loudness.filter ? ['-af', loudness.filter] : []),
       // 48 kHz on every path: loudnorm works at 192 kHz and would otherwise hand the encoder 96 kHz,
       // and a chapter muxed with --no-loudnorm must not differ in rate from its neighbours.
       '-c:a', 'aac', '-ar', '48000', '-t', vdur, '-movflags', '+faststart', tmp,
     ], { stdio: ['ignore', 'inherit', 'inherit'] });
   } catch {
+    rmSync(tmp, { force: true });
     fail('', 1);
   }
   renameSync(tmp, outPath);
@@ -121,7 +100,7 @@ function run(argv: string[]): void {
   const said: Record<Loudnorm['mode'], string> = {
     measured: ` (normalised to ${LOUDNORM_I} LUFS)`,
     dynamic: ' (dynamic loudness correction — see above)',
-    none: hasAudio ? '' : ' (no audio track in the source)',
+    none: '',
   };
   console.log(`mux: wrote ${outPath}${said[loudness.mode]}`);
 }

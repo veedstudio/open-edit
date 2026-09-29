@@ -1,17 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { main, type ExecResult } from '../src/commands/init.ts';
 import { emulateNpmAdd } from './exec-stubs.ts';
-
-// The fixture's engine "binary" is a plain file whose CONTENT is its version; the exec seam answers
-// `--version` by reading it, so no platform-specific stub scripts or shebangs are needed. The
-// installer is the published CLI (`npx … install-engine`), stubbed in the exec seam: it writes
-// fx.engineInstallVersion to fx.enginePath — or nothing when null, the download-failed-softly case.
 
 interface Fixture {
   root: string;
@@ -25,9 +20,6 @@ interface Fixture {
   // What `corepack enable pnpm` leaves `pnpm --version` reporting. Not always the floor: the shim
   // resolves from the CWD project, which is the consumer's.
   corepackYields: string;
-  enginePath: string;
-  /** What the stubbed `npx … install-engine` lays down; null = exits 0 without writing anything. */
-  engineInstallVersion: string | null;
   /** The scaffold/update dep-add (`npm install --save-dev …`) exits non-zero when true. */
   npmAddFails: boolean;
   bins: Record<string, string | null>;
@@ -38,19 +30,16 @@ async function fixture(): Promise<Fixture> {
   const source = join(root, 'source');
   const consumer = join(root, 'consumer');
   const actionLog = join(root, 'actions.log');
-  await mkdir(join(source, '.claude/skills/open-edit/scripts'), { recursive: true });
-  await mkdir(join(source, 'pipeline/scripts'), { recursive: true });
-  await mkdir(join(source, 'refs'), { recursive: true });
+  await mkdir(join(source, '.claude/skills/open-edit'), { recursive: true });
+  await mkdir(join(source, 'cli/src'), { recursive: true });
   await mkdir(consumer);
 
   await writeFile(join(source, 'package.json'), JSON.stringify({ name: '@veedstudio/openedit-cli', packageManager: 'pnpm@10.16.1' }));
-  // checkout detection reads the runtime index, so a fixture that means to be one carries it
-  await writeFile(join(source, 'refs/tags.json'), JSON.stringify({ version: 3, refs: [] }));
   await writeFile(join(source, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
-  await writeFile(join(source, '.gitignore'), '.veed-engine/\nnode_modules/\n');
+  await writeFile(join(source, '.gitignore'), 'node_modules/\n');
   await writeFile(join(source, '.claude/skills/open-edit/SKILL.md'), '---\nname: open-edit\ndescription: test\n---\n');
-  // checkout detection keys on this file existing; it is the POSIX shim, never executed by the tests
-  await writeFile(join(source, 'pipeline/scripts/preflight.sh'), '#!/bin/bash\nexit 0\n');
+  // checkout detection keys on this file existing; it is never executed by the tests
+  await writeFile(join(source, 'cli/src/cli.ts'), '');
 
   execFileSync('git', ['init', '-b', 'feature'], { cwd: source });
   execFileSync('git', ['config', 'user.name', 'Preflight Test'], { cwd: source });
@@ -68,8 +57,6 @@ async function fixture(): Promise<Fixture> {
     pnpmVersion: '10.20.0',
     installedPnpm: '10.20.0',
     corepackYields: '10.16.1',
-    enginePath: join(root, 'engine', 'veed-engine-cli'),
-    engineInstallVersion: '1.0.0',
     npmAddFails: false,
     bins: {
       git: 'git',
@@ -96,25 +83,10 @@ function pnpmVersionAt(fx: Fixture, explicitCwd: string | null): string {
   }
 }
 
-// The exec seam: git and node run for real (quietly), pnpm/npm/brew are emulated, and anything
-// named like the engine answers --version from its own file content.
+// The exec seam: git and node run for real (quietly), and pnpm/npm/brew are emulated.
 const makeExec = (fx: Fixture) => (cmd: string, args: string[], opts: Record<string, unknown> = {}): ExecResult => {
   const explicitCwd = typeof opts.cwd === 'string' ? opts.cwd : null;
   const cwd = explicitCwd ?? process.cwd();
-  if (basename(cmd).startsWith('veed-engine-cli')) {
-    if (!existsSync(cmd)) return { status: 1, stdout: '', stderr: '', error: new Error('ENOENT') };
-    const version = readFileSync(cmd, 'utf8').trim();
-    return { status: 0, stdout: version ? `veed-engine-cli ${version}` : '', stderr: '' };
-  }
-  if (cmd === 'npx' && args.includes('install-engine')) {
-    if (fx.engineInstallVersion !== null) {
-      mkdirSync(join(fx.root, 'engine'), { recursive: true });
-      writeFileSync(fx.enginePath, fx.engineInstallVersion);
-      chmodSync(fx.enginePath, 0o755);
-    }
-    appendFileSync(fx.actionLog, 'renderer-install\n');
-    return { status: 0, stdout: '', stderr: '' };
-  }
   // Stands in for the real Windows-only downloader: writes the two binaries preflight probes for
   // into the injected state dir, where the real installer's app-data copy goes.
   if (cmd === 'npx' && args.includes('install-ffmpeg')) {
@@ -145,6 +117,12 @@ const makeExec = (fx: Fixture) => (cmd: string, args: string[], opts: Record<str
     }
     return { status: 1, stdout: '', stderr: '' };
   }
+  if (cmd === 'brew') {
+    // What a formula puts on PATH once it lands.
+    appendFileSync(fx.actionLog, `brew:${args.join(' ')}\n`);
+    for (const bin of args[1] === 'ffmpeg' ? ['ffmpeg', 'ffprobe'] : [args[1]]) fx.bins[bin] = `/opt/homebrew/bin/${bin}`;
+    return { status: 0, stdout: '', stderr: '' };
+  }
   if (cmd === 'corepack') {
     // `corepack enable` exits 0 whatever version its shim will go on to resolve.
     appendFileSync(fx.actionLog, 'corepack-enable\n');
@@ -169,23 +147,24 @@ async function runPreflight(
   args: string[],
   fx: Fixture,
   platform: { os?: string; arch?: string } = {},
+  extraEnv: Record<string, string> = {},
 ): Promise<{ status: number; stdout: string; stderr: string }> {
   const errLines: string[] = [];
   const outLines: string[] = [];
   const status = await main(args, {
     os: platform.os ?? 'darwin',
     arch: platform.arch ?? 'arm64',
-    env: { PATH: '/usr/bin', OPEN_EDIT_HOMEBREW_PATH_PREFIX: '', VEED_ENGINE_BIN: fx.enginePath, OPENEDIT_STATE_DIR: fx.stateDir },
+    env: { PATH: '/usr/bin', OPEN_EDIT_HOMEBREW_PATH_PREFIX: '', OPENEDIT_STATE_DIR: fx.stateDir, ...extraEnv },
     which: (cmd: string) => fx.bins[cmd] ?? null,
     exec: makeExec(fx),
-    fetch: async () => ({ ok: true, json: async () => ({ tag_name: 'weave-v1.0.0' }) }),
+    fetch: async () => { throw new Error('offline'); },
     err: (line: string) => errLines.push(line),
     out: (line: string) => outLines.push(line),
   });
   return { status, stderr: errLines.join('\n'), stdout: outLines.join('\n') };
 }
 
-test('preflight.mjs adds the Homebrew prefixes BEHIND the caller PATH on darwin, honouring the override', async () => {
+test('init adds the Homebrew prefixes BEHIND the caller PATH on darwin, honouring the override', async () => {
   const fx = await fixture();
   const env: Record<string, string | undefined> = { PATH: '/usr/bin' };
   const status = await main(['--dry', '--workspace', fx.consumer], {
@@ -194,13 +173,12 @@ test('preflight.mjs adds the Homebrew prefixes BEHIND the caller PATH on darwin,
     env,
     which: (cmd: string) => fx.bins[cmd] ?? null,
     exec: makeExec(fx),
-    fetch: async () => ({ ok: true, json: async () => ({ tag_name: 'weave-v1.0.0' }) }),
+    fetch: async () => { throw new Error('offline'); },
     err: () => {},
     out: () => {},
   });
   assert.equal(status, 0);
-  // Behind, not ahead: init spawns `npx @veedstudio/openedit-cli install-engine` and install-ffmpeg
-  // through this PATH, and an npm whose global directory differs from the caller's resolves a
+  // Behind, not ahead: init spawns `npx @veedstudio/openedit-cli install-ffmpeg` through this PATH, and an npm whose global directory differs from the caller's resolves a
   // published copy of the CLI rather than the one the caller is running.
   assert.equal(env.PATH, '/usr/bin:/opt/homebrew/bin:/usr/local/bin');
 
@@ -211,121 +189,53 @@ test('preflight.mjs adds the Homebrew prefixes BEHIND the caller PATH on darwin,
     env: untouched,
     which: (cmd: string) => fx.bins[cmd] ?? null,
     exec: makeExec(fx),
-    fetch: async () => ({ ok: true, json: async () => ({ tag_name: 'weave-v1.0.0' }) }),
+    fetch: async () => { throw new Error('offline'); },
     err: () => {},
     out: () => {},
   });
   assert.equal(untouched.PATH, '/usr/bin');
 });
 
-test('dry is immutable; bare preflight performs local setup once', async () => {
+const lastLine = (stderr: string) => stderr.trim().split('\n').at(-1) ?? '';
+
+// A contributor checkout is the one path that installs dependencies with pnpm, so it carries the
+// pnpm handling below.
+const inCheckout = (fx: Fixture) => ['--workspace', fx.source];
+
+test('dry is immutable; bare init installs a checkout\'s dependencies once', async () => {
   const fx = await fixture();
-  const common = ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
+  const common = inCheckout(fx);
 
   const dry = await runPreflight(['--dry', ...common], fx);
   assert.equal(dry.status, 0, dry.stderr);
-  assert.match(dry.stderr, /WOULD APPLY LOCALLY — full clone/);
-  await assert.rejects(access(join(fx.consumer, '.open-edit')));
+  assert.match(dry.stderr, /WOULD APPLY LOCALLY — pnpm install --frozen-lockfile/);
+  assert.ok(!existsSync(join(fx.source, 'node_modules')), '--dry installed something');
 
   const first = await runPreflight(common, fx);
   assert.equal(first.status, 0, first.stderr);
-  const runtime = join(await realpath(fx.consumer), '.open-edit/runtime');
-  assert.equal(first.stdout.trim(), runtime);
-  const expectedCommit = execFileSync('git', ['rev-parse', 'feature'], { cwd: fx.source, encoding: 'utf8' }).trim();
-  const state = join(runtime, '.git/open-edit-preflight-state');
-  assert.equal(execFileSync('git', ['config', '--file', state, '--get', 'preflight.installedCommit'], { encoding: 'utf8' }).trim(), expectedCommit);
-  assert.match(await readFile(join(fx.consumer, '.git/info/exclude'), 'utf8'), /^\.open-edit\/$/m);
-  assert.deepEqual((await readFile(fx.actionLog, 'utf8')).trim().split('\n').sort(), ['pnpm-install', 'renderer-install']);
+  assert.equal(first.stdout.trim(), await realpath(fx.source));
+  assert.deepEqual((await readFile(fx.actionLog, 'utf8')).trim().split('\n').sort(), ['pnpm-install']);
 
-  // The clone path persists only under its explicit pin; a bare re-run would promote to the package.
   const second = await runPreflight(common, fx);
   assert.equal(second.status, 0, second.stderr);
-  assert.equal((await readFile(fx.actionLog, 'utf8')).trim().split('\n').length, 2);
+  assert.equal((await readFile(fx.actionLog, 'utf8')).trim().split('\n').length, 1);
 });
 
-// The safe-zone check needs `--verify=<rules>` and the WCAG pass the analyzer bundled into the
-// engine, so an engine below the floor cannot run them at all. Reporting `ready` and letting the run reach the
-// pass is the mid-pipeline failure the floor exists to prevent — and an install
-// that silently does not raise the version must not be mistaken for success.
-test('an engine below the floor fails preflight even after an approved install', async () => {
+test('a checkout whose package.json does not parse is refused, never scaffolded over', async () => {
   const fx = await fixture();
-  const common = ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
-  assert.equal((await runPreflight(common, fx)).status, 0);
-
-  // An engine that predates the floor...
-  writeFileSync(fx.enginePath, '0.7.3');
-  // ...and an install that does not raise it (download failed non-fatally, or the
-  // published release is still older than the floor).
-  fx.engineInstallVersion = null;
-
-  const auto = await runPreflight(['--auto-approve', '--workspace', fx.consumer], fx);
-  assert.notEqual(auto.status, 0, `expected failure, got:\n${auto.stderr}`);
-  assert.match(auto.stderr, /0\.11\.0/);
-  assert.doesNotMatch(auto.stdout, /\.open-edit\/runtime/, 'must not report a ready root');
-});
-
-// A FIRST install is subject to the same floor as an update. Nothing downstream
-// re-checks it, so an engine laid down below the floor is reported ready and the
-// run reaches the WCAG pass before failing — the mid-pipeline failure the floor
-// exists to prevent.
-test('a FRESH engine install below the floor fails preflight', async () => {
-  const fx = await fixture();
-  fx.engineInstallVersion = '0.7.3';
-
-  const r = await runPreflight(['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'], fx);
-  assert.notEqual(r.status, 0, `expected failure, got:\n${r.stderr}`);
-  assert.match(r.stderr, /0\.11\.0/);
-  assert.doesNotMatch(r.stdout, /\.open-edit\/runtime/, 'must not report a ready root');
-});
-
-// An UNREADABLE version is not "unknown, carry on": nothing downstream can tell
-// it apart from a current engine, so passing it on defers the failure into the
-// run exactly as a below-floor engine would.
-test('an engine whose version cannot be read is treated as below the floor', async () => {
-  const fx = await fixture();
-  assert.equal((await runPreflight(['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'], fx)).status, 0);
-  writeFileSync(fx.enginePath, '');
-
-  const r = await runPreflight(['--workspace', fx.consumer], fx);
-  assert.notEqual(r.status, 0, `expected a non-ready exit, got:\n${r.stderr}`);
-  assert.match(r.stderr, /0\.11\.0/);
-  assert.doesNotMatch(r.stdout, /\.open-edit\/runtime/, 'must not report a ready root');
-});
-
-test('clean runtime update requires approval and dirty runtime is only reported', async () => {
-  const fx = await fixture();
-  const common = ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
-  assert.equal((await runPreflight(common, fx)).status, 0);
-  const runtime = join(await realpath(fx.consumer), '.open-edit/runtime');
-  const oldCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: runtime, encoding: 'utf8' }).trim();
-
-  await writeFile(join(fx.source, 'revision.txt'), 'second\n');
-  execFileSync('git', ['add', 'revision.txt'], { cwd: fx.source });
-  execFileSync('git', ['commit', '-m', 'second'], { cwd: fx.source });
-  const newCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: fx.source, encoding: 'utf8' }).trim();
-
-  const proposed = await runPreflight(['--dry', ...common], fx);
-  assert.equal(proposed.status, 10, proposed.stderr);
-  assert.match(proposed.stderr, /APPROVAL REQUIRED — fast-forward runtime/);
-  assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: runtime, encoding: 'utf8' }).trim(), oldCommit);
-
-  const approved = await runPreflight(['--auto-approve', ...common], fx);
-  assert.equal(approved.status, 0, approved.stderr);
-  assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: runtime, encoding: 'utf8' }).trim(), newCommit);
-
-  await writeFile(join(runtime, 'local.txt'), 'local\n');
-  await writeFile(join(fx.source, 'third.txt'), 'third\n');
-  execFileSync('git', ['add', 'third.txt'], { cwd: fx.source });
-  execFileSync('git', ['commit', '-m', 'third'], { cwd: fx.source });
-  const dirty = await runPreflight(['--auto-approve', ...common], fx);
-  assert.equal(dirty.status, 0, dirty.stderr);
-  assert.match(dirty.stderr, /has local changes; leaving it untouched/);
-  assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: runtime, encoding: 'utf8' }).trim(), newCommit);
+  writeFileSync(join(fx.source, 'package.json'), '<<<<<<< HEAD\n{ "name": "@veedstudio/openedit-cli" }\n');
+  const skill = join(fx.source, '.claude/skills/open-edit/SKILL.md');
+  const [skillBefore, ignoreBefore] = [readFileSync(skill, 'utf8'), readFileSync(join(fx.source, '.gitignore'), 'utf8')];
+  const r = await runPreflight(inCheckout(fx), fx);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /ERROR — \S+package\.json cannot be read as JSON .*cannot tell whether this is an OpenEdit checkout/);
+  assert.equal(readFileSync(skill, 'utf8'), skillBefore, 'replaced the checkout\'s tracked skill');
+  assert.equal(readFileSync(join(fx.source, '.gitignore'), 'utf8'), ignoreBefore);
 });
 
 test('pnpm newer than the floor satisfies preflight without reinstalling', async () => {
   const fx = await fixture();
-  const common = ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
+  const common = inCheckout(fx);
 
   assert.equal((await runPreflight(common, fx)).status, 0);
   const second = await runPreflight(common, fx);
@@ -338,7 +248,7 @@ test('global dependencies are reported but never installed without auto-approve'
   const fx = await fixture();
   fx.pnpmVersion = '9.0.0';
   fx.installedPnpm = '10.16.1';
-  const common = ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
+  const common = inCheckout(fx);
 
   const bare = await runPreflight(common, fx);
   assert.equal(bare.status, 10, bare.stderr);
@@ -350,29 +260,154 @@ test('global dependencies are reported but never installed without auto-approve'
   assert.match(await readFile(fx.actionLog, 'utf8'), /npm-global-pnpm/);
 });
 
-test('managed runtime rejects conflicting developer overrides', async () => {
-  const fx = await fixture();
-  assert.equal((await runPreflight(['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'], fx)).status, 0);
-  const conflict = await runPreflight(['--dry', '--workspace', fx.consumer, '--repository', join(fx.root, 'other')], fx);
-  assert.equal(conflict.status, 1);
-  assert.match(conflict.stderr, /conflicts with the managed runtime/);
-});
-
 // Windows global-dep installs are report-only: winget needs an interactive first run and its PATH
 // edits never reach an already-running process, so --auto-approve must NOT claim to have installed.
-// Git has no workspace-local route, so it is the honest subject for "stays manual" now that FFmpeg
+// Node has no workspace-local route, so it is the honest subject for "stays manual" now that FFmpeg
 // has one.
 test('on Windows a missing dependency reports a winget hint and stays pending under --auto-approve', async () => {
   const fx = await fixture();
-  fx.bins.git = null;
+  fx.bins.node = null;
   fx.bins.winget = 'winget';
-  const common = ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
+  const common = inCheckout(fx);
 
   const auto = await runPreflight(['--auto-approve', ...common], fx, { os: 'win32', arch: 'x64' });
   assert.equal(auto.status, 10, auto.stderr);
-  assert.ok(auto.stderr.includes('APPROVAL REQUIRED — install Git globally: winget install --id Git.Git'), auto.stderr);
-  assert.match(auto.stderr, /Windows installs are manual in v1/);
+  assert.ok(auto.stderr.includes('APPROVAL REQUIRED — install Node globally: winget install --id OpenJS.NodeJS.LTS'), auto.stderr);
+  assert.match(auto.stderr, /Windows installs are manual/);
   assert.doesNotMatch(auto.stderr, /brew install/);
+  assert.match(lastLine(auto.stderr), /the user runs the install commands init cannot run here, then re-runs init from a NEW terminal/);
+});
+
+// The approval a user gives names a command; --auto-approve must run that command or nothing. On
+// Linux it names apt, which needs root, so nothing runs — not even a Homebrew that happens to exist.
+test('on Linux a missing dependency reports the apt/nodejs command and stays pending under --auto-approve', async () => {
+  const fx = await fixture();
+  fx.bins.node = null;
+  fx.bins.ffmpeg = null;
+  fx.bins.ffprobe = null;
+  fx.bins.brew = 'brew';
+  const LINUX = { os: 'linux', arch: 'x64' };
+
+  const bare = await runPreflight(inCheckout(fx), fx, LINUX);
+  assert.equal(bare.status, 10, bare.stderr);
+  assert.ok(bare.stderr.includes('APPROVAL REQUIRED — install FFmpeg globally: sudo apt install ffmpeg'), bare.stderr);
+  assert.ok(bare.stderr.includes('APPROVAL REQUIRED — install Node globally: install Node 20.18.1+ from nodejs.org'), bare.stderr);
+
+  const auto = await runPreflight(['--auto-approve', ...inCheckout(fx)], fx, LINUX);
+  assert.equal(auto.status, 10, auto.stderr);
+  assert.match(auto.stderr, /need root, so init never runs them/);
+  assert.doesNotMatch(auto.stderr, /Homebrew/);
+  assert.doesNotMatch(await readFile(fx.actionLog, 'utf8').catch(() => ''), /brew:/, 'ran an install nobody approved');
+  // The skill acts on the final line; pointing it back at --auto-approve here was a loop.
+  assert.match(lastLine(auto.stderr), /the user runs the install commands init cannot run here, then re-runs init$/);
+  assert.doesNotMatch(auto.stderr, /run with --auto-approve/);
+});
+
+// pnpm is corepack or npm under the user's own Node, not a package-manager install, so the root rule
+// that keeps Node and FFmpeg manual on Linux does not reach it.
+test('on Linux --auto-approve still installs the pnpm it asked approval for', async () => {
+  const fx = await fixture();
+  fx.pnpmVersion = '9.0.0';
+  fx.installedPnpm = '10.16.1';
+  const auto = await runPreflight(['--auto-approve', ...inCheckout(fx)], fx, { os: 'linux', arch: 'x64' });
+  assert.equal(auto.status, 0, auto.stderr);
+  assert.match(await readFile(fx.actionLog, 'utf8'), /npm-global-pnpm/);
+  assert.doesNotMatch(auto.stderr, /need root/);
+});
+
+// The inverse: on macOS the approved command is the Homebrew one, and --auto-approve runs exactly it.
+test('on macOS --auto-approve runs the Homebrew install it asked approval for', async () => {
+  const fx = await fixture();
+  fx.bins.ffmpeg = null;
+  fx.bins.ffprobe = null;
+  fx.bins.brew = 'brew';
+
+  const bare = await runPreflight(inCheckout(fx), fx);
+  assert.ok(bare.stderr.includes('APPROVAL REQUIRED — install FFmpeg globally: brew install ffmpeg'), bare.stderr);
+
+  const auto = await runPreflight(['--auto-approve', ...inCheckout(fx)], fx);
+  assert.equal(auto.status, 0, auto.stderr);
+  assert.match(await readFile(fx.actionLog, 'utf8'), /^brew:install ffmpeg$/m);
+});
+
+// The advice a missing FFmpeg prints: every command takes ffprobe from beside OPENEDIT_FFMPEG, so
+// init must too, or following the advice leaves the global-install approval pending for good.
+test('an FFmpeg named by OPENEDIT_FFMPEG alone, its ffprobe beside it off PATH, satisfies init', async () => {
+  const fx = await fixture();
+  fx.bins.ffmpeg = null;
+  fx.bins.ffprobe = null;
+  fx.bins.brew = 'brew';
+  fx.bins['/opt/ff/ffmpeg'] = '/opt/ff/ffmpeg';
+  fx.bins['/opt/ff/ffprobe'] = '/opt/ff/ffprobe';
+  const override = { OPENEDIT_FFMPEG: '/opt/ff/ffmpeg' };
+
+  const linux = await runPreflight(inCheckout(fx), fx, { os: 'linux', arch: 'x64' }, override);
+  assert.equal(linux.status, 0, linux.stderr);
+  assert.doesNotMatch(linux.stderr, /install FFmpeg globally/);
+
+  const mac = await runPreflight(['--auto-approve', ...inCheckout(fx)], fx, {}, override);
+  assert.equal(mac.status, 0, mac.stderr);
+  assert.doesNotMatch(await readFile(fx.actionLog, 'utf8'), /brew:install ffmpeg/, 'installed an FFmpeg nothing would run');
+});
+
+// config.ts runs the override whatever else exists, so neither a PATH ffprobe nor an app-data copy may
+// pass for it, and no global install is proposed that would change nothing.
+test('a set OPENEDIT_FFMPEG that is not there is named, never excused or answered with an install', async () => {
+  const fx = await fixture();
+  fx.bins['/opt/ff/ffmpeg'] = '/opt/ff/ffmpeg';
+  const besideMissing = await runPreflight(inCheckout(fx), fx, {}, { OPENEDIT_FFMPEG: '/opt/ff/ffmpeg' });
+  assert.equal(besideMissing.status, 1, besideMissing.stderr);
+  assert.match(besideMissing.stderr, /ERROR — OPENEDIT_FFMPEG is set, .*no executable file is at \/opt\/ff\/ffprobe — fix or unset it, or set OPENEDIT_FFPROBE to an ffprobe elsewhere$/m);
+
+  const local = join(fx.stateDir, 'ffmpeg', 'bin');
+  mkdirSync(local, { recursive: true });
+  for (const n of ['ffmpeg', 'ffprobe']) writeFileSync(join(local, n), '');
+  const gone = await runPreflight(inCheckout(fx), fx, {}, { OPENEDIT_FFMPEG: '/gone/ffmpeg' });
+  assert.equal(gone.status, 1, gone.stderr);
+  assert.match(gone.stderr, /no executable file is at \/gone\/ffmpeg or \/gone\/ffprobe/);
+  assert.doesNotMatch(gone.stderr, /APPROVAL REQUIRED/);
+});
+
+// config.ts takes OPENEDIT_FFPROBE ahead of app-data and PATH whether or not OPENEDIT_FFMPEG is set, so
+// init must hold it to the same bar, and name it, not OPENEDIT_FFMPEG, when it is the one missing.
+test('a set OPENEDIT_FFPROBE is checked on its own and named when it is not there', async () => {
+  const fx = await fixture();
+  fx.bins.brew = 'brew';
+  const onPath = await runPreflight(['--auto-approve', ...inCheckout(fx)], fx, {}, { OPENEDIT_FFPROBE: '/gone/ffprobe' });
+  assert.equal(onPath.status, 1, onPath.stderr);
+  assert.match(onPath.stderr, /ERROR — OPENEDIT_FFPROBE is set, so every command runs \/gone\/ffprobe, but no executable file is at \/gone\/ffprobe — fix or unset it$/m);
+  assert.doesNotMatch(onPath.stderr, /APPROVAL REQUIRED/);
+  assert.doesNotMatch(await readFile(fx.actionLog, 'utf8').catch(() => ''), /brew:install ffmpeg/, 'installed an FFmpeg that cannot help');
+
+  // An app-data pair must not excuse it either.
+  fx.bins.ffmpeg = null;
+  fx.bins.ffprobe = null;
+  const local = join(fx.stateDir, 'ffmpeg', 'bin');
+  mkdirSync(local, { recursive: true });
+  for (const n of ['ffmpeg.exe', 'ffprobe.exe']) writeFileSync(join(local, n), '');
+  const appData = await runPreflight(inCheckout(fx), fx, { os: 'win32', arch: 'x64' }, { OPENEDIT_FFPROBE: '/gone/ffprobe' });
+  assert.equal(appData.status, 1, appData.stderr);
+  assert.match(appData.stderr, /ERROR — OPENEDIT_FFPROBE is set/);
+
+  fx.bins['/opt/ff/ffmpeg'] = '/opt/ff/ffmpeg';
+  const both = await runPreflight(inCheckout(fx), fx, {}, { OPENEDIT_FFMPEG: '/opt/ff/ffmpeg', OPENEDIT_FFPROBE: '/gone/ffprobe' });
+  assert.equal(both.status, 1, both.stderr);
+  assert.match(both.stderr, /ERROR — OPENEDIT_FFPROBE is set, so every command runs \/gone\/ffprobe/);
+  assert.doesNotMatch(both.stderr, /OPENEDIT_FFMPEG is set/, 'blamed a variable whose removal cannot help');
+});
+
+// The inverse: a working OPENEDIT_FFPROBE completes a pair whose ffmpeg is the app-data one.
+test('an app-data ffmpeg with a working OPENEDIT_FFPROBE satisfies init', async () => {
+  const fx = await fixture();
+  fx.bins.ffmpeg = null;
+  fx.bins.ffprobe = null;
+  fx.bins['/opt/ff/ffprobe'] = '/opt/ff/ffprobe';
+  const local = join(fx.stateDir, 'ffmpeg', 'bin');
+  mkdirSync(local, { recursive: true });
+  writeFileSync(join(local, 'ffmpeg.exe'), '');
+  const r = await runPreflight(inCheckout(fx), fx, { os: 'win32', arch: 'x64' }, { OPENEDIT_FFPROBE: '/opt/ff/ffprobe' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(await readFile(fx.actionLog, 'utf8').catch(() => ''), /ffmpeg-local-install/);
 });
 
 test('a machine without winget is pointed at the direct download sources', async () => {
@@ -381,27 +416,16 @@ test('a machine without winget is pointed at the direct download sources', async
   fx.bins.ffprobe = null;
   const r = await runPreflight(['--dry', '--workspace', fx.consumer], fx, { os: 'win32', arch: 'x64' });
   assert.equal(r.status, 10, r.stderr);
-  assert.match(r.stderr, /no winget on this machine — install from git-scm\.com, nodejs\.org, and gyan\.dev/);
+  assert.match(r.stderr, /no winget on this machine — install from nodejs\.org and gyan\.dev/);
 });
 
-test('an unsupported platform dies naming the supported ones', async () => {
-  const fx = await fixture();
-  const r = await runPreflight(['--dry', '--workspace', fx.consumer], fx, { os: 'linux', arch: 'x64' });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /rendering requires macOS arm64 or Windows x64/);
-});
-
-// The next tests spawn the REAL init against the REAL host, which init supports on macOS and
-// Windows only — on any other platform it refuses before reaching the behavior under test.
-const HOST_UNSUPPORTED = process.platform !== 'darwin' && process.platform !== 'win32'
-  && `init refuses ${process.platform} hosts, so the real-host spawn cannot reach the asserted behavior`;
 // Resolved to an absolute specifier so the spawn works from ANY cwd — 'tsx' bare would resolve
 // from the child's cwd, which need not hold a node_modules (CI installs only in this package).
 const TSX = import.meta.resolve('tsx');
 
 // One subprocess run proves the CLI wiring (arg parsing, exit-code mapping, stdout contract) on the
 // real host, with no seams. 10 is acceptable: it only means something on this machine needs approval.
-test('the CLI entrypoint runs against this checkout', { skip: HOST_UNSUPPORTED }, async () => {
+test('the CLI entrypoint runs against this checkout', async () => {
   const repo = resolve(import.meta.dirname, '..', '..');
   const cliPath = resolve(import.meta.dirname, '../src/cli.ts');
   const r = spawnSync(process.execPath, ['--import', TSX, cliPath, 'init', '--dry', '--workspace', repo], { encoding: 'utf8' });
@@ -419,7 +443,7 @@ test('a prerelease pnpm above the floor is accepted, not downgraded', async () =
   const fx = await fixture();
   fx.pnpmVersion = '10.17.0-beta.1';
   fx.installedPnpm = '10.17.0-beta.1';
-  const r = await runPreflight(['--auto-approve', '--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'], fx);
+  const r = await runPreflight(['--auto-approve', ...inCheckout(fx)], fx);
   assert.equal(r.status, 0, r.stderr);
   assert.doesNotMatch(r.stderr, /install pnpm/);
   const log = await readFile(fx.actionLog, 'utf8').catch(() => '');
@@ -438,24 +462,13 @@ test('the pnpm floor matches package.json packageManager', async () => {
   assert.equal(floor, pinned, 'preflight MIN_PNPM must match package.json packageManager');
 });
 
-// The published packument carries openedit.minEngine, and init grades an offered CLI update against
-// it. Two floors that drift would let an update install itself onto an engine it cannot drive.
-test('the renderer floor matches package.json openedit.minEngine', async () => {
-  const pkg = JSON.parse(await readFile(resolve(import.meta.dirname, '..', '..', 'package.json'), 'utf8')) as { openedit?: { minEngine?: string } };
-  const declared = pkg.openedit?.minEngine;
-  assert.match(declared ?? '', /^\d+\.\d+\.\d+$/, 'package.json must declare openedit.minEngine');
-  const source = await readFile(resolve(import.meta.dirname, '../src/commands/init.ts'), 'utf8');
-  const floor = /^const MIN_ENGINE = '([^']+)'/m.exec(source)?.[1];
-  assert.equal(floor, declared, 'preflight MIN_ENGINE must match package.json openedit.minEngine');
-});
-
 // corepack ships inside Node and installs exactly what packageManager pins, so it is preferred over
 // owning a global package; npm remains the fallback for a Node built without it.
 test('corepack is preferred over a global npm install when it is available', async () => {
   const fx = await fixture();
   fx.pnpmVersion = '9.0.0';
   fx.bins.corepack = 'corepack';
-  const common = ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
+  const common = inCheckout(fx);
 
   const bare = await runPreflight(['--dry', ...common], fx);
   assert.match(bare.stderr, /install pnpm .* or newer globally: corepack enable pnpm/);
@@ -475,26 +488,26 @@ test('corepack that resolves a pnpm below the floor still falls back to npm', as
   fx.pnpmVersion = '9.0.0';
   fx.corepackYields = '9.0.0';
   fx.bins.corepack = 'corepack';
-  const r = await runPreflight(['--auto-approve', '--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'], fx);
+  const r = await runPreflight(['--auto-approve', ...inCheckout(fx)], fx);
   assert.equal(r.status, 0, r.stderr);
   const log = await readFile(fx.actionLog, 'utf8');
   assert.match(log, /corepack-enable/);
   assert.match(log, /npm-global-pnpm/);
 });
 
-// The installer ships in the CLI itself, so a COLD workspace gets FFmpeg on the first run — no
-// clone has to exist first, and nothing is written into the workspace.
+// The installer ships in the CLI itself, so a COLD workspace gets FFmpeg on the first run, and
+// nothing is written into the workspace.
 test('on Windows a cold workspace installs FFmpeg locally on the FIRST run, without elevation', async () => {
   const fx = await fixture();
   fx.bins.ffmpeg = null;
   fx.bins.ffprobe = null;
-  const common = ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
+  const common = inCheckout(fx);
 
   const dry = await runPreflight(['--dry', ...common], fx, { os: 'win32', arch: 'x64' });
   assert.equal(dry.status, 10, dry.stderr);
   assert.ok(dry.stderr.includes('needs no admin rights: npx @veedstudio/openedit-cli install-ffmpeg'), dry.stderr);
   // FFmpeg alone is outstanding and it has a local route, so nothing here is actually manual.
-  assert.ok(!dry.stderr.includes('Windows installs are manual in v1'), dry.stderr);
+  assert.ok(!dry.stderr.includes('Windows installs are manual'), dry.stderr);
 
   const auto = await runPreflight(['--auto-approve', ...common], fx, { os: 'win32', arch: 'x64' });
   assert.equal(auto.status, 0, auto.stderr);
@@ -503,20 +516,15 @@ test('on Windows a cold workspace installs FFmpeg locally on the FIRST run, with
 });
 
 // WORKSPACE resolution: init reuses the workspace only when the workspace IS an Open Edit checkout,
-// otherwise it clones veedstudio/open-edit@main into <workspace>/.open-edit/runtime and every later
-// step runs there. Pointing it at the wrong directory therefore runs the whole job against different
-// code, and nothing said so. These two spawn the real CLI so the host git answers "where was this run from".
+// otherwise it scaffolds the workspace around the packaged content. Pointing it at the wrong directory
+// therefore runs the whole job against different code, and nothing said so. These two spawn the real
+// CLI so the host git answers "where was this run from".
 const repoCheckout = resolve(import.meta.dirname, '..', '..');
 const cliEntry = resolve(import.meta.dirname, '../src/cli.ts');
 const spawnInit = (args: string[], cwd: string) =>
-  spawnSync(process.execPath, ['--import', TSX, cliEntry, 'init', ...args], {
-    encoding: 'utf8',
-    cwd,
-    // a missing engine skips the freshness check — the host's install vs the live release API must not decide these tests
-    env: { ...process.env, VEED_ENGINE_BIN: join(tmpdir(), 'open-edit-absent', 'veed-engine-cli') },
-  });
+  spawnSync(process.execPath, ['--import', TSX, cliEntry, 'init', ...args], { encoding: 'utf8', cwd });
 
-test('init says which runtime it will use, and warns when the invoking checkout is bypassed', { skip: HOST_UNSUPPORTED }, async () => {
+test('init says which runtime it will use, and warns when the invoking checkout is bypassed', async () => {
   const elsewhere = await mkdtemp(join(tmpdir(), 'open-edit-elsewhere-'));
 
   const bypassed = spawnInit(['--dry', '--workspace', elsewhere], repoCheckout);
@@ -527,8 +535,8 @@ test('init says which runtime it will use, and warns when the invoking checkout 
   assert.match(bypassed.stderr, /packaged content/i, 'did not say the packaged content would be used');
 
   const reused = spawnInit(['--dry', '--workspace', repoCheckout], repoCheckout);
-  // 10 is "something needs your approval", which a --dry run reports whenever a newer renderer
-  // release exists upstream — a fact about the world, not about this checkout.
+  // 10 is "something needs your approval", which depends on this host's global tools, not on this
+  // checkout.
   assert.ok(reused.status === 0 || reused.status === 10, `init exited ${reused.status}: ${reused.stderr}`);
   assert.match(reused.stderr, /reusing the local checkout/i, 'did not report reusing the local checkout');
   assert.doesNotMatch(reused.stderr, /this command ran from the checkout/i, 'warned even though the checkout was used');
@@ -538,13 +546,11 @@ test('init says which runtime it will use, and warns when the invoking checkout 
 // approved prerequisite is missing" — three agents read that as "a human must approve something" and
 // treated the run as blocked. Nothing is pending approval on that branch; the outstanding work is the
 // WOULD APPLY LOCALLY list, which bare init performs itself.
-test('an incomplete-but-unblocked dry run says to run bare init, not to seek approval', { skip: HOST_UNSUPPORTED }, async () => {
+test('an incomplete-but-unblocked dry run says to run bare init, not to seek approval', async () => {
   const fixtureDir = await mkdtemp(join(tmpdir(), 'open-edit-incomplete-'));
   execFileSync('git', ['init', '-q', fixtureDir]);
-  await mkdir(join(fixtureDir, 'pipeline/scripts'), { recursive: true });
-  await mkdir(join(fixtureDir, 'refs'), { recursive: true });
-  await writeFile(join(fixtureDir, 'pipeline/scripts/preflight.sh'), '#!/bin/bash\n');
-  await writeFile(join(fixtureDir, 'refs/tags.json'), JSON.stringify({ version: 3, refs: [] }) + '\n');
+  await mkdir(join(fixtureDir, 'cli/src'), { recursive: true });
+  await writeFile(join(fixtureDir, 'cli/src/cli.ts'), '');
   await writeFile(join(fixtureDir, 'package.json'), JSON.stringify({ name: '@veedstudio/openedit-cli' }) + '\n');
   await writeFile(join(fixtureDir, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
 
@@ -554,14 +560,14 @@ test('an incomplete-but-unblocked dry run says to run bare init, not to seek app
   assert.doesNotMatch(dry.stderr, /APPROVAL REQUIRED/, 'precondition: nothing should need approval here');
   assert.doesNotMatch(dry.stderr, /approved prerequisite is missing/,
     'claims approval is pending when nothing is');
-  assert.match(dry.stderr, /run bare preflight/, 'does not name the remedy');
+  assert.match(dry.stderr, /run bare init \(no --dry\)/, 'does not name the remedy');
 });
 
 // WOULD APPLY LOCALLY is a promise bare init keeps; only GLOBAL installs wait for approval. These
 // assert the action — action log, filesystem, exit code — never the printed prose, which was correct
 // while nothing happened.
 
-const winWorkspace = (fx: Fixture) => ['--workspace', fx.consumer, '--repository', fx.source, '--ref', 'feature'];
+const winWorkspace = inCheckout;
 const WIN = { os: 'win32', arch: 'x64' };
 
 test('bare init performs the local FFmpeg install it advertised under --dry', async () => {

@@ -32,9 +32,10 @@ test('--provider veed accepts --workspace and refuses WhisperX flags', () => {
   assert.throws(() => parseArgs(['--provider', 'veed', 'clip.mp4', '--language', 'de']), /WhisperX flags/);
 });
 
-test('the default provider is whisperx, which refuses --workspace', () => {
-  assert.deepEqual(parseArgs(['clip.mp4']), { videos: ['clip.mp4'], provider: 'whisperx' });
-  assert.throws(() => parseArgs(['clip.mp4', '--workspace', 'ws1']), /--workspace applies only/);
+test('--provider whisperx refuses --workspace; with no --provider the recorded one decides later', () => {
+  assert.throws(() => parseArgs(['--provider', 'whisperx', 'clip.mp4', '--workspace', 'ws1']), /--workspace applies only/);
+  assert.deepEqual(parseArgs(['clip.mp4']), { videos: ['clip.mp4'] });
+  assert.deepEqual(parseArgs(['clip.mp4', '--workspace', 'ws1']), { videos: ['clip.mp4'], workspace: 'ws1' });
 });
 
 // Moved from the repository's cli-entry suite with the entry point itself. Argv is judged BEFORE the
@@ -67,6 +68,6 @@ test('custom is a recorded choice, never a runnable --provider', () => {
   // ...but --record custom still works: recording is not running.
   assert.deepEqual(
     parseArgs(['--record', 'custom']),
-    { videos: [], provider: 'whisperx', record: 'custom' },
+    { videos: [], record: 'custom' },
   );
 });

@@ -1,10 +1,10 @@
-// Installs the packed tarball and spawns the INSTALLED cli/dist. Paths and floors come from the
-// package's own modules, never re-derived: drift must not silently SKIP suites.
+// Installs the packed tarball and spawns the INSTALLED cli/dist. Tool paths come from the package's
+// own modules, never re-derived: drift must not silently SKIP suites.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { engineBinPath, FFMPEG, FFPROBE } from '../src/config.ts';
+import { FFMPEG, FFPROBE } from '../src/config.ts';
 
 export const IT_DIR = process.env.OPENEDIT_IT_DIR ?? '';
 export const IT_VERSION = process.env.OPENEDIT_IT_VERSION ?? '1.2.3';
@@ -14,8 +14,6 @@ if (!IT_DIR) throw new Error('run these suites through `npm run test:integration
 
 // A registry nothing listens on — no test may consult the real registry for this real package name.
 export const DEAD_REGISTRY = 'http://127.0.0.1:9/';
-
-const ENGINE_FLOOR: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).openedit.minEngine;
 
 // .native expands Windows 8.3 short names (RUNNER~1), which plain realpathSync leaves in place.
 export const real = (p: string): string => realpathSync.native(p);
@@ -49,29 +47,7 @@ export function cli(installedPkg: string, args: string[], opts: { cwd?: string; 
   return { status: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
 
-// ---------- host gates ----------
-
-const numericAtLeast = (candidate: string, floor: string): boolean => {
-  const parts = (v: string) => v.replace(/^v/, '').split(/[-+]/)[0].split('.').map(Number);
-  const a = parts(candidate);
-  const b = parts(floor);
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const x = a[i] ?? 0;
-    const y = b[i] ?? 0;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    if (x !== y) return x > y;
-  }
-  return true;
-};
-
-/** A runnable engine at or above the published floor. */
-export function engineReady(): boolean {
-  const bin = engineBinPath();
-  if (!existsSync(bin)) return false;
-  const r = spawnSync(bin, ['--version'], { encoding: 'utf8' });
-  const version = r.status === 0 ? (r.stdout ?? '').trim().split(/\s+/)[1] ?? '' : '';
-  return Boolean(version) && numericAtLeast(version, ENGINE_FLOOR);
-}
+// ---------- host gate ----------
 
 export function ffmpegReady(): boolean {
   // config's own resolution: the Windows preflight puts ffmpeg in app-data, never on PATH.
@@ -79,21 +55,11 @@ export function ffmpegReady(): boolean {
   return probe(FFMPEG) && probe(FFPROBE);
 }
 
-// Two gates: only a test that RENDERS needs HOST_READY, and one gate skipped every case that
-// never starts an engine.
 export const TOOLS_READY = ffmpegReady();
 export const TOOLS_SKIP = TOOLS_READY ? undefined : 'ffmpeg/ffprobe not installed — run `openedit install-ffmpeg`, then re-run';
-export const HOST_READY = engineReady() && TOOLS_READY;
-export const SKIP_REASON = HOST_READY ? undefined : `host not provisioned (engine ready: ${engineReady()}, ffmpeg: ${ffmpegReady()}) — install both, then re-run`;
-// A CI runner FAILS loudly either way: its preflight step exists to provision exactly this.
-if (!HOST_READY && process.env.CI) {
-  throw new Error(`integration host not provisioned in CI: ${SKIP_REASON}`);
-}
-
-// A newer renderer existing upstream is a fact about the world, not the flow under test.
-export function onlyRendererApproval(stderr: string): boolean {
-  const approvals = stderr.split('\n').filter((l) => l.includes('APPROVAL REQUIRED'));
-  return approvals.length > 0 && approvals.every((l) => /update renderer/.test(l));
+// A CI runner FAILS loudly instead: its preflight step exists to provision exactly this.
+if (!TOOLS_READY && process.env.CI) {
+  throw new Error(`integration host not provisioned in CI: ${TOOLS_SKIP}`);
 }
 
 /** Bare init for a suite's setup; the caller asserts on the returned run. */

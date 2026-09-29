@@ -1,11 +1,9 @@
 // A minimal npm registry, its OWN process: the suites drive the CLI with spawnSync, which blocks
 // the parent's event loop, so an in-process server could never answer. Prints "PORT <n>" when live.
 //
-//   node stub-registry.mjs --tarball <tgz> --latest <version> [--min-engine <v>] [--mode ok|hang]
-import { execFileSync } from 'node:child_process';
+//   node stub-registry.mjs --tarball <tgz> --latest <version> [--mode ok|hang]
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { basename, dirname } from 'node:path';
 import http from 'node:http';
 import https from 'node:https';
 import { parseArgs } from 'node:util';
@@ -14,7 +12,6 @@ const { values: opt } = parseArgs({
   options: {
     tarball: { type: 'string' },
     latest: { type: 'string' },
-    'min-engine': { type: 'string' },
     mode: { type: 'string', default: 'ok' },
   },
 });
@@ -22,11 +19,6 @@ const { values: opt } = parseArgs({
 const bytes = readFileSync(opt.tarball);
 const shasum = createHash('sha1').update(bytes).digest('hex');
 const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
-
-// Absent --min-engine the floor is the tarball's OWN; a fixture value would keep a missing field green.
-// Relative filename + cwd: bsdtar parses a drive-letter path as a remote host:file.
-const manifest = JSON.parse(execFileSync('tar', ['-xOf', basename(opt.tarball), 'package/package.json'], { encoding: 'utf8', cwd: dirname(opt.tarball) }));
-const minEngine = opt['min-engine'] ?? manifest.openedit?.minEngine;
 
 const server = http.createServer((req, res) => {
   if (opt.mode === 'hang') return; // accepted, never answered — the client's timeout is the test
@@ -49,7 +41,6 @@ const server = http.createServer((req, res) => {
   const versionEntry = (version) => ({
     name: '@veedstudio/openedit-cli',
     version,
-    ...(minEngine ? { openedit: { minEngine } } : {}),
     // The name rides in the tarball path so the proxy check above can tell it from a dependency's.
     dist: { tarball: `${base}/@veedstudio/openedit-cli/-/cli.tgz`, shasum, integrity },
   });

@@ -215,7 +215,7 @@ function printAspectReport(inputs: string[], canvas: Size, report: AspectReport[
 }
 
 export const usage = {
-  summary: 'Re-encode clips that disagree onto one canvas',
+  summary: 'Re-encode clips that disagree onto one canvas at 30 fps',
   positionals: '<out.mp4> <in1.mp4> <in2.mp4> [...]',
   flags: {
     canvas: { type: 'string', value: 'WxH', help: 'Target canvas (default: the largest clip by area)' },

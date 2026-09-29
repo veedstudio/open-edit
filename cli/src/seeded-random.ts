@@ -1,7 +1,5 @@
-// The seeded-draw law: the same run key must produce the same pick, across codebases.
-// This mirrors pipeline/scripts/sample-style.ts in the Open Edit repository — the two
-// copies must never disagree (a re-roll would silently change a delivered pick), so
-// tests/seeded-random.test.ts pins them with shared vectors.
+// The seeded-draw law: the same run key must produce the same pick, so a re-run never silently
+// changes a proposal someone already saw.
 
 // FNV-1a over the key: a stable 32-bit seed from a human-meaningful name.
 export function seedFromKey(key: string): number {

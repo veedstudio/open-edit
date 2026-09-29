@@ -1,5 +1,5 @@
 // Install WhisperX, the local and free transcription provider (the transcribe command). NOT run as a
-// side effect of anything: the orchestrator asks the user first, because this pulls in PyTorch and the
+// side effect of anything: the agent asks the user first, because this pulls in PyTorch and the
 // first transcription then downloads model weights — around 2 GB of disk for the fastest tier, more
 // for medium.
 //
@@ -18,7 +18,7 @@
 import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import fs from 'node:fs';
 import { parseUsage, type Usage } from '../args.ts';
-import { findOnPath, installHint, isCmdShim, whisperxSupported } from '../platform.ts';
+import { findOnPath, installHint, isCmdShim } from '../platform.ts';
 
 const say = (msg: string) => console.log(`install-whisperx: ${msg}`);
 const warn = (msg: string) => console.error(`install-whisperx: ${msg}`);
@@ -38,13 +38,6 @@ export async function installWhisperx(args: string[]): Promise<number> {
   // `whisperx --help` works but whose first real transcription dies importing pyannote.audio, since
   // torchaudio 2.9 removed list_audio_backends(). 3.12 resolves a working set.
   const python = 'OPEN_EDIT_WHISPERX_PYTHON' in process.env ? process.env.OPEN_EDIT_WHISPERX_PYTHON! : '3.12';
-
-  // Platform guard — matching the rest of the runtime. On both supported platforms CTranslate2 defaults
-  // to CPU here; a CUDA-capable box can override the device via the transcribe command's env knobs.
-  if (!whisperxSupported()) {
-    warn(`unsupported platform ${process.platform}/${process.arch} — this runtime supports macOS arm64 and Windows x64.`);
-    return 1;
-  }
 
   const which = (cmd: string) => findOnPath(cmd);
   // pipx installs as a .cmd shim on some Windows setups; Node refuses to exec those directly.

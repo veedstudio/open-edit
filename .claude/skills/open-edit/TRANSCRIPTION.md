@@ -1,14 +1,15 @@
-# open-edit: transcription (the PREP step's provider choice, login and failures)
+# open-edit: transcription (provider choice, login and failures)
 
 Read this whole file when `$OPEN_EDIT_ROOT/.open-edit-prefs.json` records no provider, a command reports
 "No VEED login found", or a transcription run fails. `SKILL.md` carries the commands for a recorded provider.
 
 PROVIDER CHOICE: if nothing needs transcribing (no footage, silent source, a graphics-only ask), do not
 ask it and record nothing. Otherwise read `$OPEN_EDIT_ROOT/.open-edit-prefs.json` first (the root
-preflight printed: the workspace on the package path, the checkout in contributor mode; a legacy managed
-clone's choice was promoted there by init, and looking anywhere else re-asks on every run). If it records a provider, use it and ask nothing. Only on a cold start (no
-file, or nothing usable in it) ask once, offering exactly these four. No default: never pick for the
-user. VEED transcribes best, so it is first and named as best; keep the order and the wording however
+preflight printed: your project, or the checkout in contributor mode; looking anywhere else re-asks on
+every run). If it records a provider, use it and ask nothing. A file that cannot be read or is damaged
+is no cold start, since a choice may sit behind it: fix it as `transcribe`'s refusal says. Only on a cold start
+(no file, or one that records no provider) ask once, offering exactly these four. No default: never pick
+for the user. VEED transcribes best, so it is first and named as best; keep the order and the wording however
 you put the question, then let them choose.
 
 > Before I can add captions I need a transcript. Four ways to get one:
@@ -37,8 +38,10 @@ they can switch later. Never record `whisperx` with no tier.
 - **veed** → `npx @veedstudio/openedit-cli transcribe --provider veed <video> [...]`, login flow below. When the browser opens, say
   exactly: "I've opened a VEED login tab in your browser — click Allow if it asks. I'll wait here;
   there's nothing to paste."
-- **whisperx** → `npx @veedstudio/openedit-cli transcribe <video> [...]` (recorded tier; `--model medium|small.en`
-  only to override). If the binary is missing, ask before installing: "WhisperX isn't installed. It's a local
+- **whisperx** → `npx @veedstudio/openedit-cli transcribe --provider whisperx <video> [...]` (recorded tier,
+  else `small.en`; `--model medium|small.en` only to override). Keep the flag: when this is the fallback
+  from a VEED failure, VEED is still the recorded provider and a bare `transcribe` would run it again.
+  If the binary is missing, ask before installing: "WhisperX isn't installed. It's a local
   Python tool — the install pulls in PyTorch and the first run downloads a model, so expect a slow first
   pass and around 2 GB of disk. It goes in its own isolated environment, not your system Python and not
   this project, and `uv tool uninstall whisperx` removes it again. Install it now?" On yes run
@@ -61,9 +64,8 @@ OFFERING THE ALTERNATIVE, once and in these words:
   those two as well.
 - No audio track → "That clip has no audio track, so there's no speech to caption. I can still put text
   on it — titles, lower thirds, motion graphics — from copy you give me. Want that?" Transcription is
-  the step with no subject, not the run: with no transcript there is no recipe, so author DESIGN + RENDER
-  inline per `director-brief.md` as the NO VIDEO case does, footage as the base layer, timings chosen by
-  you. Only an ask for speech captions specifically has nothing left to do.
+  the step with no subject, not the run: with no transcript there are no word timings, so author the piece
+  yourself, footage as the base layer, timings chosen by you. Only an ask for speech captions specifically has nothing left to do.
 
 WHEN A RUN FAILS, classify it; none of these is a silent retry:
 

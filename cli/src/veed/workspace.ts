@@ -124,3 +124,28 @@ export function describeChoice(workspace: WorkspaceCredits, source: WorkspaceSou
 export function describeWorkspaceChoice(workspace: WorkspaceCredits, source: WorkspaceSource): string {
   return `billing workspace ${workspace.name} (${workspace.id})${whyChosen(source)}`;
 }
+
+/**
+ * Where a free route makes its project: named, else remembered, else the first workspace, and always said which. No
+ * workspace is billed, so the pick is made for the caller and stated rather than asked.
+ */
+export async function pickProjectWorkspace(
+  http: VeedHttp,
+  explicit: string | undefined,
+  remembered: string | undefined,
+  holds: string,
+): Promise<{ id: string; name: string; why: string }> {
+  if (explicit) return { id: explicit, name: explicit, why: 'named with --workspace' };
+  const all = await listWorkspaces(http);
+  if (!all.length) throw new Error(`VEED: no workspaces on this account to hold the ${holds}`);
+  const kept = remembered ? all.find((w) => w.id === remembered) : undefined;
+  if (kept) return { id: kept.id, name: kept.name ?? kept.id, why: 'the workspace remembered from an earlier choice' };
+  const first = all[0];
+  // A remembered choice that is not used is named, so a project landing elsewhere is never a surprise.
+  const passedOver = remembered ? ` (the remembered workspace ${remembered} is not on this account's list)` : '';
+  return {
+    id: first.id,
+    name: first.name ?? first.id,
+    why: `${all.length === 1 ? 'the only workspace on this account' : `the first of ${all.length} workspaces this account lists`}${passedOver}`,
+  };
+}

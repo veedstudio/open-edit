@@ -15,7 +15,7 @@ import { copyFileSync, mkdirSync, existsSync, readdirSync, statSync, writeFileSy
 import { join, basename, extname, resolve } from 'node:path';
 import { parseUsage, usageLine, numberFlag, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
-import { probeFps, probeDisplaySize, videoDurationOf } from '../probe.ts';
+import { probeFrameRate, probeDisplaySize, videoDurationOf } from '../probe.ts';
 import { tilePath, tileSheet, withTileDir } from '../sheet.ts';
 
 export interface Still { frame: number; sec: number; path: string }
@@ -23,6 +23,8 @@ export interface Sheet { path: string; cols: number; rows: number; tileWidth: nu
 export interface FramePlan {
   video: string;
   fps: number;
+  /** The exact rate `render --fps` takes (`24000/1001`, or `25`): `fps` is its float, which render refuses whenever the rate is not whole. */
+  frameRate: string;
   durationSec: number;
   width: number;
   height: number;
@@ -134,7 +136,9 @@ function stillFilters(o: ExtractOptions): string[] {
 }
 
 export function extractFrames(video: string, o: ExtractOptions): FramePlan {
-  const fps = probeFps(video);
+  const rate = probeFrameRate(video);
+  const { fps } = rate;
+  const frameRate = rate.rate.replace(/\/1$/, '');
   const durationSec = videoDurationOf(video);
   const { width, height } = probeDisplaySize(video);
   const frames = selectFrames(o, fps, durationSec);
@@ -154,7 +158,7 @@ export function extractFrames(video: string, o: ExtractOptions): FramePlan {
   }
   if (missing.length) throw new Error(`ffmpeg wrote no still for ${missing.join(', ')}: past the last decodable frame`);
 
-  const plan: FramePlan = { video, fps, durationSec, width, height, stills };
+  const plan: FramePlan = { video, fps, frameRate, durationSec, width, height, stills };
   if (o.sheet) {
     const cols = o.cols ?? Math.ceil(Math.sqrt(stills.length));
     const rows = Math.ceil(stills.length / cols);
@@ -237,7 +241,7 @@ export const usage = {
     cols: { type: 'string', value: 'N', help: 'Columns on the sheet (default: square)' },
     json: { type: 'boolean', help: 'Print the plan as JSON' },
   },
-  notes: 'A still is named f<frame>-<sec>s.png and frames.json lists every one, so a finding can cite a frame rather than "around 12s". The sheet has no labels: read tile positions off frames.json. With --images nothing is extracted: sheet.png and images.json (tile, place, file, native size) are the output.',
+  notes: 'A still is named f<frame>-<sec>s.png and frames.json lists every one, so a finding can cite a frame rather than "around 12s". frameRate is the source\'s exact rate, what render --fps takes (never the decimal fps beside it). The sheet has no labels: read tile positions off frames.json. With --images nothing is extracted: sheet.png and images.json (tile, place, file, native size) are the output.',
 } satisfies Usage;
 
 export function frames(argv: string[]): number {
@@ -289,7 +293,7 @@ export function frames(argv: string[]): number {
     return 0;
   }
   const out = join(plan.stills[0].path, '..');
-  console.log(`frames: ${plan.stills.length} still(s) from ${video} (${plan.fps} fps, ${plan.width}x${plan.height}, ${plan.durationSec.toFixed(3)}s) → ${out}`);
+  console.log(`frames: ${plan.stills.length} still(s) from ${video} (${plan.fps} fps, frameRate: ${plan.frameRate}, ${plan.width}x${plan.height}, ${plan.durationSec.toFixed(3)}s) → ${out}`);
   for (const s of plan.stills) console.log(`  f${String(s.frame).padStart(6, '0')}  ${s.sec.toFixed(3)}s  ${s.path}`);
   if (plan.sheet) console.log(`  sheet: ${plan.sheet.cols}x${plan.sheet.rows}, row-major in the order above → ${plan.sheet.path}`);
   console.log(`  plan: ${join(out, 'frames.json')}`);

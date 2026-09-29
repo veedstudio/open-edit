@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="../LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/platform-Apple%20Silicon%20%C2%B7%20Windows%20x64-black" alt="Platform: Apple Silicon and Windows x64">
+  <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-black" alt="Platform: macOS, Windows and Linux">
 </p>
 
 <p align="center">
@@ -25,8 +25,8 @@ your coding agent what you want, and it transcribes, designs, renders and hands 
 
 ## Get started
 
-You need an Apple Silicon Mac (with Homebrew) or a Windows x64 PC, Node 20 or newer, and one of
-Claude Code, Codex or Gemini CLI. From your project folder, install the skill into your agent:
+You need a Mac, a Windows PC or a Linux machine, Node 20.18.1 or newer, and one of Claude Code, Codex
+or Gemini CLI. From your project folder, install the skill into your agent:
 
 ```sh
 npx skills add veedstudio/open-edit --skill open-edit
@@ -39,17 +39,17 @@ Add subtitles to my video clip.mp4
 ```
 
 The first run sets itself up: it checks for Node and ffmpeg and names the command for anything missing
-(Homebrew on a Mac; on Windows the commands are printed for you to run, and ffmpeg is fetched into your
-user folder with no admin rights), asking before any global install; pins itself into your project as a
-dev dependency and registers a session hook in the settings of Claude Code, Codex and Gemini CLI;
-downloads the renderer into your user's app-data folder; and asks once how you want speech
-transcribed. Hosted by VEED
+(on a Mac it installs through Homebrew once you approve; on Linux and Windows the commands are printed
+for you to run, and on Windows ffmpeg is fetched into your user folder with no admin rights); pins itself into your project as a
+dev dependency and registers a session hook in the settings of Claude Code, Codex and Gemini CLI; and
+asks once how you want speech transcribed. The first render downloads the browser it renders with into
+your user's app-data folder. Hosted by VEED
 transcribes best (a veed.io account, [sign up](https://www.veed.io/signup) or
 [log in](https://www.veed.io/login); the free tier covers about ten minutes a month); WhisperX runs
 locally for free (needs `uv` or `pipx`; the first transcription downloads the model, about 2 GB for the
 fast tier and more for the better one; nothing leaves your machine); or bring your own service. When the
-run finishes you get the MP4 with subtitles burned in, a preview open in your browser, and the path to
-the file, which lives under `runs/` in your project.
+run finishes you get the MP4 with subtitles burned in and the path to the file, which lives under
+`runs/` in your project together with the code that made it.
 
 <a href="https://github.com/veedstudio/open-edit/releases/download/launch-examples/openedit-astra.mp4"><img src="../docs/examples/openedit-astra.webp" alt="GPT-6 Astra title sequence made in OpenEdit" width="100%"></a>
 
@@ -62,7 +62,7 @@ against the [OpenAI Brand Film](https://vimeo.com/1122006941) as a visual refere
 
 ## What you can ask for
 
-Captions are the shortest path, not the limit. The agent can edit, cut and reframe footage, layer
+Captions are a common ask, not the limit. The agent can edit, cut and reframe footage, layer
 motion graphics and visual elements, turn slides into video, and pull in any
 [AI video/image generator](https://www.veed.io/tools/ai-video) or MCP server when it helps. Source
 video is optional: stills, slides or generated media are enough when the brief calls for it.
@@ -129,14 +129,11 @@ One brand book, three campaign cards:
 
 ## How it works
 
-The skill tells your agent the whole flow: transcribe with real per-word timings, draw a caption style
-from a pool of recipes, compose the document in HTML and CSS, render it with VEED's renderer, then check
-the result for timing and contrast before handing it back. Every step of a captioned run is a command
-from the `@veedstudio/openedit-cli` package; the [CLI reference](../README.md) lists them.
-
-The renderer is source-available and free to use, and it does not run a headless browser: nothing to
-install, launch or keep alive for the length of a render. It does need a desktop session, so renders
-run on your machine rather than on a headless box.
+The skill gives your agent tools and leaves the design to it. It transcribes with real per-word
+timings, composes the piece as an HTML page, renders it frame by frame in a browser, looks at the frames
+and fixes what it sees, then hands back the file. After a change it re-renders only the stretch that
+changed. Every tool is a command from the `@veedstudio/openedit-cli` package; the
+[CLI reference](../README.md) lists them.
 
 Transcription is your choice, asked once and remembered. WhisperX runs locally and nothing leaves your
 machine. VEED's hosted transcription uploads the file in order to transcribe it and stores it for that
@@ -149,24 +146,22 @@ rendered badly.
 
 | | |
 | --- | --- |
-| Platform | Apple Silicon Mac or Windows x64 PC. Intel Macs are not supported: the renderer ships macOS-arm64 and windows-x64 only |
+| Platform | macOS, Windows or Linux |
 | macOS | Built and tested on Tahoe 26.0. Nothing checks the version, so earlier releases may work, untested |
-| Windows | Windows 10 or newer (the installer extracts with the bundled `tar`). Node via winget: preflight prints the exact command and never runs it itself. ffmpeg is fetched into your user folder for you, no admin rights needed. Git is optional, used to version your project when present |
-| Linux | Planned; prioritisation depends on demand |
-| Agents | Claude Code, Codex or Gemini CLI. The installed skill prepares the workspace and loads the packaged `AGENTS.md` instructions itself |
+| Windows | Windows 10 or newer (the installer extracts with the bundled `tar`). Node via winget: init prints the exact command and never runs it itself. ffmpeg is fetched into your user folder for you, no admin rights needed. Git is optional, used to version your project when present |
+| Linux | Supported. ffmpeg and Node install through your package manager, which needs root, so init prints the commands and never runs them. CI covers macOS and Windows, so Linux is the least exercised |
+| Agents | Claude Code, Codex or Gemini CLI. The installed skill prepares the workspace itself |
 
 ## Scope and limitations
 
-V1 targets captions. Motion graphics, charts, and brandbook-matched styling render today, but are less
-exercised than captions and should be expected to have rough edges.
+Every piece, captions included, is a page your agent writes and OpenEdit renders, so the result follows
+the agent and model driving it. Expect rough edges.
 
 Report defects through GitHub issues.
 
 ## License
 
-The editor is licensed under Apache-2.0. The renderer binaries are distributed under PolyForm Shield
-1.0.0, which permits commercial use of the videos you produce with no payment to VEED. See `LICENSE`
-and `NOTICE` for the full terms.
+OpenEdit is licensed under Apache-2.0. See `LICENSE` and `NOTICE` for the full terms.
 
 ---
 

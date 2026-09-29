@@ -1,49 +1,12 @@
-// The platform authority for the render engine: which platforms render, which release
-// asset each one pulls, and what the installed binary is called. Mirrors the repository's
-// platform.mjs, which remains the authority for the not-yet-migrated preflight.
+// The platform authority: where OpenEdit's app-data installs go, and how a tool on PATH is found and
+// probed.
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, extname, join } from 'node:path';
-
-export function platformKey(platform = process.platform, arch = process.arch): 'darwin-arm64' | 'win32-x64' | null {
-  if (platform === 'darwin' && arch === 'arm64') return 'darwin-arm64';
-  if (platform === 'win32' && arch === 'x64') return 'win32-x64';
-  return null;
-}
-
-export function unsupportedMessage(platform = process.platform, arch = process.arch): string {
-  return `unsupported platform ${platform}/${arch}; rendering requires macOS arm64 or Windows x64`;
-}
-
-// WhisperX shares the engine's platform envelope: CTranslate2 runs CPU-only on both.
-export function whisperxSupported(platform = process.platform, arch = process.arch): boolean {
-  return platformKey(platform, arch) !== null;
-}
-
-// Upstream release assets (weave-v<semver> tags). The Windows asset exists from weave-v0.9.0 onward;
-// both archives extract with the system tar (bsdtar on macOS and Windows 10+, which reads zip too).
-export const ENGINE_ASSETS = {
-  'darwin-arm64': { archive: 'weave-viewer-cli-macos-arm64.tar.gz', upstreamBin: 'weave-viewer-cli' },
-  'win32-x64': { archive: 'weave-viewer-cli-windows-x64.zip', upstreamBin: 'weave-viewer-cli.exe' },
-} as const;
-
-export function engineBinaryName(platform = process.platform): string {
-  return platform === 'win32' ? 'veed-engine-cli.exe' : 'veed-engine-cli';
-}
-
-export function isEngineRunnable(binPath: string, platform = process.platform): boolean {
-  try {
-    if (platform === 'win32') return existsSync(binPath);
-    accessSync(binPath, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 // The app-data state dir, computable against an INJECTED env (init's tests inject one);
 // config.stateDir() is the process-env convenience over the same rule.
-function stateDirFor(platform: string, env: Record<string, string | undefined>): string {
+export function stateDirFor(platform: string, env: Record<string, string | undefined>): string {
   const home = env.HOME ?? env.USERPROFILE ?? '';
   return env.OPENEDIT_STATE_DIR
     ?? (platform === 'darwin'
@@ -53,37 +16,38 @@ function stateDirFor(platform: string, env: Record<string, string | undefined>):
         : join(env.XDG_CONFIG_HOME ?? join(home, '.config'), 'veed-openedit'));
 }
 
-// Where install-engine puts the engine.
-export function engineInstallDir(platform = process.platform, env: Record<string, string | undefined> = process.env): string {
-  return join(stateDirFor(platform, env), 'engine');
-}
-
 // Where install-ffmpeg puts its no-admin copy (binaries under bin/).
 export function ffmpegInstallDir(platform = process.platform, env: Record<string, string | undefined> = process.env): string {
   return join(stateDirFor(platform, env), 'ffmpeg');
 }
 
-// What a user runs to install a missing global dependency. Windows installs are report-only: winget
-// needs an interactive first run and its PATH edits don't reach an already-running process.
+// What a user runs to install a missing global dependency. init runs only the Homebrew ones: winget
+// needs an interactive first run and its PATH edits don't reach an already-running process, and a
+// Linux package manager needs root.
 const HINTS: Record<string, Record<string, string>> = {
   darwin: {
-    git: 'brew install git',
     node: 'brew install node',
     ffmpeg: 'brew install ffmpeg',
     uv: 'brew install uv',
     pipx: 'brew install pipx',
   },
   win32: {
-    git: 'winget install --id Git.Git',
     node: 'winget install --id OpenJS.NodeJS.LTS',
     ffmpeg: 'winget install --id Gyan.FFmpeg',
     uv: 'winget install --id astral-sh.uv',
     pipx: 'python -m pip install --user pipx',
   },
+  linux: {
+    node: 'install Node 20.18.1+ from nodejs.org or your package manager',
+    ffmpeg: 'sudo apt install ffmpeg',
+    uv: 'curl -LsSf https://astral.sh/uv/install.sh | sh',
+    pipx: 'python3 -m pip install --user pipx',
+  },
 };
 
+// Any other Unix gets the Linux hints: Homebrew is a macOS assumption, apt at least names the package.
 export function installHint(dep: string, platform = process.platform): string {
-  return HINTS[platform]?.[dep] ?? HINTS.darwin[dep];
+  return (HINTS[platform] ?? HINTS.linux)[dep];
 }
 
 // `command -v`, portably: walk PATH, honouring PATHEXT on Windows so `ffmpeg` finds ffmpeg.exe and
@@ -140,6 +104,6 @@ export function probeVersion(
   return { banner: '', failure: stderr ? `${detail} — ${stderr}` : detail };
 }
 
-// Gyan's FFmpeg links Video for Windows, which a trimmed Server edition lacks — shared by
-// install-ffmpeg and readiness so both decode the same failure.
+// Gyan's FFmpeg links Video for Windows, which a trimmed Server edition lacks, so a probe that dies
+// with a missing DLL names it.
 export const FFMPEG_PROBE = { args: ['-version'], missingDll: 'Video for Windows is absent on some Server editions' };

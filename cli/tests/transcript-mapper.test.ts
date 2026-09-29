@@ -58,7 +58,7 @@ await test('orders chunks by start time even when the subtitles record keys are 
   assert.equal(out.text, 'early late');
 });
 
-await test('drops caption items whose text is empty so they do not become blank beats', () => {
+await test('drops caption items whose text is empty so they do not become blank cues', () => {
   const out = mapVeedTranscript({
     a: { from: 0, to: 1, words: [{ value: 'real' }] },
     b: { from: 1, to: 2, words: [] },

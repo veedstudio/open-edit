@@ -1,15 +1,18 @@
 // Transcription providers, and the one flow they all end in: runs/<key>/transcript.json.
 //
-// WHISPERX (the default): resolve video -> derive key -> extract 16k mono WAV -> whisperx(audio)
+// With no --provider, the provider recorded in .open-edit-prefs.json runs; with none recorded the run
+// refuses, because the provider is the user's choice.
+// WHISPERX: resolve video -> derive key -> extract 16k mono WAV -> whisperx(audio)
 //   -> WhisperJson -> mapWhisperTranscript -> validate. Local and free.
-// VEED (--provider veed): upload to VEED's edge, transcribe hosted, map the caption items — spends
+// VEED: upload to VEED's edge, transcribe hosted, map the caption items — spends
 //   the logged-in user's VEED transcription credits, billed to ONE workspace (--workspace names it).
 // A "custom" provider is deliberately not code: the agent obtains a Whisper-family JSON however the
 // user's service works and feeds it to the whisper command, so no credential ever passes through
 // Open Edit.
 //
-//   openedit transcribe <video.mp4> [...] [--model small.en|medium|...] [--language en] [--force]
-//   openedit transcribe --provider veed <video.mp4> [...] [--workspace <id>] [--force]
+//   openedit transcribe <video.mp4> [...] [--force]                  (the recorded provider)
+//   openedit transcribe --provider whisperx <video.mp4> [...] [--model small.en|medium|...] [--language en]
+//   openedit transcribe --provider veed <video.mp4> [...] [--workspace <id>]
 //
 // WhisperX device and compute default to cpu/int8, which runs everywhere (CTranslate2 has no GPU path
 // on Apple Silicon); a CUDA-capable box overrides via OPEN_EDIT_WHISPERX_DEVICE / OPEN_EDIT_WHISPERX_COMPUTE.
@@ -23,8 +26,8 @@ import { FFMPEG, FFPROBE, WHISPERX_BIN, WHISPERX_COMPUTE, WHISPERX_DEVICE, WHISP
 // there stays exactly one copy of the rule in this package.
 import { resolveVideoArg, runKeyOf } from '../resolve-video.ts';
 export { runKeyOf };
-import { mapWhisperTranscript, type Transcript, type WhisperJson } from '../prep/whisper-mapper.ts';
-import { cachedNote, cachedTranscriptPath, collidingRunKey, transcriptPathFor, wordCount } from '../prep/transcript-cache.ts';
+import { mapWhisperTranscript, type Transcript, type WhisperJson } from '../transcript/whisper-mapper.ts';
+import { cachedNote, cachedTranscriptPath, collidingRunKey, transcriptPathFor, wordCount } from '../transcript/transcript-cache.ts';
 import { readJsonFile } from '../json-file.ts';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import type { VeedHttp } from '../veed/api.ts';
@@ -32,7 +35,6 @@ import { refreshingHttp } from '../veed/http.ts';
 import { REQUESTED, transcribeWithVeed } from '../veed/orchestrate.ts';
 import { NO_LOGIN_HELP, resolveVeedToken } from '../veed/resolve-token.ts';
 
-export const PREFS_PATH = prefsPath();
 export const PROVIDERS = ['veed', 'whisperx', 'custom'] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
@@ -62,36 +64,50 @@ export const realRun: Run = (cmd, args, opts = {}) =>
     child.on('close', (code) => resolve({ code: code ?? 1, out, err }));
   });
 
-// A missing, unreadable, or invalid file is a COLD START, never a crash: the caller then asks the
-// user which provider to use. The reason is returned so it can be said out loud rather than guessed at.
-export async function readPrefs(path = PREFS_PATH): Promise<{ prefs?: Prefs; reason?: string }> {
+/**
+ * What the prefs file holds when it yields no provider. Only `absent` is a choice never made: an `unreadable` or
+ * `damaged` file may hide one the user already made, so neither may send them back to the question.
+ */
+export type PrefsFailure = { prefs?: undefined; state: 'absent' | 'unreadable' | 'damaged'; reason: string };
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+// Never a crash: the reason is returned so it can be said out loud rather than guessed at.
+export async function readPrefs(path = prefsPath()): Promise<{ prefs: Prefs } | PrefsFailure> {
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
-  } catch {
-    return { reason: 'no provider recorded yet' };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === 'ENOENT'
+      ? { state: 'absent', reason: `${path} does not exist` }
+      : { state: 'unreadable', reason: `${path} could not be read (${code ?? (error as Error).message})` };
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { reason: `${path} is not valid JSON` };
+    return { state: 'damaged', reason: `${path} is not valid JSON` };
   }
-  const t = (parsed as { transcription?: { provider?: unknown; model?: unknown } })?.transcription;
+  if (!isRecord(parsed) || (parsed.transcription !== undefined && !isRecord(parsed.transcription))) {
+    return { state: 'damaged', reason: `${path} is not a { "transcription": { "provider": ... } } record` };
+  }
+  const t = parsed.transcription as { provider?: unknown; model?: unknown } | undefined;
   const provider = t?.provider;
+  if (provider === undefined) return { state: 'absent', reason: `${path} records no provider` };
   if (typeof provider !== 'string' || !(PROVIDERS as readonly string[]).includes(provider)) {
-    return { reason: `${path} records no usable provider (expected one of ${PROVIDERS.join(', ')})` };
+    return { state: 'damaged', reason: `${path} records the provider ${JSON.stringify(provider)}, not one of ${PROVIDERS.join(', ')}` };
   }
   const model = typeof t?.model === 'string' && t.model.trim() !== '' ? t.model : undefined;
   return { prefs: { provider: provider as Provider, model } };
 }
 
-export async function writePrefs(prefs: Prefs, path = PREFS_PATH): Promise<void> {
+export async function writePrefs(prefs: Prefs, path = prefsPath()): Promise<void> {
   await writeFile(path, `${JSON.stringify({ transcription: prefs }, null, 2)}\n`);
 }
 
 /** The recorded quality tier, so a chosen `medium` is honoured without repeating --model every run. */
-export async function recordedModel(path = PREFS_PATH): Promise<string | undefined> {
+export async function recordedModel(path = prefsPath()): Promise<string | undefined> {
   return (await readPrefs(path)).prefs?.model;
 }
 
@@ -105,12 +121,11 @@ export function validateTranscript(t: Transcript): void {
       if (from < 0 || to < 0) throw new Error(`chunk ${i} has a negative timestamp`);
       if (to < from) throw new Error(`chunk ${i} ends before it starts`);
     }
-    // A word whose midpoint escapes its chunk makes synth-word-timings discard every real time for
-    // that beat and even-split it instead — a silent timing regression, so it is an error here.
+    // A cue timed from its chunk would start after, or end before, a word whose midpoint escapes it.
     for (const w of c.words) {
       const mid = (w.timestamp[0] + w.timestamp[1]) / 2;
       if (mid < c.timestamp[0] || mid > c.timestamp[1]) {
-        throw new Error(`chunk ${i}: word "${w.text}" falls outside its chunk window — its timings would be discarded`);
+        throw new Error(`chunk ${i}: word "${w.text}" falls outside its chunk window`);
       }
     }
     if (c.timestamp[0] < previousStart) throw new Error(`chunk ${i} starts before chunk ${i - 1} — chunks must be in order`);
@@ -246,11 +261,11 @@ export async function transcribeLocally(
 }
 
 export const usage = {
-  summary: "Transcribe videos: WhisperX locally by default, or --provider veed for VEED's hosted transcription",
+  summary: 'Transcribe videos with the recorded provider, or the one --provider names',
   positionals: '<video.mp4> [...]',
   flags: {
-    provider: { type: 'string', value: 'veed|whisperx', help: 'Which transcription runs (default whisperx, local and free)' },
-    model: { type: 'string', value: '<id>', help: 'WhisperX tier: medium (better) or small.en (fastest)' },
+    provider: { type: 'string', value: 'veed|whisperx', help: 'Run this provider instead of the recorded one' },
+    model: { type: 'string', value: '<id>', help: 'WhisperX tier: medium (better) or small.en (fastest); default the recorded tier' },
     language: { type: 'string', value: '<code>', help: 'WhisperX language code; English-only weights otherwise' },
     workspace: { type: 'string', value: '<id>', help: 'VEED only: the workspace whose transcription credits are billed' },
     record: { type: 'string', value: `<${PROVIDERS.join('|')}>`, help: 'Record the provider choice for later runs and exit (with --model, its default tier)' },
@@ -261,10 +276,10 @@ export const usage = {
 export const USAGE = usageLine('transcribe', usage);
 
 export interface Args {
-  /** In the order given, like the prep command. Empty only when recording a choice. */
+  /** In the order given. Empty only when recording a choice. */
   videos: string[];
-  /** Which transcription runs. Defaults to whisperx — the local, free provider. */
-  provider: 'veed' | 'whisperx';
+  /** Named with --provider. Absent: the recorded provider runs (see resolveProvider). */
+  provider?: RunnableProvider;
   model?: string;
   language?: string;
   /** VEED only: the workspace whose transcription credits are billed. */
@@ -273,6 +288,78 @@ export interface Args {
   record?: Provider;
   /** Transcribe a video that already has a transcript; the hosted provider re-bills for it. */
   force?: boolean;
+}
+
+export type RunnableProvider = 'veed' | 'whisperx';
+
+// Flags that belong to the other provider are refused rather than ignored: a silently dropped
+// --model would transcribe with a tier nobody chose.
+function refuseForeignFlags(
+  provider: RunnableProvider,
+  flags: { model?: string; language?: string; workspace?: string },
+  named: string,
+): void {
+  if (provider === 'veed' && (flags.model !== undefined || flags.language !== undefined)) {
+    throw new Error(`--model/--language are WhisperX flags; ${named} is veed, which takes neither\n${USAGE}`);
+  }
+  if (provider === 'whisperx' && flags.workspace !== undefined) {
+    throw new Error(`--workspace applies only with --provider veed; ${named} is whisperx\n${USAGE}`);
+  }
+}
+
+/**
+ * The provider a run uses: --provider when named, else the recorded choice. With neither the run refuses
+ * rather than picking one: the provider is the user's choice, and a transcript from the wrong one is
+ * cached, so it would outlive the mistake. `note` names a recorded provider, which the user may not
+ * remember choosing.
+ */
+export function resolveProvider(
+  args: Pick<Args, 'provider' | 'model' | 'language' | 'workspace'>,
+  recorded: { prefs: Prefs } | PrefsFailure,
+  path: string,
+): { provider: RunnableProvider; model?: string; note?: string } {
+  // The recorded tier belongs to WhisperX whichever way it was chosen, so a named whisperx run keeps it.
+  const model = args.model ?? recorded.prefs?.model;
+  if (args.provider) return args.provider === 'whisperx' ? { provider: 'whisperx', model } : { provider: 'veed' };
+  if (!recorded.prefs) {
+    // --record on an unreadable path fails as the read did, so a provider the user names again goes to --provider.
+    if (recorded.state === 'unreadable') {
+      throw new Error(
+        `${recorded.reason}, so the choice recorded there cannot be read. Either fix what is at that path (its ` +
+        'permissions, or a directory standing in its place), or ask the user to name their provider again and ' +
+        'pass it for this run with --provider veed|whisperx. Never pick one for them.',
+      );
+    }
+    if (recorded.state === 'damaged') {
+      throw new Error(
+        `${recorded.reason}, so the provider recorded there cannot be used. Do not ask the user again: read the ` +
+        'file for the provider it names and record that one with npx @veedstudio/openedit-cli transcribe --record ' +
+        '<veed|whisperx|custom> --model <tier>, keeping the tier it names; drop --model only if it names none, since ' +
+        '--record rewrites the file whole. Ask only if it names no provider. --provider veed|whisperx runs one for ' +
+        'this run without it.',
+      );
+    }
+    throw new Error(
+      `no transcription provider is recorded: ${recorded.reason}. There is no default, the ` +
+      "user chooses: ask them (the open-edit skill's TRANSCRIPTION.md has the question) and record the answer with " +
+      'npx @veedstudio/openedit-cli transcribe --record <veed|whisperx|custom>, or name one for this run with ' +
+      '--provider veed|whisperx. A JSON from their own service goes through npx @veedstudio/openedit-cli whisper <json> <media>.',
+    );
+  }
+  const { prefs } = recorded;
+  if (prefs.provider === 'custom') {
+    throw new Error(
+      `the provider recorded in ${path} is custom, which this command does not run: get a Whisper-family JSON from ` +
+      'your own service, then run npx @veedstudio/openedit-cli whisper <json> <media>. --provider veed|whisperx runs one of those instead.',
+    );
+  }
+  refuseForeignFlags(prefs.provider, args, 'the recorded provider');
+  if (prefs.provider === 'veed') return { provider: 'veed', note: `[transcribe] veed, the provider recorded in ${path}` };
+  return {
+    provider: 'whisperx',
+    model,
+    note: `[transcribe] whisperx (${whisperxModel(model, args.language)}), the provider recorded in ${path}`,
+  };
 }
 
 // Both `--flag value` and `--flag=value`, via the shared strict parser — one flag grammar for every
@@ -289,25 +376,26 @@ export function parseArgs(argv: string[]): Args {
   if (record !== undefined && !(PROVIDERS as readonly string[]).includes(record)) {
     throw new Error(`unknown provider "${record}" — expected one of ${PROVIDERS.join(', ')}\n${USAGE}`);
   }
-  const provider = values.provider ?? 'whisperx';
-  if (provider !== 'veed' && provider !== 'whisperx') {
+  const provider = values.provider;
+  if (provider !== undefined && provider !== 'veed' && provider !== 'whisperx') {
     // `custom` is a recorded CHOICE, not something this command can run: the user's own service
     // produces the JSON and the whisper command maps it.
     throw new Error(`--provider takes veed or whisperx (the custom provider runs via the whisper command)\n${USAGE}`);
   }
-  // Flags that belong to the other provider are refused rather than ignored: a silently dropped
-  // --model would transcribe with a tier nobody chose.
-  if (provider === 'veed' && (values.model !== undefined || values.language !== undefined) && record === undefined) {
-    throw new Error(`--model/--language are WhisperX flags; the veed provider takes neither\n${USAGE}`);
-  }
-  if (provider !== 'veed' && values.workspace !== undefined) {
-    throw new Error(`--workspace applies only with --provider veed\n${USAGE}`);
+  if (record !== undefined) {
+    // The tier is recorded with the choice; a workspace is chosen per spend, so recording one is refused
+    // rather than dropped in silence.
+    if (values.workspace !== undefined) {
+      throw new Error(`--workspace is chosen per spend and never recorded; pass it on the transcribe run instead\n${USAGE}`);
+    }
+  } else if (provider !== undefined) {
+    refuseForeignFlags(provider, values, `--provider ${provider}`);
   }
   // Recording a choice is not a transcription run, so it needs no video.
   if (record === undefined && positionals.length === 0) throw new Error(`no video given\n${USAGE}`);
   return {
     videos: positionals,
-    provider,
+    ...(provider === undefined ? {} : { provider }),
     ...(record === undefined ? {} : { record: record as Provider }),
     ...(values.model === undefined ? {} : { model: values.model }),
     ...(values.language === undefined ? {} : { language: values.language }),
@@ -448,7 +536,7 @@ export async function transcribeVeed(videoArgs: string[], options: VeedBatchOpti
 
       const transcript = await deps.transcribeOne(video, (m) => lines.push(`  ${m}`));
       await writeFile(out, JSON.stringify(transcript, null, 2));
-      lines.push(`wrote ${out} (${transcript.chunks.length} beats)`);
+      lines.push(`wrote ${out} (${transcript.chunks.length} cues)`);
       return { video, ok: true };
     } catch (error) {
       // String(error), not error.message: a thrown non-Error has no message.
@@ -480,11 +568,14 @@ export async function transcribeVeed(videoArgs: string[], options: VeedBatchOpti
 }
 
 export async function transcribe(argv: string[]): Promise<number> {
-  const { videos, provider, model, language, workspace, record, force } = parseArgs(argv);
+  const args = parseArgs(argv);
+  const { videos, language, workspace, record, force } = args;
+  const prefsFile = prefsPath();
 
   if (record) {
-    await writePrefs({ provider: record, ...(model === undefined ? {} : { model }) });
-    console.log(`[transcribe] recorded provider=${record}${model ? ` model=${model}` : ''} -> ${PREFS_PATH}`);
+    const { model } = args;
+    await writePrefs({ provider: record, ...(model === undefined ? {} : { model }) }, prefsFile);
+    console.log(`[transcribe] recorded provider=${record}${model ? ` model=${model}` : ''} -> ${prefsFile}`);
     return 0;
   }
 
@@ -499,6 +590,8 @@ export async function transcribe(argv: string[]): Promise<number> {
     return 2;
   }
 
+  const { provider, model, note } = resolveProvider(args, await readPrefs(prefsFile), prefsFile);
+  if (note) console.log(note);
   if (provider === 'veed') return transcribeVeed(videos, { workspaceId: workspace, force });
 
   // Sequential, and a failure stops the batch: the videos share one local install, so a missing binary

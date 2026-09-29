@@ -3,7 +3,7 @@
 // Concurrent runs of the same key are a normal workflow, so there is no lock here and no exclusive file:
 // every attempt writes its OWN record, named for the session that wrote it, and the only question left is
 // what the records it can see mean. That question is this module — pure, so every row of the table below is
-// testable without a filesystem, a clock or a second process. veed/generate.ts does the IO around it.
+// testable without a filesystem, a clock or a second process. commands/generate.ts does the IO around it.
 //
 //   resolved  the attempt finished (or was abandoned); it constrains nothing
 //   charging  a charge is in flight right now; a second one would buy the same script twice

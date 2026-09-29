@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { parseTimeSpec, parseFrameSpec, parseCrop, frameAt, seekFor, selectFrames, extractFrames, collectImages, sheetImages, frames } from '../src/commands/frames.ts';
 import { FFMPEG, FFPROBE } from '../src/config.ts';
+import { parseFps } from '../src/render/timing.ts';
+
+const cliEntry = resolve(import.meta.dirname, '../src/cli.ts');
 
 /** A deterministic clip; `rate` as ffmpeg takes it, so a rational rate can be exercised. */
 function clip(seconds = 4, rate = '24'): string {
@@ -88,6 +91,21 @@ test('frames: stills are written, named by frame and second, and listed in frame
   assert.equal(onDisk.stills.length, 2);
   assert.equal(onDisk.fps, 24);
   assert.equal(onDisk.sheet, undefined);
+});
+
+// The skill passes this to `render --fps`, which refuses a decimal: 23.976023976023978 is not a rate.
+test('frames: the exact rational rate is reported beside the decimal, in the form render --fps takes', () => {
+  for (const [rate, frameRate] of [['24000/1001', '24000/1001'], ['30000/1001', '30000/1001'], ['25', '25']] as const) {
+    const out = mkdtempSync(join(tmpdir(), 'frames-rate-'));
+    const src = clip(1, rate);
+    const plan = extractFrames(src, { frame: ['0'], out });
+    assert.equal(plan.frameRate, frameRate);
+    assert.equal(JSON.parse(readFileSync(join(out, 'frames.json'), 'utf8')).frameRate, frameRate);
+    assert.doesNotThrow(() => parseFps(plan.frameRate));
+    const printed = spawnSync(process.execPath, ['--import', 'tsx', cliEntry, 'frames', src, '--frame', '0', '--out', out], { encoding: 'utf8' });
+    assert.equal(printed.status, 0, printed.stderr);
+    assert.ok(printed.stdout.includes(`frameRate: ${frameRate},`), printed.stdout);
+  }
 });
 
 test('frames: crop happens in source pixels before the scale, and the sheet tiles every still', () => {

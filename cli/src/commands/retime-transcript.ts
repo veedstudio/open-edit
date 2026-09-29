@@ -11,8 +11,8 @@ import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { assertRanges, loadEdl, snapRanges, sourceOrder, sourcePath, type EdlRange, type SnappedRange } from '../edl.ts';
 import { readJsonFile } from '../json-file.ts';
 import { probeFps } from '../probe.ts';
-import { collidingRunKey, transcriptPathFor, wordCount } from '../prep/transcript-cache.ts';
-import type { Transcript, TranscriptChunk, TranscriptWord } from '../prep/transcript-types.ts';
+import { collidingRunKey, transcriptPathFor, wordCount } from '../transcript/transcript-cache.ts';
+import type { Transcript, TranscriptChunk, TranscriptWord } from '../transcript/transcript-types.ts';
 
 /** A word kept by the edit, already on the output timeline. */
 interface Placed {
@@ -67,7 +67,7 @@ export function regroup(placed: Placed[]): TranscriptChunk[] {
     if (current.length === 0) return;
     const words = current.map((p) => p.word);
     // The window spans every word, not the first and last: a provider may list an item's words out of
-    // start order, and a window that excluded one would fail prep's own reading of the file.
+    // start order, and a window that excluded one would time a cue off its own speech.
     chunks.push({
       text: words.map((w) => w.text).join(' ').replace(/\s+([,.!?;:])/g, '$1'),
       timestamp: [Math.min(...words.map((w) => w.timestamp[0])), Math.max(...words.map((w) => w.timestamp[1]))],
