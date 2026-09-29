@@ -16,7 +16,7 @@ function tmpRunDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
-function makeVeedFake(opts: { failUpload?: 'video' | 'audio' } = {}) {
+function makeVeedFake(opts: { failUpload?: 'video' | 'audio'; hostTag?: string } = {}) {
   const calls: string[] = [];
   let assetSeq = 0;
   const http: VeedHttp = {
@@ -26,10 +26,10 @@ function makeVeedFake(opts: { failUpload?: 'video' | 'audio' } = {}) {
     async getJsonOrNull<T>(path: string): Promise<T | null> {
       calls.push(`GET ${path}`);
       if (path === '/asset/asset1') {
-        return (opts.failUpload === 'video' ? { id: 'asset1', uploadState: 'FAILED' } : { id: 'asset1', uploadState: 'UPLOADED', cdnUrl: 'https://cdn.veed/video.mp4' }) as T;
+        return (opts.failUpload === 'video' ? { id: 'asset1', uploadState: 'FAILED' } : { id: 'asset1', uploadState: 'UPLOADED', cdnUrl: `https://cdn.veed/video${opts.hostTag ?? ''}.mp4` }) as T;
       }
       if (path === '/asset/asset2') {
-        return (opts.failUpload === 'audio' ? { id: 'asset2', uploadState: 'FAILED' } : { id: 'asset2', uploadState: 'UPLOADED', cdnUrl: 'https://cdn.veed/audio.mp3' }) as T;
+        return (opts.failUpload === 'audio' ? { id: 'asset2', uploadState: 'FAILED' } : { id: 'asset2', uploadState: 'UPLOADED', cdnUrl: `https://cdn.veed/audio${opts.hostTag ?? ''}.mp3` }) as T;
       }
       throw new Error(`unexpected getJsonOrNull ${path}`);
     },
@@ -200,3 +200,27 @@ await test('a fal job that never leaves the deadline propagates the timeout', as
   );
 });
 
+await test('a re-run of the same video and audio resumes the bought job: no second upload, no second submission', async () => {
+  // Real hosting gives every upload a new url, so the job must be keyed by file content for a re-run to find it.
+  const fal = makeFalFake();
+  const runDir = tmpRunDir('lipsync-rerun-');
+  const first = makeVeedFake({ hostTag: '-first' });
+  const second = makeVeedFake({ hostTag: '-second' });
+  const logs: string[] = [];
+  for (const veed of [first, second]) {
+    await runLipsync(
+      { http: veed.http, readVideoBytes, readAudioBytes, sleep: async () => {}, falHttp: fal.http, runDir, log: (m) => logs.push(m) },
+      { videoPath: 'v.mp4', audioPath: 'a.mp3', outPath: join(runDir, 'out.mp4'), falKey: 'test-key' },
+    );
+  }
+  assert.equal(fal.calls.filter((c) => c === 'POST https://queue.fal.run/veed/lipsync/v2').length, 1, 'one submission, one charge');
+  assert.deepEqual(second.calls, [], 'the second run hosts nothing');
+  assert.ok(logs.some((l) => l.includes('already in the ledger as req1')));
+
+  // Different audio is a different job.
+  await runLipsync(
+    { http: makeVeedFake().http, readVideoBytes, readAudioBytes: async () => ({ bytes: new Uint8Array([9]), mimeType: 'audio/mpeg', extension: 'mp3' }), sleep: async () => {}, falHttp: fal.http, runDir },
+    { videoPath: 'v.mp4', audioPath: 'b.mp3', outPath: join(runDir, 'out2.mp4'), falKey: 'test-key' },
+  );
+  assert.equal(fal.calls.filter((c) => c === 'POST https://queue.fal.run/veed/lipsync/v2').length, 2);
+});

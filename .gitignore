@@ -4,16 +4,11 @@ dist/
 *.tsbuildinfo
 .DS_Store
 
-# Per-run outputs, downloaded engine and font cache (regenerable)
+# Per-run outputs (regenerable)
 runs/
-data/font-cache/
-.veed-engine/
 out/
 render-output/
 tmp/
-
-# Local-only preview helper
-preview/transcribe-video.ts
 
 # LEGACY pre-CLI state files — the CLI keeps these in the app-data dir now; kept ignored so
 # a lingering old file on a dev machine can never be committed
@@ -34,9 +29,6 @@ veed/.veed-voice-rates.json
 # Harness local state
 .claude/worktrees
 .claude/settings.local.json
-.weave/
-.weave-subs/
-.weave-runs/
 
 # Internal build docs / working files (not published)
 DESIGN.md
@@ -48,12 +40,4 @@ plans/
 # Python bytecode from the generators
 __pycache__/
 
-# Engine probe renders — regenerable output of the probe harness
-internal/motion/probes/*/probe.mp4
-.ffmpeg/
-# Compiled content — emitted in place by `node cli/scripts/build.mjs --content`. The packer does this
-# in its own copy of the tree; a working checkout stays .ts-only so nothing stale can shadow an edit.
-refs/html/**/*.js
-pipeline/**/*.js
-veed/args.js
 internal/packaging/out/

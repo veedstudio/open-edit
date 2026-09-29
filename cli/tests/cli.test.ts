@@ -22,12 +22,9 @@ test("no arguments prints usage", () => {
   assert.match(runCli(), /Usage: openedit/);
 });
 
-// Moved from the repository's cli-entry suite with the prep/whisper commands themselves:
-// a stray flag must be named, never read as a file path. `whisper` now takes --force (it writes the
-// same transcript.json the other providers guard), so it names its valid flag instead of denying all.
-test("prep and whisper name a stray flag, rather than reading one as a path", () => {
+// A stray flag must be named, never read as a file path.
+test("whisper names a stray flag, rather than reading one as a path", () => {
   for (const [command, expected] of [
-    ["prep", /This command takes no flags/],
     ["whisper", /Valid flags: --force/],
   ] as const) {
     try {

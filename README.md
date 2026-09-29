@@ -3,9 +3,8 @@
 The Open Edit command-line tool: agent-driven video creation and editing,
 powered by VEED.
 
-The package carries the content it runs on — the recipe pool, the director's
-brief, the design substrate and the gates — so a fresh install can draw a style,
-build a document and gate it without cloning anything. The source is public at
+The package carries the agent skill that `init` installs into a workspace;
+everything else is a command below. The source is public at
 [veedstudio/open-edit](https://github.com/veedstudio/open-edit), whose README
 covers what Open Edit is and what it makes; this page is the command surface.
 
@@ -46,12 +45,14 @@ location instead of a token.
 
 ### transcribe
 
-Transcribe videos, writing `runs/<key>/transcript.json`. There is no default
-provider — the choice is the user's, recorded once with `--record`. Locally with
-WhisperX (free, offline, nothing billed anywhere):
+Transcribe videos, writing `runs/<key>/transcript.json`. The provider is the
+user's choice, recorded once with `--record`: a bare `transcribe video.mp4` runs
+the recorded one (and refuses, saying why, when nothing usable is recorded), and
+`--provider` names another for one run. Locally with WhisperX (free, offline,
+nothing billed anywhere):
 
 ```sh
-npx @veedstudio/openedit-cli transcribe video.mp4 [...] [--model medium] [--language de] [--force]
+npx @veedstudio/openedit-cli transcribe --provider whisperx video.mp4 [...] [--model medium] [--language de] [--force]
 ```
 
 A transcript already on disk is left alone (it may have been retimed onto an
@@ -82,30 +83,12 @@ npx @veedstudio/openedit-cli whisper transcription.json media.mp4 [...] [--force
 Word timestamps are required; the media argument may be a video or an audio
 file.
 
-### prep
-
-Probe the source canvas, synthesize `word-timings.json` from the transcript's
-real per-word times, and cut one base frame per beat (the transcript must
-already exist):
-
-```sh
-npx @veedstudio/openedit-cli prep video.mp4 [...]
-```
-
-### synth-timings
-
-Even-split word reveal delays for a single beat window:
-
-```sh
-npx @veedstudio/openedit-cli synth-timings --start 1.2 --end 3.4 --words "A B C" [--out file.json]
-```
-
 ### generate / generate-set / sample-presenter
 
 Fabric generation — source footage from a script, when there is no video to
-caption. Generating spends TWO of the named workspace's allowances — AI
-Playground credits for the video and text-to-speech seconds for the voice — so
-it is two commands: the first quotes both and records the approval, the second
+caption. Generating draws the named workspace's AI Playground credits twice —
+the speech is synthesized, then lip-synced — so it is two commands: the first
+quotes the sum and records the approval, the second
 spends exactly what was approved (no `--script` on the spend pass — the
 recorded, hashed script is what bills):
 
@@ -121,36 +104,66 @@ deterministic character/voice pair for a run key (listing costs nothing).
 
 ### background-removal / lipsync
 
-Remove a video's background (VEED's free route by default; `--fast` uses a fal
-model billed to your own fal key), or re-lipsync a video to a new audio track
-(always fal-billed). Both use the VEED login only to host the local file:
+Remove a video's background, or re-lipsync a video to a new audio track.
+Background removal tries VEED's free route first; when that route cannot run,
+it stops having spent nothing and prints what fal's model would cost and the
+command to run with `--fal`. Only `--fal` (the full model, uploaded to fal's own
+storage) or `--fast` (fal's fast model) buys anything, and lipsync always goes
+through fal. Every fal call bills your own fal key, never a VEED workspace; a
+re-run of the same inputs resumes the paid job instead of buying it again:
 
 ```sh
-npx @veedstudio/openedit-cli background-removal video.mp4 [--fast] [--mask-only] [--out <path>]
+npx @veedstudio/openedit-cli background-removal video.mp4 [--fal|--fast] [--mask-only] [--no-refine] [--out <path>]
 npx @veedstudio/openedit-cli lipsync video.mp4 narration.mp3 [--out <path>]
 ```
 
 The fal key comes from `FAL_KEY`, or `OPEN_EDIT_FAL_KEY_FILE` pointing at a
 file that holds it.
 
-### install-engine
+### veed-project / veed-pull
 
-Download the veed render engine (checksum-verified, from its public GitHub
-releases) into the app-data dir, or upgrade an existing install:
+Hand a finished edit to VEED's editor as a project a person can take apart:
+footage cuts, text, captions, images and each audio track become the editor's
+own items, and each page element the plan names becomes a transparent clip cut
+to its box. It uses your VEED login and spends no VEED credits and nothing on your
+fal key. The last step runs in
+your browser: click the "OpenEdit to VEED" bookmark on VEED. The way back is the
+"Send to Claude" bookmark on a project open in the editor, and `veed-pull`:
 
 ```sh
-npx @veedstudio/openedit-cli install-engine [weave-v<semver>]
+npx @veedstudio/openedit-cli veed-project --install-bookmark
+npx @veedstudio/openedit-cli veed-project plan.json [--workspace <id>] [--local]
+npx @veedstudio/openedit-cli veed-pull ~/Downloads/openedit-<project id>.json --out <dir>
 ```
 
-`VEED_ENGINE_BIN` overrides where the engine is looked for. The binary is
-licensed separately (PolyForm Shield); its license installs beside it.
+`veed-project --help` lists the plan's fields; `veed-pull` writes the project
+back as such a plan.
+
+### fal
+
+Run any fal model on your own key. Local file paths inside the input are
+uploaded for you (multipart above 90 MB), outputs are downloaded, and each job
+ends with a cost line: the billed figure when your key can read fal's billing,
+otherwise `cost: unknown` beside fal's listed price. An identical request is
+bought once, even across processes and crashes:
+
+```sh
+npx @veedstudio/openedit-cli fal schema <model>
+npx @veedstudio/openedit-cli fal run <model> --input '{"prompt":"…"}' [--out <dir>]
+npx @veedstudio/openedit-cli fal run --batch jobs.json [--concurrency N]   # [{model, input, name?}]
+```
 
 ### install-ffmpeg / install-whisperx
 
-The other two installers. `install-ffmpeg` checks for a working FFmpeg first
-(`VEED_ENGINE_FFMPEG`, then PATH, then a previous install) and only downloads
-when nothing works — a checksum-verified static build into the app-data dir
-(the download route is Windows-only; macOS points at `brew install ffmpeg`).
+`install-ffmpeg` looks for an existing FFmpeg first (`OPENEDIT_FFMPEG` and
+`OPENEDIT_FFPROBE`, then a previous install, then PATH) and only downloads when
+there is none — a checksum-verified static build into the app-data dir (the
+download route is Windows-only; macOS points at `brew install ffmpeg`, Linux at
+`apt`). A set `OPENEDIT_FFMPEG` or `OPENEDIT_FFPROBE` is run first, and fails
+the command, naming the variable, when its binary does not start, since nothing
+else is used while it is set; `--check` runs whichever pair every command would.
+`--force` reinstalls the app-data copy, and is refused while either override is
+set, since no command would run the copy it installs.
 `install-whisperx` installs the local transcription provider into an isolated
 uv/pipx tool environment; it never touches the system Python.
 
@@ -159,64 +172,55 @@ npx @veedstudio/openedit-cli install-ffmpeg [--check|--force]
 npx @veedstudio/openedit-cli install-whisperx [<version>]
 ```
 
+### render / fonts / install-browser
+
+Render an HTML page to video in headless Chrome, frame-exact. The page runs on a
+virtual clock (timers, `requestAnimationFrame`, `Date.now` and a seeded
+`Math.random` advance one frame per frame); CSS and Web Animations, GSAP's
+global timeline and an optional `window.__seek(t)` are set to each frame's time,
+and `<video>` elements show the picture at that time. The output is silent H.264
+(or ProRes 4444 with `--transparent`), identical whatever the worker count:
+
+```sh
+npx @veedstudio/openedit-cli render page.html --out out.mp4 --fps 30000/1001 --duration 12 [--workers N]
+npx @veedstudio/openedit-cli render page.html --out out.mp4 --from 4 --to 6     # re-render only that stretch
+npx @veedstudio/openedit-cli render page.html --out stills --stills 0.5,2,4 --sheet sheet.jpg
+```
+
+Segments and a manifest are cached in `<out>.render/`, so `--from`/`--to`
+re-renders only the segments it overlaps and rejoins the rest by stream copy.
+It fails naming the cause when Chrome does not start, the page throws, or every
+frame is one flat colour. `fonts` downloads Google Fonts as local woff2 files
+with a `fonts.css`; `install-browser` fetches the pinned Chrome Headless Shell,
+which `render` also does on first use:
+
+```sh
+npx @veedstudio/openedit-cli fonts "Inter:wght@400;700" Anton --out fonts
+npx @veedstudio/openedit-cli install-browser [--check|--force]
+```
+
 ### mux-audio / mix-audio
 
-Put sound on a render. `mux-audio` lays a run's source audio (or `--audio
-<file>`) onto its silent render, levelled to -14 LUFS / -1 dBTP (`--no-loudnorm`
-keeps the source level; the line it prints says which correction ran);
+Put sound on a render. `mux-audio` lays a track (the source clip, or a built
+soundtrack) onto a silent render, levelled to -14 LUFS / -1 dBTP
+(`--no-loudnorm` keeps the source level; the line it prints says which
+correction ran);
 `mix-audio` first builds one track from many pieces — narration, music,
 effects — per the run's mix spec, with music ducked under the voice:
 
 ```sh
 npx @veedstudio/openedit-cli mix-audio runs/<key>            # → runs/<key>/audio/mix.m4a
-npx @veedstudio/openedit-cli mux-audio runs/<key> --audio runs/<key>/audio/mix.m4a
+npx @veedstudio/openedit-cli mux-audio --video runs/<key>/out.mp4 --audio runs/<key>/audio/mix.m4a --out runs/<key>/final.mp4
 ```
 
-### wcag-pass
+### Frames and joins
 
-Contrast-audit a rendered run through the engine's bundled analyzer, and (with
-`--apply`) promote the remediated template after re-verifying it:
-
-```sh
-npx @veedstudio/openedit-cli wcag-pass --run runs/<key> [--apply]
-```
-
-Needs the installed engine (`install-engine`). `WCAG_REMEDIATE` can point at a
-replacement remediation applier; by default the bundled one runs as its own
-plain-node process.
-
-### gates / expect-windows
-
-The whole gate chain — lint → verify → contrast → record → mux —
-as one command over a run directory (run it outside any sandbox; rendering
-needs a real desktop session):
+Tools for looking at and joining footage:
 
 ```sh
-npx @veedstudio/openedit-cli gates runs/<key> [--doc <subdir>] [--audio <file>] [--no-mux] [--no-loudnorm] [--no-expect] [--no-wcag] [--no-safezones]
-```
-
-`expect-windows` derives the `verify.expect` timing assertions from a
-document's own gates (`--write` stamps them into the manifest); the chain runs
-it automatically. The lint gate comes from the content this package
-carries, so it runs in-process with no checkout (`lint` also
-exists as a standalone command); `OPEN_EDIT_ROOT` pointed at a checkout runs that
-checkout's gates instead. `content-root` prints where the content lives.
-
-### Editing and QA tools
-
-The remaining pipeline tools, each a direct port of its script:
-
-```sh
-npx @veedstudio/openedit-cli concat-chapters <run-dir> --doc chapters/act-1 --doc chapters/act-2
 npx @veedstudio/openedit-cli concat-videos [--canvas WxH] [--fit letterbox|crop|open] <out> <in1> <in2> [...]
-npx @veedstudio/openedit-cli cut-frames <video> [--json]      # frames at every shot boundary
-npx @veedstudio/openedit-cli scene-frames <video> <outDir>    # stills for a clip with no beats
 npx @veedstudio/openedit-cli frames <video> --at 12.5,1:02 --frame 300-306 --every 0.5 --from 8 --to 11 [--sheet]  # stills at the moments you name
 npx @veedstudio/openedit-cli frames --images <image|dir> [...] [--width N] [--cols N]                                   # pictures that already exist, on one sheet
-npx @veedstudio/openedit-cli check-delivery <run-dir> [--doc <subdir>] [--samples N] [--json]                       # the finished file: container, picture against the source, loudness
-npx @veedstudio/openedit-cli scoped-edit <baseline.wv> <candidate.wv> [--allow <selector>]...
-npx @veedstudio/openedit-cli brand --file <brand.json> [--brief] [--check]
-npx @veedstudio/openedit-cli creative-log --for <video> [--reject "…" --why "…"] [--brief]
 ```
 
 The cut tools, for an edit made before captioning: measure where speech starts,
@@ -231,34 +235,33 @@ npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade
 npx @veedstudio/openedit-cli retime-transcript --edl edl.json --out <OPEN_EDIT_ROOT>/runs/cut/transcript.json
 ```
 
-The retimed transcript goes where `prep` reads, `runs/<key>/` under the runtime
-root, so `prep cut.mp4` finds it and the cut is never transcribed.
+The retimed transcript goes where a transcription of the cut would land,
+`runs/<key>/transcript.json` under the workspace, so the transcription routes
+refuse to overwrite it and the cut is never transcribed.
 
-### stills / preview
+### stills
 
 `stills` fetches licensed pictures from Wikimedia Commons, recording each
-file's terms beside it (`search` / `show` / `save`). `preview` serves a
-read-only localhost page for a run — scrub the footage, follow the transcript,
-and the player swaps to the new render when it lands:
+file's terms beside it (`search` / `show` / `save`):
 
 ```sh
 npx @veedstudio/openedit-cli stills search "berlin skyline" --limit 10
-npx @veedstudio/openedit-cli preview runs/<key>
 ```
 
-### init / readiness
+### init
 
 `init` is the workspace setup: it checks the machine dependencies (Node,
 ffmpeg), npm-ifies the workspace (a minimal private `package.json` when none
 exists, this CLI exact-pinned as a devDependency, `git init` when git is
-available, `runs/` gitignored, the skill refreshed from packaged content),
-verifies the render engine, and applies clean patch/minor updates of the CLI
-itself — a major release, or one whose engine floor is not met, waits for
-approval. An explicit `--repository`/`--ref` keeps the legacy managed-clone
-path (which needs git and pnpm). Bare `init` applies only safe,
+available, `runs/` gitignored, the skill refreshed from packaged content), and
+applies clean patch/minor updates of the CLI itself — a major release waits for
+approval. Bare `init` applies only safe,
 workspace-local setup; `--dry` reports without writing; `--auto-approve` also
-applies machine-global installs and clean updates, and is only for after a
-person has approved every reported action. Exit 10 means something is awaiting
+applies the machine-global installs init can run on the system (Node and FFmpeg
+only through Homebrew on macOS; on Windows bare init already fetches FFmpeg into
+the app-data dir, no admin rights needed; the rest it prints for the user to
+run) and clean updates, and is only for after a person has approved every reported
+action. Exit 10 means something is awaiting
 that approval; on success the workspace root is printed on stdout.
 
 ```sh
@@ -266,19 +269,16 @@ npx @veedstudio/openedit-cli init --dry --workspace <dir>
 npx @veedstudio/openedit-cli init --workspace <dir>
 ```
 
-`readiness` reports what is present vs missing for a run — read-only, no
-network — and exits 1 when a blocking item is missing.
-
 ## Configuration
 
 | Environment variable | Effect |
 | --- | --- |
 | `VEED_ORIGIN` | Overrides the default `https://www.veed.io` origin. |
 | `OPENEDIT_STATE_DIR` | Overrides where login state is stored. |
-| `OPEN_EDIT_ROOT` | Where `runs/<key>/` outputs and `.open-edit-prefs.json` are written (default: the app-data directory below). Pointed at an Open Edit checkout it also replaces the bundled content, so the CLI runs that checkout's recipes and gates instead. |
+| `OPEN_EDIT_ROOT` | Where `runs/<key>/` outputs and `.open-edit-prefs.json` are written (default: the nearest project above the working directory, else the app-data directory below). |
 | `OPENEDIT_PACKAGE_SOURCE` | Overrides what init pins into a scaffolded workspace (a packed tarball path in tests and CI). |
 | `OPENEDIT_REGISTRY` | Overrides the npm registry the auto-update check consults (default: `https://registry.npmjs.org`). |
-| `VEED_ENGINE_FFMPEG` / `VEED_ENGINE_FFPROBE` | ffmpeg/ffprobe binaries (default: `PATH`; ffprobe defaults beside a configured ffmpeg). |
+| `OPENEDIT_FFMPEG` / `OPENEDIT_FFPROBE` | ffmpeg/ffprobe binaries (default: the copy `install-ffmpeg` put in the app-data directory, else `PATH`; ffprobe defaults beside a configured ffmpeg; an empty value counts as unset). |
 | `WHISPERX_BIN` / `WHISPERX_MODEL` | WhisperX binary and fallback model tier (defaults: `whisperx` on `PATH`, `small.en`). |
 | `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE` | WhisperX device/compute (defaults: `cpu`/`int8`). |
 

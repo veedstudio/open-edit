@@ -6,45 +6,30 @@ import * as login from "./commands/login.ts";
 import * as token from "./commands/token.ts";
 import * as transcribe from "./commands/transcribe.ts";
 import * as whisper from "./commands/whisper.ts";
-import * as prep from "./commands/prep.ts";
-import * as synthTimings from "./commands/synth-timings.ts";
 import * as generate from "./commands/generate.ts";
 import * as generateSet from "./commands/generate-set.ts";
 import * as samplePresenter from "./commands/sample-presenter.ts";
 import * as backgroundRemoval from "./commands/background-removal.ts";
 import * as lipsync from "./commands/lipsync.ts";
-import * as installEngine from "./commands/install-engine.ts";
 import * as installFfmpeg from "./commands/install-ffmpeg.ts";
 import * as installWhisperx from "./commands/install-whisperx.ts";
 import * as muxAudio from "./commands/mux-audio.ts";
 import * as mixAudio from "./commands/mix-audio.ts";
-import * as wcagPass from "./commands/wcag-pass.ts";
-import * as gates from "./commands/gates.ts";
-import * as lint from "./commands/lint.ts";
-import * as contentRoot from "./commands/content-root.ts";
-import * as enginePath from "./commands/engine-path.ts";
-import * as expectWindows from "./commands/expect-windows.ts";
-import * as generateRecipe from "./commands/generate-recipe.ts";
-import * as sampleStyle from "./commands/sample-style.ts";
-import * as safezoneCheck from "./commands/safezone-check.ts";
-import * as checkDelivery from "./commands/check-delivery.ts";
-import * as measurePlacement from "./commands/measure-placement.ts";
-import * as scopedEdit from "./commands/scoped-edit.ts";
-import * as brand from "./commands/brand.ts";
-import * as creativeLog from "./commands/creative-log.ts";
-import * as concatChapters from "./commands/concat-chapters.ts";
 import * as concatVideos from "./commands/concat-videos.ts";
-import * as sceneFrames from "./commands/scene-frames.ts";
-import * as cutFrames from "./commands/cut-frames.ts";
 import * as frames from "./commands/frames.ts";
+import * as renderCmd from "./commands/render.ts";
+import * as installBrowser from "./commands/install-browser.ts";
+import * as fontsCmd from "./commands/fonts.ts";
 import * as speechProbe from "./commands/speech-probe.ts";
 import * as applyEdl from "./commands/apply-edl.ts";
 import * as retimeTranscript from "./commands/retime-transcript.ts";
 import * as stills from "./commands/stills.ts";
-import * as preview from "./commands/preview.ts";
+import * as fal from "./commands/fal.ts";
+import * as veedProject from "./commands/veed-project.ts";
+import * as veedPull from "./commands/veed-pull.ts";
 import * as init from "./commands/init.ts";
-import * as readiness from "./commands/readiness.ts";
 import * as sessionStart from "./commands/session-start.ts";
+import { errorText, installEnvProxy } from "./proxy.ts";
 
 // package.json sits two levels above both src/ (dev via tsx) and dist/ (published build): the
 // package root is the repository root.
@@ -72,44 +57,28 @@ const COMMANDS: Record<string, Command> = {
   },
   transcribe: { usage: transcribe.usage, run: transcribe.transcribe },
   whisper: { usage: whisper.usage, run: whisper.whisper },
-  prep: { usage: prep.usage, run: prep.prep },
-  "synth-timings": { usage: synthTimings.usage, run: synthTimings.synthTimings },
   generate: { usage: generate.usage, run: generate.generate },
   "generate-set": { usage: generateSet.usage, run: generateSet.generateSet },
   "sample-presenter": { usage: samplePresenter.usage, run: samplePresenter.samplePresenterCommand },
   "background-removal": { usage: backgroundRemoval.usage, run: backgroundRemoval.backgroundRemoval },
   lipsync: { usage: lipsync.usage, run: lipsync.lipsync },
-  "install-engine": { usage: installEngine.usage, run: installEngine.installEngine },
   "install-ffmpeg": { usage: installFfmpeg.usage, run: installFfmpeg.installFfmpeg },
   "install-whisperx": { usage: installWhisperx.usage, run: installWhisperx.installWhisperx },
   "mux-audio": { usage: muxAudio.usage, run: muxAudio.muxAudio },
   "mix-audio": { usage: mixAudio.usage, run: mixAudio.mixAudio },
-  "wcag-pass": { usage: wcagPass.usage, run: wcagPass.wcagPass },
-  gates: { usage: gates.usage, run: gates.gates },
-  lint: { usage: lint.usage, run: lint.lint },
-  "content-root": { usage: contentRoot.usage, run: contentRoot.contentRootCommand },
-  "engine-path": { usage: enginePath.usage, run: enginePath.enginePathCommand },
-  "expect-windows": { usage: expectWindows.usage, run: expectWindows.expectWindows },
-  "generate-recipe": { usage: generateRecipe.usage, run: generateRecipe.generateRecipe },
-  "sample-style": { usage: sampleStyle.usage, run: sampleStyle.sampleStyleCommand },
-  "safezone-check": { usage: safezoneCheck.usage, run: safezoneCheck.safezoneCheckCommand },
-  "check-delivery": { usage: checkDelivery.usage, run: checkDelivery.checkDeliveryCommand },
-  "measure-placement": { usage: measurePlacement.usage, run: measurePlacement.measurePlacementCommand },
-  "scoped-edit": { usage: scopedEdit.usage, run: scopedEdit.scopedEdit },
-  brand: { usage: brand.usage, run: brand.brandCommand },
-  "creative-log": { usage: creativeLog.usage, run: creativeLog.creativeLog },
-  "concat-chapters": { usage: concatChapters.usage, run: concatChapters.concatChapters },
   "concat-videos": { usage: concatVideos.usage, run: concatVideos.concatVideosCommand },
-  "scene-frames": { usage: sceneFrames.usage, run: sceneFrames.sceneFrames },
-  "cut-frames": { usage: cutFrames.usage, run: cutFrames.cutFrames },
   frames: { usage: frames.usage, run: frames.frames },
+  render: { usage: renderCmd.usage, run: renderCmd.render },
+  "install-browser": { usage: installBrowser.usage, run: installBrowser.installBrowser },
+  fonts: { usage: fontsCmd.usage, run: fontsCmd.fonts },
   "speech-probe": { usage: speechProbe.usage, run: speechProbe.speechProbe },
   "apply-edl": { usage: applyEdl.usage, run: applyEdl.applyEdl },
   "retime-transcript": { usage: retimeTranscript.usage, run: retimeTranscript.retimeTranscript },
   stills: { usage: stills.usage, run: stills.stillsCommand },
-  preview: { usage: preview.usage, run: preview.preview },
+  fal: { usage: fal.usage, run: fal.falCommand },
+  "veed-project": { usage: veedProject.usage, run: veedProject.veedProject },
+  "veed-pull": { usage: veedPull.usage, run: veedPull.veedPull },
   init: { usage: init.usage, run: (argv) => init.main(argv) },
-  readiness: { usage: readiness.usage, run: readiness.readiness },
   "session-start": { usage: sessionStart.usage, run: sessionStart.sessionStart },
 };
 
@@ -179,9 +148,10 @@ export async function run(argv: string[]): Promise<number> {
   try {
     return await entry.run(rest);
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(errorText(error));
     return 1;
   }
 }
 
+installEnvProxy();
 process.exitCode = await run(process.argv.slice(2));

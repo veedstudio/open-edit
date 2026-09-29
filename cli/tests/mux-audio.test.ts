@@ -3,7 +3,7 @@
 // will DO with a measurement is arithmetic, and is pinned as such.
 //   Run:  node --import tsx tests/mux-audio.test.ts
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, copyFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
@@ -71,42 +71,51 @@ await test('a file ffmpeg cannot open reports the failure, with ffmpeg\'s own la
 
 // --- the command, end to end ---------------------------------------------------
 
-const runDir = (name: string, source: string): string => {
-  const run = join(dir, name);
-  mkdirSync(join(run, 'final'), { recursive: true });
-  copyFileSync(synthClip(dir, `${name}-render.mp4`, { video: TESTSRC, seconds: 2 }), join(run, 'final', 'out.silent.mp4'));
-  writeFileSync(join(run, 'meta.json'), JSON.stringify({ videoPath: source }));
-  return run;
-};
+const picture = (name: string): string => synthClip(dir, `${name}-render.mp4`, { video: TESTSRC, seconds: 2 });
 
 await test('a normalised deliverable is written at 48 kHz, not the 96 kHz loudnorm would otherwise hand the encoder', () => {
-  const run = runDir('tone-run', synthClip(dir, 'tone-src.mp4', { video: TESTSRC, audio: SINE, seconds: 2 }));
-  const { result, out } = captureConsole(() => muxAudio([run]));
+  const track = synthClip(dir, 'tone-src.mp4', { video: TESTSRC, audio: SINE, seconds: 2 });
+  const out = join(dir, 'tone', 'out.mp4');
+  const { result, out: said } = captureConsole(() => muxAudio(['--video', picture('tone'), '--audio', track, '--out', out]));
   assert.equal(result, 0);
-  assert.equal(probeStream(join(run, 'final', 'out.mp4'), 'a:0', 'sample_rate').sample_rate, '48000');
-  assert.match(out, /mux: wrote .*out\.mp4 \((normalised to -14 LUFS|dynamic loudness correction)/);
+  assert.equal(probeStream(out, 'a:0', 'sample_rate').sample_rate, '48000');
+  assert.match(said, /mux: wrote .*out\.mp4 \((normalised to -14 LUFS|dynamic loudness correction)/);
 });
 
 await test('--no-loudnorm muxes the track as recorded and says nothing about a level', () => {
-  const run = runDir('raw-run', synthClip(dir, 'raw-src.mp4', { video: TESTSRC, audio: SINE, seconds: 2 }));
-  const { result, out } = captureConsole(() => muxAudio([run, '--no-loudnorm']));
+  const track = synthClip(dir, 'raw-src.mp4', { video: TESTSRC, audio: SINE, seconds: 2 });
+  const { result, out } = captureConsole(() =>
+    muxAudio(['--video', picture('raw'), '--audio', track, '--out', join(dir, 'raw', 'out.mp4'), '--no-loudnorm']));
   assert.equal(result, 0);
   assert.doesNotMatch(out, /LUFS|dynamic/);
 });
 
 await test('an --audio file with no audio stream is refused: a silent deliverable must not exit 0', () => {
-  const run = runDir('named-mute-run', synthClip(dir, 'named-src.mp4', { video: TESTSRC, audio: SINE, seconds: 2 }));
   const mute = synthClip(dir, 'named-mute.mp4', { video: TESTSRC, seconds: 2 });
-  const { result, err } = captureConsole(() => muxAudio([run, '--audio', mute]));
+  const { result, err } = captureConsole(() =>
+    muxAudio(['--video', picture('mute'), '--audio', mute, '--out', join(dir, 'mute', 'out.mp4')]));
   assert.equal(result, 1);
   assert.match(err, /has no audio stream — nothing to lay on the render/);
 });
 
-await test('a source with no audio track is muxed as-is and says so, rather than reporting a correction', () => {
-  const run = runDir('mute-run', synthClip(dir, 'mute-src.mp4', { video: TESTSRC, seconds: 2 }));
-  const { result, out } = captureConsole(() => muxAudio([run]));
+await test('the output lands where --out names, and the per-attempt temp file is renamed away', () => {
+  const track = synthClip(dir, 'elsewhere-track.m4a', { audio: SINE, seconds: 2 });
+  const out = join(dir, 'delivered', 'film.mp4');
+  const { result } = captureConsole(() => muxAudio(['--video', picture('elsewhere'), '--audio', track, '--out', out, '--no-loudnorm']));
   assert.equal(result, 0);
-  assert.match(out, /no audio track/);
-  assert.doesNotMatch(out, /dynamic/);
-  assert.deepEqual(probeStream(join(run, 'final', 'out.mp4'), 'a:0', 'codec_type'), {});
+  assert.equal(probeStream(out, 'a:0', 'codec_type').codec_type, 'audio');
+  assert.equal(probeStream(out, 'v:0', 'codec_type').codec_type, 'video');
+  assert.deepEqual(readdirSync(join(dir, 'delivered')), ['film.mp4']);
+});
+
+await test('a missing --audio or --out is refused by name rather than guessed', () => {
+  const { result, err } = captureConsole(() => muxAudio(['--video', picture('lonely'), '--out', join(dir, 'x.mp4')]));
+  assert.equal(result, 2);
+  assert.match(err, /pass --video, --audio and --out together/);
+});
+
+await test('a --video that does not exist is named as the missing input', () => {
+  const { result, err } = captureConsole(() => muxAudio(['--video', join(dir, 'nope.mp4'), '--audio', join(dir, 'nope.m4a'), '--out', join(dir, 'y.mp4')]));
+  assert.equal(result, 1);
+  assert.match(err, /no video at .*nope\.mp4/);
 });

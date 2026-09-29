@@ -127,8 +127,78 @@ export function filtergraph(spec: MixSpec): { graph: string; out: string } {
   return { graph: parts.join(';'), out };
 }
 
-export function mix(runDir: string, specPath: string, outPath: string): string {
-  const spec = JSON.parse(readFileSync(specPath, 'utf8')) as MixSpec;
+const ROLES = ['voice', 'music', 'sfx', 'ambience'] as const;
+export const SPEC_KEYS = ['durationSec', 'tracks'] as const;
+export const TRACK_KEYS = ['path', 'atSec', 'gainDb', 'fadeInSec', 'fadeOutSec', 'role', 'duck'] as const;
+
+/**
+ * The spec as written by hand, checked field by field. Unchecked, a malformed one fails deep in the graph
+ * builder with a message that names no field, and a misspelt key or role mixes the wrong thing without a word.
+ */
+export function parseSpec(raw: unknown): MixSpec {
+  const bad = (what: string): never => {
+    throw new Error(`mix-audio: ${what} (the spec's fields are in mix-audio --help)`);
+  };
+  // Checked before the known fields, because a misspelt key also reads as its real one missing.
+  const onlyKnown = (at: string, obj: object, known: readonly string[]): void => {
+    const extra = Object.keys(obj).find((k) => !known.includes(k));
+    if (extra !== undefined) bad(`${at} has unknown field ${JSON.stringify(extra)} (known: ${known.join(', ')})`);
+  };
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    bad('the spec is an object, { "durationSec": <seconds>, "tracks": [ ... ] }, not a bare list of tracks');
+  }
+  onlyKnown('the spec', raw as object, SPEC_KEYS);
+  const { durationSec, tracks } = raw as { durationSec?: unknown; tracks?: unknown };
+  if (typeof durationSec !== 'number' || !Number.isFinite(durationSec) || durationSec <= 0) {
+    bad(`durationSec, the film's length in seconds, must be a positive number (got ${JSON.stringify(durationSec)})`);
+  }
+  if (!Array.isArray(tracks) || tracks.length === 0) bad('tracks must be a non-empty list');
+  (tracks as unknown[]).forEach((t, i) => {
+    const at = `tracks[${i}]`;
+    if (typeof t !== 'object' || t === null || Array.isArray(t)) bad(`${at} must be an object`);
+    const track = t as Record<string, unknown>;
+    onlyKnown(at, track, TRACK_KEYS);
+    if (typeof track.path !== 'string' || track.path === '') bad(`${at}.path must name a file`);
+    if (typeof track.atSec !== 'number' || !Number.isFinite(track.atSec) || track.atSec < 0) {
+      bad(`${at}.atSec, its start in seconds, must be a non-negative number`);
+    }
+    // The mix is trimmed at durationSec, so a track starting there or later would vanish without a word.
+    if ((track.atSec as number) >= (durationSec as number)) {
+      bad(`${at} starts at ${track.atSec}s, at or past durationSec ${durationSec}s, so it would be trimmed out`);
+    }
+    for (const key of ['gainDb', 'fadeInSec', 'fadeOutSec'] as const) {
+      const v = track[key];
+      if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || (key !== 'gainDb' && v < 0))) {
+        bad(`${at}.${key} must be a ${key === 'gainDb' ? '' : 'non-negative '}number`);
+      }
+    }
+    if (track.role !== undefined && !(ROLES as readonly unknown[]).includes(track.role)) {
+      bad(`${at}.role must be one of ${ROLES.join(', ')} (got ${JSON.stringify(track.role)})`);
+    }
+    if (track.duck !== undefined && typeof track.duck !== 'boolean') bad(`${at}.duck must be true or false`);
+    // The voice tracks are the key the others duck under, so a ducked voice would be ignored.
+    if (track.duck === true && track.role === 'voice') bad(`${at} is a voice track, which ducks the others and cannot be ducked itself`);
+  });
+  return raw as MixSpec;
+}
+
+export function readSpec(specPath: string): MixSpec {
+  let text: string;
+  try {
+    text = readFileSync(specPath, 'utf8');
+  } catch (error) {
+    throw new Error(`mix-audio: cannot read ${specPath}: ${(error as Error).message}`);
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`mix-audio: ${specPath} is not valid JSON: ${(error as Error).message}`);
+  }
+  return parseSpec(raw);
+}
+
+export function mix(runDir: string, spec: MixSpec, outPath: string): string {
   const resolve = (p: string) => (isAbsolute(p) ? p : join(runDir, p));
   for (const t of spec.tracks) {
     if (!existsSync(resolve(t.path))) throw new Error(`mix-audio: no such track — ${t.path}`);
@@ -150,6 +220,20 @@ export const usage = {
     out: { type: 'string', value: '<file>', help: 'Output, relative to the run (default audio/mix.m4a)' },
     'print-graph': { type: 'boolean', help: 'Print the ffmpeg filtergraph and write nothing' },
   },
+  notes: [
+    'The spec is JSON:',
+    '  { "durationSec": 60, "tracks": [',
+    '    { "path": "assets/vo.mp3", "atSec": 0, "role": "voice" },',
+    '    { "path": "assets/music.mp3", "atSec": 0, "gainDb": -14, "fadeOutSec": 3, "role": "music", "duck": true },',
+    '    { "path": "assets/whoosh.wav", "atSec": 12.4, "gainDb": -6, "role": "sfx" } ] }',
+    'durationSec (required): the film\'s length in seconds; the mix is padded or trimmed to exactly that.',
+    'Each track: path (relative to the run dir, or absolute), atSec (its start on the film\'s timeline, in',
+    'seconds), and optionally gainDb (0 leaves it as recorded, negative is quieter), fadeInSec, fadeOutSec (ends at',
+    'durationSec), role (voice, music, sfx or ambience) and duck (true: lowered while the voice tracks speak).',
+    'Ducking keys on the voice\'s own level, so a quiet voice take barely ducks: raise its gainDb.',
+    'The result is audio only. Lay it on a render at delivery loudness with',
+    '  mux-audio --video <render> --audio <run-dir>/audio/mix.m4a --out <file>',
+  ].join('\n'),
 } satisfies Usage;
 
 export function mixAudio(argv: string[]): number {
@@ -161,14 +245,21 @@ export function mixAudio(argv: string[]): number {
   }
   const specPath = join(runDir, values.spec ?? 'audio/mix.json');
   if (!existsSync(specPath)) {
-    console.error(`mix-audio: no spec at ${specPath} — it lists each track with its path, atSec, gainDb and role`);
+    console.error(`mix-audio: no spec at ${specPath}; mix-audio --help shows what it holds`);
+    return 2;
+  }
+  let spec: MixSpec;
+  try {
+    spec = readSpec(specPath);
+  } catch (error) {
+    console.error((error as Error).message);
     return 2;
   }
   if (values['print-graph']) {
-    console.log(filtergraph(JSON.parse(readFileSync(specPath, 'utf8')) as MixSpec).graph);
+    console.log(filtergraph(spec).graph);
     return 0;
   }
-  const out = mix(runDir, specPath, join(runDir, values.out ?? 'audio/mix.m4a'));
+  const out = mix(runDir, spec, join(runDir, values.out ?? 'audio/mix.m4a'));
   console.log(`mix-audio: ${out}`);
   return 0;
 }

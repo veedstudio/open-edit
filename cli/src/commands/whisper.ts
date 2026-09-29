@@ -15,8 +15,8 @@
 //   whisper.cpp  main -m models/ggml-base.en.bin -f audio.wav -oj -ml 1
 //   OpenAI API   response_format=verbose_json, timestamp_granularities=["word"]
 //
-// The key is derived from the video filename exactly as the transcribe and prep commands derive it,
-// so prep picks the transcript up with no further arguments.
+// The key is derived from the video filename exactly as the transcribe command derives it, so both
+// routes write the same runs/<key>/transcript.json for the same file.
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -24,8 +24,8 @@ import { join } from 'node:path';
 import { runsDir } from '../config.ts';
 import { resolveVideoArg, runKeyOf } from '../resolve-video.ts';
 import { validateTranscript } from './transcribe.ts';
-import { mapWhisperTranscript, type WhisperJson } from '../prep/whisper-mapper.ts';
-import { cachedNote, cachedTranscriptPath, wordCount } from '../prep/transcript-cache.ts';
+import { mapWhisperTranscript, type WhisperJson } from '../transcript/whisper-mapper.ts';
+import { cachedNote, cachedTranscriptPath, wordCount } from '../transcript/transcript-cache.ts';
 
 export const usage = {
   summary: "Map a Whisper-family JSON your own service produced into runs/<key>/transcript.json",

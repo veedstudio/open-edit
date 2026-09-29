@@ -2,21 +2,27 @@
 // entries invoke when an agent session opens. Runs init against the invoking workspace and turns
 // the report into the context note each harness expects. Advisory by design — always exits 0; the
 // note itself carries any setup failure to the agent.
+import { join } from 'node:path';
 import { parseUsage, type Usage } from '../args.ts';
 import { main as initMain } from './init.ts';
+
+// Codex and Gemini do not discover .claude/skills on their own, so the note is their only way to the skill.
+// Named under the root rather than the workspace: init installs no skill into the workspace of a pinned
+// managed clone, and every root it reports carries one.
+const skillPointer = (root?: string): string =>
+  `For video work, the open-edit skill is ${root ? join(root, '.claude', 'skills', 'open-edit', 'SKILL.md') : '.claude/skills/open-edit/SKILL.md under OPEN_EDIT_ROOT'}.`;
 
 export function composeContext(status: number, output: string): string {
   if (status === 0 && !/APPROVAL REQUIRED|incomplete|not ready|waiting/.test(output)) {
     // This hook already RAN init, so sending the agent to run it again buys nothing but a round trip —
     // the one thing it needed from that run was the root, and the run it just did knows it. When
     // anything needs approval the message below is unchanged: that path still goes through --dry.
-    // AGENTS.md travels with the CONTENT, which on the package path is not the workspace root.
     const root = /OPEN_EDIT_ROOT=(.+)/.exec(output)?.[1]?.trim();
     return root
-      ? `Open Edit preflight is ready and OPEN_EDIT_ROOT=${root}. Before using the open-edit skill in this session, read AGENTS.md from the content root (\`npx @veedstudio/openedit-cli content-root\`) completely. No further preflight is needed; proceed silently.`
-      : 'Open Edit preflight is ready. Before using the open-edit skill in this session, still run `npx @veedstudio/openedit-cli init --dry`, resolve OPEN_EDIT_ROOT, and read AGENTS.md from the content root (`npx @veedstudio/openedit-cli content-root`) completely. Proceed silently if preflight remains ready.';
+      ? `Open Edit preflight is ready and OPEN_EDIT_ROOT=${root}. No further preflight is needed; proceed silently. ${skillPointer(root)}`
+      : `Open Edit preflight is ready. Before using the open-edit skill in this session, still run \`npx @veedstudio/openedit-cli init --dry\` and resolve OPEN_EDIT_ROOT. Proceed silently if preflight remains ready. ${skillPointer()}`;
   }
-  return `Open Edit startup preflight reported:\n${output}\nBefore doing Open Edit work, ALWAYS run \`npx @veedstudio/openedit-cli init --dry\`, communicate every APPROVAL REQUIRED action to the user, and wait for explicit approval. Run init --auto-approve only after the user approves all reported actions. Never install machine-global dependencies or update existing code without that approval (the one self-update bare init performs is a clean patch/minor of the CLI itself). After resolving OPEN_EDIT_ROOT, read AGENTS.md from the content root (\`npx @veedstudio/openedit-cli content-root\`) completely before running repository commands.`;
+  return `Open Edit startup preflight reported:\n${output}\nBefore doing Open Edit work, ALWAYS run \`npx @veedstudio/openedit-cli init --dry\`, communicate every APPROVAL REQUIRED action to the user, and wait for explicit approval. Run init --auto-approve only after the user approves all reported actions. Never install machine-global dependencies or update existing code without that approval (the one self-update bare init performs is a clean patch/minor of the CLI itself).`;
 }
 
 export function formatNote(agent: string, context: string): string {

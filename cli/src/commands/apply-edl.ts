@@ -4,7 +4,7 @@
 //   openedit apply-edl --edl <edl.json> --out <cut.mp4> [--crossfade 40] [--crf 20]
 //
 // Joins are crossfaded, not butt-joined: a butt join clicks at the seam, and a crossfade needs one
-// encode over both sides of it. That is why this re-encodes instead of stream-copying like `concat-chapters`.
+// encode over both sides of it. That is why this re-encodes instead of stream-copying.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

@@ -2,8 +2,7 @@
 //   pnpm test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { synthWordTimings } from '../src/prep/synth-word-timings.ts';
-import { groupWordsIntoChunks, mapWhisperTranscript } from '../src/prep/whisper-mapper.ts';
+import { groupWordsIntoChunks, mapWhisperTranscript } from '../src/transcript/whisper-mapper.ts';
 
 await test('maps the Python Whisper shape (mlx-whisper, openai-whisper) one segment to one chunk', () => {
   const { transcript: out } = mapWhisperTranscript({
@@ -173,7 +172,7 @@ await test('chunk timestamps span the grouped words', () => {
 });
 
 // A segment-only transcript cannot be rescued: with no timed word anywhere there is nothing to
-// interpolate from, and prep would even-split every cue.
+// interpolate from, and every cue would carry invented times.
 await test('throws, naming the fix, when the transcript has no per-word timings at all', () => {
   assert.throws(
     () => mapWhisperTranscript({ text: 'hello', segments: [{ start: 0, end: 1, text: 'hello' }] }),
@@ -231,8 +230,7 @@ await test('a segment with no end does not swallow the segments after it', () =>
   assert.deepEqual(transcript.chunks.map((c) => c.text), ['a', 'b', 'c']);
 });
 
-// synth-word-timings discards a beat's real times when a word's midpoint sits outside the chunk
-// window, so the window has to cover its own words.
+// A cue timed from its chunk must contain the words it carries, so the window has to cover them.
 await test('a chunk window widens to cover a word the provider aligned past the segment end', () => {
   const { transcript } = mapWhisperTranscript({
     segments: [{ start: 0, end: 1.5, words: [{ word: 'hey', start: 0.05, end: 0.6 }, { word: 'there', start: 1.4, end: 2 }] }],
@@ -246,7 +244,7 @@ await test('a chunk window widens to cover a word the provider aligned past the 
 });
 
 // whisper.cpp without -ml 1 emits segment-granularity entries; treating one as a single "word" let a
-// segment-only transcript pass the per-word-times gate and then even-split downstream.
+// segment-only transcript pass the per-word-times check with one "word" per sentence.
 await test('a multi-word whisper.cpp entry is tokenised and counted as inferred', () => {
   const { transcript, interpolated } = mapWhisperTranscript({
     transcription: [{ text: ' Hello there my friend.', offsets: { from: 0, to: 2000 } }],
@@ -300,23 +298,6 @@ await test('words whose starts run backwards are reordered so text and reveals a
   assert.equal(reordered, 1);
 });
 
-// Integration: this defect is INVISIBLE at the mapper boundary — the transcript looks fine and
-// validateTranscript passes, but synth-word-timings' completeness guard then throws away every real
-// time for the beat and even-splits it, while prep still logs "real per-word times".
-await test('a word aligned past its segment keeps real delays through synth-word-timings', () => {
-  const { transcript } = mapWhisperTranscript({
-    segments: [{ start: 0, end: 1.5, words: [{ word: 'hey', start: 0.05, end: 0.6 }, { word: 'there', start: 1.4, end: 2 }] }],
-  });
-  const wordChunks = transcript.chunks.flatMap((c) => c.words);
-  const { beats } = synthWordTimings(transcript.chunks, wordChunks);
-  assert.deepEqual(beats[0].words.map((w) => w.delayMs), [50, 1400]); // real times, not an even split
-
-  // The pre-fix chunk window, kept as documentation of what this cost: the same words under the
-  // provider's own [0,1.5] window lose every real delay to the completeness guard.
-  const { beats: degraded } = synthWordTimings([{ text: 'hey there', timestamp: [0, 1.5] }], wordChunks);
-  assert.deepEqual(degraded[0].words.map((w) => w.delayMs), [0, 750]);
-});
-
 // The invariant that makes the whole class impossible: nothing may be lost between input and output.
 await test('no input word is ever lost, across every input family', () => {
   const cases: { name: string; input: Parameters<typeof mapWhisperTranscript>[0]; expect: number }[] = [
@@ -341,8 +322,8 @@ await test('no input word is ever lost, across every input family', () => {
 
 await test('a chunk window reaches an interior word that ends AFTER the last word (ASR overlap)', () => {
   // Overlaps are normal in ASR: an interior word can start after the first yet end after the last. Bounding
-  // the window by the last-by-start word's end leaves that word's midpoint outside it, and synth-word-timings
-  // then discards the whole beat. The window must cover every word's end, not just the final one's.
+  // the window by the last-by-start word's end leaves that word's midpoint outside it. The window must
+  // cover every word's end, not just the final one's.
   const { transcript } = mapWhisperTranscript({
     segments: [{
       start: 0, end: 2, // the segment's own end is EARLIER than the overlapping word's end, as ASR emits

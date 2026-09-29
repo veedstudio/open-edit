@@ -16,7 +16,6 @@
   "exclude": [
     "runs",
     "node_modules",
-    ".open-edit",
     "cli"
   ]
 }

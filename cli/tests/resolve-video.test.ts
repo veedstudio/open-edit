@@ -1,7 +1,5 @@
-// This package's copy of the run-key law must never drift from the Open Edit repository's
-// (pipeline/scripts/resolve-video.ts): a transcript keyed by one and read by the other would
-// silently orphan the run. These vectors are pinned IDENTICALLY on both sides — change them
-// together or not at all.
+// The run-key law: every command that names runs/<key> derives it here, and a transcript keyed by
+// one rule and read by another would silently orphan the run. These vectors pin it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';

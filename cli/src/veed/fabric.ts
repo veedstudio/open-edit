@@ -406,7 +406,7 @@ const SPEECH_MAX_ATTEMPTS = 60;
 
 // THIS IS THE CALL THAT SPENDS. It is several requests rather than one, and the money moves partway
 // through: synthesis bills first, the generation bills second. So everything before it must already be
-// recoverable — veed/generate.ts writes its charge record before calling this, which is exactly right.
+// recoverable — commands/generate.ts writes its charge record before calling this, which is exactly right.
 export async function createVideo(http: VeedHttp, req: VideoRequest, deps: FabricDeps = {}): Promise<FabricJob> {
   const operation = 'createVideo';
   describePresenter(operation, req);
@@ -510,7 +510,7 @@ const POLL_STEADY_MS = 30_000;
 export const POLL_DEADLINE_MS = 15 * 60_000;
 // By the time this polls, createVideo has already charged the workspace, so a transport blip (a 502, a
 // timeout) must NOT throw the paid job away. Tolerate three CONSECUTIVE failures and reset on any answer;
-// a run of four is a real outage, and the job id is on disk by then (see veed/generate.ts) so `--resume`
+// a run of four is a real outage, and the job id is on disk by then (see commands/generate.ts) so `--resume`
 // can still collect the video without paying again.
 const MAX_CONSECUTIVE_POLL_FAILURES = 3;
 

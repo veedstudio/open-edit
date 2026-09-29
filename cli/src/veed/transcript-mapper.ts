@@ -1,7 +1,7 @@
 // Maps VEED transcription output into the editor's on-disk transcript shape
-// ({ text, chunks:[{ text, timestamp:[startSec,endSec] }] }) that the prep step
-// consumes (one chunk = one beat, rendered at the chunk midpoint). VEED returns caption ITEMS keyed in a
-// record; this is the only piece of pure logic in the VEED-native transcription path, hence fully tested.
+// ({ text, chunks:[{ text, timestamp:[startSec,endSec], words }] }), one chunk per cue. VEED returns
+// caption ITEMS keyed in a record; this is the only piece of pure logic in the VEED-native
+// transcription path, hence fully tested.
 
 export interface VeedWord {
   value: string;
@@ -20,7 +20,7 @@ export interface VeedItem {
 export type VeedSubtitleTrack = Record<string, VeedItem>;
 
 // The output shape is the one transcript.json contract every provider shares.
-import type { Transcript, TranscriptChunk, TranscriptWord } from '../prep/transcript-types.ts';
+import type { Transcript, TranscriptChunk, TranscriptWord } from '../transcript/transcript-types.ts';
 
 export type { Transcript, TranscriptChunk, TranscriptWord };
 

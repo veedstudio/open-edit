@@ -3,6 +3,7 @@
 // (cli/src/providers/fal.ts). There is no live VEED route for this model to fall back to, unlike
 // background-removal.ts's default mode. VEED login still hosts the local video + audio (so fal has URLs to fetch); the
 // GENERATION call bills fal, not VEED.
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
@@ -52,26 +53,36 @@ export async function runLipsync(deps: LipsyncDeps, opts: LipsyncOptions): Promi
 
   const [video, audio] = await Promise.all([deps.readVideoBytes(opts.videoPath), deps.readAudioBytes(opts.audioPath)]);
 
-  // Unscoped: fal's own key authorizes the paid call, not a VEED project permission — VEED hosts the
-  // files so fal has URLs to fetch, and that hosting step is not billed either way. Concurrent: the two
-  // uploads are independent, so there is no reason to pay for one's poll loop before starting the other.
-  const [uploadedVideo, uploadedAudio] = await Promise.all([
-    uploadLocalAsset({ http, sleep }, { bytes: video.bytes, mimeType: video.mimeType, extension: video.extension, assetType: 'VIDEO', group: 'srcVideo' }),
-    uploadLocalAsset({ http, sleep }, { bytes: audio.bytes, mimeType: audio.mimeType, extension: audio.extension, assetType: 'AUDIO', group: 'srcVideo' }),
-  ]);
-  log(`uploaded video ${uploadedVideo.assetId} and audio ${uploadedAudio.assetId} for hosting only`);
-
   const key = opts.falKey ?? falKey();
   const runDir = deps.runDir ?? join(runsDir(), runKeyOf(opts.videoPath));
-  const input: Record<string, unknown> = { video_url: uploadedVideo.cdnUrl, audio_url: uploadedAudio.cdnUrl };
-  const { job, reused } = await submitOnce(runDir, FAL_LIPSYNC_V2_MODEL, input, { key, http: deps.falHttp, sleep });
+  // Every upload hosts the file at a new url, so the job is known by the two files' content: a re-run of
+  // the same pair resumes the job it already bought instead of hosting both again and buying it twice.
+  const identity = { video_url: `file:${digestOf(video.bytes)}`, audio_url: `file:${digestOf(audio.bytes)}` };
+  const { job, reused, ledgerRecord } = await submitOnce(runDir, FAL_LIPSYNC_V2_MODEL, identity, {
+    key, http: deps.falHttp, sleep, identity,
+    prepare: async () => {
+      // Unscoped: fal's own key authorizes the paid call, not a VEED project permission — VEED hosts the
+      // files so fal has URLs to fetch, and that hosting step is not billed either way. Concurrent: the two
+      // uploads are independent, so there is no reason to pay for one's poll loop before starting the other.
+      const [uploadedVideo, uploadedAudio] = await Promise.all([
+        uploadLocalAsset({ http, sleep }, { bytes: video.bytes, mimeType: video.mimeType, extension: video.extension, assetType: 'VIDEO', group: 'srcVideo' }),
+        uploadLocalAsset({ http, sleep }, { bytes: audio.bytes, mimeType: audio.mimeType, extension: audio.extension, assetType: 'AUDIO', group: 'srcVideo' }),
+      ]);
+      log(`uploaded video ${uploadedVideo.assetId} and audio ${uploadedAudio.assetId} for hosting only`);
+      return { video_url: uploadedVideo.cdnUrl, audio_url: uploadedAudio.cdnUrl };
+    },
+  });
   if (reused) log(`[fal] this exact request is already in the ledger as ${job.requestId} — resuming it rather than buying it again`);
-  const result = await await_(job, { key, http: deps.falHttp, sleep, timeoutMs: deps.falTimeoutMs });
+  const result = await await_(job, { key, http: deps.falHttp, sleep, timeoutMs: deps.falTimeoutMs, ledgerRecord });
   const url = firstUrl(result.payload);
   if (!url) throw new Error(`fal returned no url for ${job.requestId}`);
   await download(url, opts.outPath, deps.falHttp);
-  completeJob(runDir, FAL_LIPSYNC_V2_MODEL, input);
+  completeJob(runDir, FAL_LIPSYNC_V2_MODEL, identity);
   log(`wrote ${opts.outPath}`);
+}
+
+function digestOf(bytes: Uint8Array): string {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
 async function readAudioBytes(audioPath: string): Promise<{ bytes: Uint8Array; mimeType: string; extension: string }> {
@@ -99,6 +110,9 @@ export const usage = {
   flags: {
     out: { type: 'string', value: '<path>', help: 'Output file (default runs/<key>/lipsync.mp4)' },
   },
+  // The skill has the price quoted before the first paid call, and the run itself names it only once it
+  // is already running.
+  notes: `fal's listed rate: $${FAL_LIPSYNC_V2_PRICE_PER_SECOND} per second of output video, billed to your own fal account.`,
 } satisfies Usage;
 
 export async function lipsync(argv: string[]): Promise<number> {

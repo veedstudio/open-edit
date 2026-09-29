@@ -1,4 +1,4 @@
-// Concurrency tests for veed/generate.ts: two runs of the same key are a NORMAL workflow, so the spend
+// Concurrency tests for commands/generate.ts: two runs of the same key are a NORMAL workflow, so the spend
 // gate has to survive a create call that never came back, a live rival process, and a dead one. Driven
 // with a fake MCP client and an in-memory state map, so nothing here touches the network or spends.
 //   Run:  node --import tsx tests/generate-charge.test.ts

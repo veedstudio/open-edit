@@ -7,17 +7,6 @@ Licensed under the Apache License, Version 2.0 (see the LICENSE file).
 
 ---
 
-The rendering engine (`veed-engine-cli`) is NOT part of this repository. It is
-downloaded at setup time as a prebuilt binary from
-https://github.com/veedstudio/weave-renderer-public-releases and is covered by
-the PolyForm Shield License 1.0.0 — a source-available license permitting any
-use except building a product that competes with VEED — and NOT by the
-Apache-2.0 license of this project.
-
-The installer places a copy of those terms alongside the binary at
-`.veed-engine/LICENSE-binary.md`. The canonical copy is `LICENSE-binary.md` in
-the releases repository above.
-
 This project embeds woff2 subsets of two fonts in the login-success page, each
 licensed under the SIL Open Font License, Version 1.1
 (https://openfontlicense.org):
@@ -32,6 +21,9 @@ The full license text accompanies each upstream project at the URLs above.
 
 ---
 
-Transcription in this project is performed against the VEED service, which
-requires a VEED account and credits. Use of that service is governed by VEED's
-terms, separately from this project's license.
+The VEED-hosted features of this project (transcription, Fabric generation,
+background removal, and the file hosting lipsync uses) run against the VEED
+service, which requires a VEED account. Hosted transcription spends that
+account's VEED transcription credits and Fabric generation its AI Playground
+credits; local transcription (WhisperX) uses neither. Use of that service is
+governed by VEED's terms, separately from this project's license.

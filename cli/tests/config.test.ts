@@ -5,9 +5,10 @@ import { homedir } from 'node:os';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { clientPath, contentRoot, packageRoot, prefsPath, runsDir, stateDir, tokenPath, voiceRatesPath, workspacePath, workspaceRoot } from '../src/config.ts';
+import { spawnSync } from 'node:child_process';
+import { clientPath, packageRoot, prefsPath, runsDir, stateDir, tokenPath, voiceRatesPath, workspacePath, workspaceRoot } from '../src/config.ts';
 
-// The walk starts at cwd, and the repository itself is a content tree that would answer every one.
+// The walk starts at cwd, and the repository itself is a workspace that would answer every one.
 function withCwd<T>(dir: string, fn: () => T): T {
   const saved = process.cwd();
   process.chdir(dir);
@@ -36,51 +37,28 @@ function withEnv<T>(env: Record<string, string | undefined>, fn: () => T): T {
   }
 }
 
-// A directory that looks like content to contentRoot(): the runtime index is the marker it keys on.
 const scratch: string[] = [];
-function contentTree(withIndex: boolean): string {
+function emptyDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'openedit-content-'));
   scratch.push(dir);
-  if (withIndex) {
-    mkdirSync(join(dir, 'refs'), { recursive: true });
-    writeFileSync(join(dir, 'refs', 'tags.json'), '{"refs":[]}');
-  }
   return dir;
 }
 after(() => { for (const dir of scratch) rmSync(dir, { recursive: true, force: true }); });
 
 test('the package root is the tree this module ships in, two levels up', () => {
   // cli/src/config.ts under tsx, cli/dist/config.js when published — the same two levels either way,
-  // which is what lets a checkout and an install share one content layout.
+  // which is what lets a checkout and an install share one layout.
   // This file is cli/tests/config.test.ts, two levels below the same root.
   assert.equal(packageRoot(), resolve(fileURLToPath(new URL('../..', import.meta.url))), 'two levels up, with no trailing separator');
 });
 
-test('OPEN_EDIT_ROOT pins the content root only when the directory carries the runtime index', () => {
-  const real = contentTree(true);
-  withEnv({ OPEN_EDIT_ROOT: real }, () => {
-    assert.equal(contentRoot(), real);
-  });
-  // A workspace that merely exported the variable must not hide the content the package ships: the
-  // fallback is what keeps a recipe run working instead of failing on an index that was never there.
-  const bare = contentTree(false);
-  withEnv({ OPEN_EDIT_ROOT: bare }, () => {
-    assert.equal(contentRoot(), packageRoot());
-  });
-  withEnv({ OPEN_EDIT_ROOT: undefined }, () => {
-    assert.equal(contentRoot(), packageRoot());
-  });
-});
-
-test('the workspace root honours OPEN_EDIT_ROOT unconditionally — content and writes are separate roots', () => {
-  // Where the CLI WRITES is the user's call, marker or no marker; the content root is the one that
-  // has to be a real content tree. Pointing the variable at an empty directory still directs renders
-  // there, and must never direct them into the package.
-  const bare = contentTree(false);
+test('the workspace root honours OPEN_EDIT_ROOT unconditionally, never the package', () => {
+  // Where the CLI WRITES is the user's call, marker or no marker. Pointing the variable at an empty
+  // directory still directs renders there, and must never direct them into the package.
+  const bare = emptyDir();
   withEnv({ OPEN_EDIT_ROOT: bare, OPENEDIT_STATE_DIR: '/state' }, () => {
     assert.equal(workspaceRoot(), bare);
-    assert.equal(contentRoot(), packageRoot());
-    assert.notEqual(workspaceRoot(), contentRoot());
+    assert.notEqual(workspaceRoot(), packageRoot());
   });
   withEnv({ OPEN_EDIT_ROOT: undefined, OPENEDIT_STATE_DIR: '/state' }, () => {
     withCwd(mkdtempSync(join(tmpdir(), 'openedit-cfg-bare-')), () => {
@@ -111,10 +89,22 @@ test('with no OPEN_EDIT_ROOT the writes root is the nearest enclosing project, f
     withCwd(prefsOnly, () => assert.equal(realpathSync(workspaceRoot()), prefsOnly));
     // node_modules is the one directory the package layout exists to keep renders out of.
     const inside = join(proj, 'node_modules', '@veedstudio', 'openedit-cli');
-    mkdirSync(join(inside, 'refs'), { recursive: true });
+    mkdirSync(inside, { recursive: true });
     writeFileSync(join(inside, 'package.json'), '{"name":"@veedstudio/openedit-cli","version":"1.2.3"}');
-    writeFileSync(join(inside, 'refs', 'tags.json'), '{"version":3,"refs":[]}');
     withCwd(inside, () => assert.equal(realpathSync(workspaceRoot()), proj));
+    // A checkout of the package itself keeps its runs in the checkout; a lookalike source tree under
+    // another name is not one of ours.
+    const sourceTree = (name: string) => {
+      const dir = realpathSync(mkdtempSync(join(tmpdir(), 'openedit-cfg-checkout-')));
+      mkdirSync(join(dir, 'cli', 'src'), { recursive: true });
+      writeFileSync(join(dir, 'cli', 'src', 'cli.ts'), '');
+      writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name }));
+      return dir;
+    };
+    const checkout = sourceTree('@veedstudio/openedit-cli');
+    withCwd(checkout, () => assert.equal(realpathSync(workspaceRoot()), checkout));
+    withCwd(sourceTree('their-tool'), () => assert.equal(workspaceRoot(), '/state'));
     // An unrelated npm project is NOT one of ours, however deep the walk goes.
     const stranger = realpathSync(mkdtempSync(join(tmpdir(), 'openedit-cfg-other-')));
     writeFileSync(join(stranger, 'package.json'), '{"name":"someone-elses-app"}');
@@ -161,4 +151,24 @@ test('linux respects XDG_CONFIG_HOME', { skip: process.platform !== 'linux' }, (
   withEnv({ OPENEDIT_STATE_DIR: undefined, XDG_CONFIG_HOME: '/xdg' }, () => {
     assert.equal(stateDir(), join('/xdg', 'veed-openedit'));
   });
+});
+
+// FFMPEG and FFPROBE are fixed at import, so each case loads the module in a fresh process.
+const configUrl = new URL('../src/config.ts', import.meta.url).href;
+const importedPair = (env: Record<string, string>): [string, string] => {
+  const merged: Record<string, string | undefined> = { ...process.env, OPENEDIT_STATE_DIR: emptyDir() };
+  delete merged.OPENEDIT_FFMPEG;
+  delete merged.OPENEDIT_FFPROBE;
+  const r = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e',
+    `const m = await import(${JSON.stringify(configUrl)}); console.log(JSON.stringify([m.FFMPEG, m.FFPROBE]));`],
+  { encoding: 'utf8', env: { ...merged, ...env } });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+};
+
+// Spawning '' fails every command, and init and install-ffmpeg read an empty variable as unset.
+test('an empty OPENEDIT_FFMPEG or OPENEDIT_FFPROBE counts as unset', () => {
+  assert.deepEqual(importedPair({ OPENEDIT_FFMPEG: '', OPENEDIT_FFPROBE: '' }), ['ffmpeg', 'ffprobe']);
+  assert.deepEqual(importedPair({ OPENEDIT_FFMPEG: '/opt/ff/ffmpeg', OPENEDIT_FFPROBE: '' }), ['/opt/ff/ffmpeg', '/opt/ff/ffprobe']);
+  assert.deepEqual(importedPair({ OPENEDIT_FFPROBE: '/opt/ff/ffprobe' }), ['ffmpeg', '/opt/ff/ffprobe']);
 });

@@ -1,6 +1,6 @@
 // The VEED-native transcription orchestration: workspace -> upload -> poll-ready -> transcribe ->
 // poll-active -> map to the editor's transcript shape. HTTP + file reading + sleep are
-// injected so the call sequence is testable offline (see orchestrate.test.ts). go.ts wires the real ones.
+// injected so the call sequence is testable offline (see orchestrate.test.ts). commands/transcribe.ts wires the real ones.
 import type { VeedHttp } from './api.ts';
 import {
   createUploadableAsset,
@@ -126,10 +126,12 @@ export async function transcribeWithVeed(deps: TranscribeDeps, opts: TranscribeO
     'transcription',
     (s) =>
       // The likeliest failure by far, so it carries the allowance and the fix rather than a reason code.
+      // The local command names its provider: VEED stays recorded after this failure, so a bare
+      // transcribe would run VEED again.
       s.errorReason === 'outOfCredits'
         ? 'VEED: this workspace is out of transcription credits. A free account covers about 10 minutes '
           + 'a month; more needs a plan — https://www.veed.io/pricing. Or transcribe locally instead: '
-          + 'npx @veedstudio/openedit-cli transcribe <video.mp4>'
+          + 'npx @veedstudio/openedit-cli transcribe --provider whisperx <video.mp4>'
         : `VEED: transcription failed (${s.errorReason ?? 'unknown'})`,
   ));
   if (!subtitle.subtitles) throw new Error('VEED: transcription active but returned no subtitles track');

@@ -1,4 +1,4 @@
-// Tests for veed/generate.ts: argument parsing AND the credit-spend gate in run(), driven with a fake
+// Tests for commands/generate.ts: argument parsing AND the credit-spend gate in run(), driven with a fake
 // MCP client so nothing touches the network or spends anything.
 //   Run:  node --import tsx tests/generate.test.ts
 import assert from 'node:assert/strict';
@@ -443,8 +443,8 @@ await test('a run WITH --yes confirms BEFORE creating, then polls and writes the
 });
 
 await test('the file generate.ts writes for a key derives back to that same key (no run-key collision)', async () => {
-  // veed/go.ts and prep/prep.ts both compute the run key as runKeyOf(videoPath); a generated run must
-  // write to a path that reproduces the SAME key it was generated for, or downstream runs collide.
+  // transcribe computes the run key as runKeyOf(videoPath); a generated run must write to a path that
+  // reproduces the SAME key it was generated for, or its transcript lands in another run.
   const state = new Map<string, string>();
   await approve(state, { key: 'promo' });
   const fabric = fakeFabric(['done']);

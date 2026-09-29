@@ -1,6 +1,5 @@
 // Proposes ONE Fabric character + voice, so nobody has to read 24 thumbnails and 588 voice rows to start.
-// Deterministic like its sibling pipeline/scripts/sample-style.ts, and it shares that file's seeding idiom.
-// It lives in veed/ rather than pipeline/scripts/ because it needs the VEED login and the VEED API.
+// Deterministic: the same run key proposes the same pair, so a re-run never changes a proposal already seen.
 //
 //   npx @veedstudio/openedit-cli sample-presenter [--key <run>] [--seed N] [--gender male|female]
 //                                              [--locale en] [--portrait | --landscape]

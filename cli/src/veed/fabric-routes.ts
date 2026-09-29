@@ -52,7 +52,7 @@ export async function getDefaultSpace(http: VeedHttp, workspaceId: string): Prom
 
 export async function createProject(
   http: VeedHttp,
-  args: { name: string; workspaceId: string; spaceId: string },
+  args: { name: string; workspaceId: string; spaceId: string; aspect?: [number, number]; fps?: number },
 ): Promise<string> {
   // folderId and spaceId both carry the space; the route treats them as separate optional fields
   // rather than aliases, so both are sent.
@@ -67,6 +67,8 @@ export async function createProject(
       spaceId: args.spaceId,
       folderId: args.spaceId,
       privacy: 'private',
+      ...(args.aspect ? { aspect: args.aspect } : {}),
+      ...(args.fps ? { fps: args.fps } : {}),
     }),
   );
   return project.id;

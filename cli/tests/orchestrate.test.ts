@@ -165,12 +165,13 @@ await test('gives a clear timeout error when polling exhausts maxAttempts', asyn
 });
 
 // Running out is the likeliest VEED failure — a free account covers about ten minutes a month — so
-// the error must say what happened AND where to fix it, not just name a reason code.
+// the error must say what happened AND where to fix it, not just name a reason code. The local route
+// names its provider, because VEED is still the recorded one and a bare transcribe would run it again.
 await test('out of credits surfaces in plain language, with the allowance and the pricing link', async () => {
   const fake = makeFake({ subtitleStatus: 'error' });
   await assert.rejects(
     transcribeWithVeed(deps(fake.http), { videoPath: 'v.mp4' }),
-    /out of transcription credits.*about 10 minutes a month.*https:\/\/www\.veed\.io\/pricing/is,
+    /out of transcription credits.*about 10 minutes a month.*https:\/\/www\.veed\.io\/pricing.*openedit-cli transcribe --provider whisperx <video\.mp4>/is,
   );
 });
 

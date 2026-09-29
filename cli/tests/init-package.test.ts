@@ -1,11 +1,11 @@
-// The package path of init: scaffold, promotion, auto-update. Same fixture family as init.test.ts.
+// The package path of init: scaffold and auto-update. Same fixture family as init.test.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { main, type ExecResult } from '../src/commands/init.ts';
 import { emulateNpmAdd } from './exec-stubs.ts';
 
@@ -18,8 +18,6 @@ interface Fixture {
   actionLog: string;
   stateDir: string;
   contentDir: string;
-  enginePath: string;
-  engineInstallVersion: string | null;
   cliVersion: string;
   /** The `latest` manifest the injected fetch answers with; null = network failure (throw). */
   registry: unknown | null;
@@ -36,17 +34,14 @@ async function fixture(): Promise<Fixture> {
   const contentDir = join(root, 'content');
   await mkdir(consumer);
   const skill = join(contentDir, '.claude', 'skills', 'open-edit');
-  await mkdir(join(skill, 'scripts'), { recursive: true });
+  await mkdir(skill, { recursive: true });
   await writeFile(join(skill, 'SKILL.md'), '---\nname: open-edit\n---\n');
-  await writeFile(join(skill, 'scripts', 'preflight.sh'), '#!/bin/sh\n');
   return {
     root,
     consumer,
     actionLog: join(root, 'actions.log'),
     stateDir: join(root, 'state'),
     contentDir,
-    enginePath: join(root, 'engine', 'veed-engine-cli'),
-    engineInstallVersion: '1.0.0',
     cliVersion: '',
     registry: null,
     registryStatus: 200,
@@ -58,10 +53,6 @@ async function fixture(): Promise<Fixture> {
 
 const makeExec = (fx: Fixture) => (cmd: string, args: string[], opts: Record<string, unknown> = {}): ExecResult => {
   const cwd = typeof opts.cwd === 'string' ? opts.cwd : process.cwd();
-  if (basename(cmd).startsWith('veed-engine-cli')) {
-    if (!existsSync(cmd)) return { status: 1, stdout: '', stderr: '', error: new Error('ENOENT') };
-    return { status: 0, stdout: `veed-engine-cli ${readFileSync(cmd, 'utf8').trim()}`, stderr: '' };
-  }
   if (cmd === 'npx' && args.includes('install-ffmpeg')) {
     if (fx.ffmpegInstallWorks) {
       const bin = join(fx.stateDir, 'ffmpeg', 'bin');
@@ -73,15 +64,6 @@ const makeExec = (fx: Fixture) => (cmd: string, args: string[], opts: Record<str
   }
   if (cmd === 'yarn' || cmd === 'pnpm') {
     appendFileSync(fx.actionLog, `${cmd}:${args.join(' ')}\n`);
-    return { status: 0, stdout: '', stderr: '' };
-  }
-  if (cmd === 'npx' && args.includes('install-engine')) {
-    if (fx.engineInstallVersion !== null) {
-      mkdirSync(join(fx.root, 'engine'), { recursive: true });
-      writeFileSync(fx.enginePath, fx.engineInstallVersion);
-      chmodSync(fx.enginePath, 0o755);
-    }
-    appendFileSync(fx.actionLog, 'renderer-install\n');
     return { status: 0, stdout: '', stderr: '' };
   }
   if (cmd === 'git') {
@@ -99,11 +81,10 @@ async function runInit(args: string[], fx: Fixture, platform: { os?: string; arc
   const status = await main(args, {
     os: platform.os ?? 'darwin',
     arch: platform.arch ?? 'arm64',
-    env: { PATH: '/usr/bin', OPEN_EDIT_HOMEBREW_PATH_PREFIX: '', VEED_ENGINE_BIN: fx.enginePath, OPENEDIT_STATE_DIR: fx.stateDir },
+    env: { PATH: '/usr/bin', OPEN_EDIT_HOMEBREW_PATH_PREFIX: '', OPENEDIT_STATE_DIR: fx.stateDir },
     which: (cmd: string) => fx.bins[cmd] ?? null,
     exec: makeExec(fx),
-    fetch: async (url: string) => {
-      if (String(url).includes('api.github.com')) return { ok: true, json: async () => ({ tag_name: 'weave-v1.0.0' }) };
+    fetch: async () => {
       if (fx.registry === null) throw new Error('network down');
       return { ok: fx.registryStatus === 200, status: fx.registryStatus, json: async () => fx.registry };
     },
@@ -115,11 +96,12 @@ async function runInit(args: string[], fx: Fixture, platform: { os?: string; arc
   return { status, stderr: errLines.join('\n'), stdout: outLines.join('\n') };
 }
 
-const log = (fx: Fixture) => readFileSync(fx.actionLog, 'utf8').trim().split('\n').filter(Boolean);
+// No action at all leaves no log behind.
+const log = (fx: Fixture) => (existsSync(fx.actionLog) ? readFileSync(fx.actionLog, 'utf8').trim().split('\n').filter(Boolean) : []);
 
 // ---------- new session: an empty folder becomes a project ----------
 
-test('bare init in an empty folder npm-ifies it: package.json, exact pin, .gitignore, skill — no clone, no pnpm', async () => {
+test('bare init in an empty folder npm-ifies it: package.json, exact pin, .gitignore, skill — no pnpm', async () => {
   const fx = await fixture();
   const r = await runInit(['--workspace', fx.consumer], fx);
   assert.equal(r.status, 0, r.stderr);
@@ -132,12 +114,11 @@ test('bare init in an empty folder npm-ifies it: package.json, exact pin, .gitig
   assert.ok(pkg.devDependencies['@veedstudio/openedit-cli'], 'the dep landed in package.json');
 
   const ignore = await readFile(join(fx.consumer, '.gitignore'), 'utf8');
-  for (const line of ['node_modules/', 'runs/', '.open-edit/', '.open-edit-prefs.json']) {
+  for (const line of ['node_modules/', 'runs/', '.open-edit-prefs.json']) {
     assert.ok(ignore.split('\n').includes(line), `.gitignore carries ${line}`);
   }
   assert.ok(existsSync(join(fx.consumer, '.git')), 'git init ran');
   assert.equal(await readFile(join(fx.consumer, '.claude/skills/open-edit/SKILL.md'), 'utf8'), '---\nname: open-edit\n---\n');
-  assert.ok(!existsSync(join(fx.consumer, '.open-edit')), 'no runtime clone anywhere');
   assert.ok(!log(fx).includes('pnpm-install'), 'pnpm never runs on the package path');
 });
 
@@ -154,10 +135,10 @@ test('OPENEDIT_PACKAGE_SOURCE overrides the install spec — the tarball seam CI
   const errLines: string[] = [];
   const status = await main(['--workspace', fx.consumer], {
     os: 'darwin', arch: 'arm64',
-    env: { PATH: '/usr/bin', OPEN_EDIT_HOMEBREW_PATH_PREFIX: '', VEED_ENGINE_BIN: fx.enginePath, OPENEDIT_STATE_DIR: fx.stateDir, OPENEDIT_PACKAGE_SOURCE: '/tmp/openedit-cli.tgz' },
+    env: { PATH: '/usr/bin', OPEN_EDIT_HOMEBREW_PATH_PREFIX: '', OPENEDIT_STATE_DIR: fx.stateDir, OPENEDIT_PACKAGE_SOURCE: '/tmp/openedit-cli.tgz' },
     which: (cmd: string) => fx.bins[cmd] ?? null,
     exec: makeExec(fx),
-    fetch: async () => ({ ok: true, json: async () => ({ tag_name: 'weave-v1.0.0' }) }),
+    fetch: async () => { throw new Error('offline'); },
     err: (line: string) => errLines.push(line),
     out: () => {},
     contentDir: fx.contentDir,
@@ -204,53 +185,6 @@ test('a scaffolded project re-inits idempotently: nothing rewritten, nothing re-
   assert.equal(log(fx).filter((l) => l.startsWith('npm-add:')).length, 1, 'the pin is added once, ever');
 });
 
-// ---------- promotion off the managed clone ----------
-
-async function plantManagedClone(fx: Fixture, prefs?: string): Promise<string> {
-  const clone = join(fx.consumer, '.open-edit', 'runtime');
-  await mkdir(join(clone, 'pipeline', 'scripts'), { recursive: true });
-  await mkdir(join(clone, 'refs'), { recursive: true });
-  await writeFile(join(clone, 'package.json'), JSON.stringify({ name: 'open-edit', private: true }));
-  await writeFile(join(clone, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
-  await writeFile(join(clone, 'pipeline', 'scripts', 'preflight.sh'), '#!/bin/bash\n');
-  await writeFile(join(clone, 'refs', 'tags.json'), JSON.stringify({ version: 3, refs: [] }));
-  if (prefs !== undefined) await writeFile(join(clone, '.open-edit-prefs.json'), prefs);
-  return clone;
-}
-
-test('a managed clone promotes seamlessly: prefs carried, one line, clone untouched, no prompt', async () => {
-  const fx = await fixture();
-  const clone = await plantManagedClone(fx, '{"transcription":{"provider":"whisperx","model":"medium"}}\n');
-
-  const r = await runInit(['--workspace', fx.consumer], fx);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /promoted to packaged content/);
-  assert.doesNotMatch(r.stderr, /APPROVAL REQUIRED — .*promot/i, 'promotion never asks');
-  assert.equal(
-    await readFile(join(fx.consumer, '.open-edit-prefs.json'), 'utf8'),
-    '{"transcription":{"provider":"whisperx","model":"medium"}}\n',
-    'the provider choice is not re-asked',
-  );
-  assert.ok(existsSync(join(clone, '.open-edit-prefs.json')), 'the clone is left as it was');
-  assert.equal(r.stdout.trim(), real(fx.consumer), 'the root switches to the workspace');
-});
-
-test('promotion never overwrites workspace prefs that already exist', async () => {
-  const fx = await fixture();
-  await plantManagedClone(fx, '{"transcription":{"provider":"veed"}}\n');
-  await writeFile(join(fx.consumer, '.open-edit-prefs.json'), '{"transcription":{"provider":"custom"}}\n');
-  assert.equal((await runInit(['--workspace', fx.consumer], fx)).status, 0);
-  assert.equal(await readFile(join(fx.consumer, '.open-edit-prefs.json'), 'utf8'), '{"transcription":{"provider":"custom"}}\n');
-});
-
-test('--repository keeps the clone path: a pinned contributor setup does not promote', async () => {
-  const fx = await fixture();
-  await plantManagedClone(fx);
-  const r = await runInit(['--dry', '--workspace', fx.consumer, '--repository', 'https://example.com/fork.git'], fx);
-  assert.doesNotMatch(r.stderr, /promoted to packaged content/);
-  assert.doesNotMatch(r.stderr, /packaged content \(self-contained/);
-});
-
 // ---------- auto-update ----------
 
 // What the project RUNS, which is what the update step grades — not the copy doing the asking.
@@ -270,15 +204,14 @@ async function updatableFixture(): Promise<Fixture> {
   return fx;
 }
 // The `latest` manifest, which is what init asks for — never the full packument.
-const manifest = (latest: string, minEngine?: string) => ({
+const manifest = (latest: string) => ({
   name: '@veedstudio/openedit-cli',
   version: latest,
-  ...(minEngine === undefined ? {} : { openedit: { minEngine } }),
 });
 
-test('a patch/minor whose engine floor is met applies silently in bare init and reports updated x → y', async () => {
+test('a patch/minor applies silently in bare init and reports updated x → y', async () => {
   const fx = await updatableFixture();
-  fx.registry = manifest('1.3.0', '0.9.0');
+  fx.registry = manifest('1.3.0');
   const r = await runInit(['--workspace', fx.consumer], fx);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /updated @veedstudio\/openedit-cli 1\.2\.3 → 1\.3\.0/);
@@ -287,9 +220,35 @@ test('a patch/minor whose engine floor is met applies silently in bare init and 
   assert.equal(pkg.devDependencies['@veedstudio/openedit-cli'], '1.3.0', 'the pin moved — a visible lockfile diff');
 });
 
+test('an applied update leaves the workspace on the skill of the version it installed', async () => {
+  const fx = await updatableFixture();
+  fx.registry = manifest('1.3.0');
+  // What the package manager unpacked: the new version's own skill beside its package.json.
+  const shipped = join(fx.consumer, 'node_modules', '@veedstudio', 'openedit-cli', '.claude', 'skills', 'open-edit');
+  mkdirSync(shipped, { recursive: true });
+  writeFileSync(join(shipped, 'SKILL.md'), 'skill of 1.3.0\n');
+  const r = await runInit(['--workspace', fx.consumer], fx);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /updated @veedstudio\/openedit-cli 1\.2\.3 → 1\.3\.0/);
+  assert.equal(await readFile(join(fx.consumer, '.claude', 'skills', 'open-edit', 'SKILL.md'), 'utf8'), 'skill of 1.3.0\n');
+});
+
+// The session note drops every line of a run that exits 0 unless it reads as unfinished, so a
+// refresh that failed after an update would leave the agent on a skill older than its CLI, told
+// to proceed.
+test('an update whose skill could not be refreshed does not read as ready to the session', async () => {
+  const fx = await updatableFixture();
+  fx.registry = manifest('1.3.0');
+  const r = await runInit(['--workspace', fx.consumer], fx);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /skill refresh incomplete — no skill at \S+node_modules/);
+  const { composeContext } = await import('../src/commands/session-start.ts');
+  assert.doesNotMatch(composeContext(r.status, `${r.stderr}\n${r.stdout}`), /proceed silently/);
+});
+
 test('a major release reports and waits; --auto-approve applies it', async () => {
   const fx = await updatableFixture();
-  fx.registry = manifest('2.0.0', '0.9.0');
+  fx.registry = manifest('2.0.0');
   const r = await runInit(['--workspace', fx.consumer], fx);
   assert.equal(r.status, 10, r.stderr);
   assert.match(r.stderr, /APPROVAL REQUIRED — update @veedstudio\/openedit-cli from 1\.2\.3 to 2\.0\.0 — a major release/);
@@ -300,27 +259,10 @@ test('a major release reports and waits; --auto-approve applies it', async () =>
   assert.match(approved.stderr, /updated @veedstudio\/openedit-cli 1\.2\.3 → 2\.0\.0/);
 });
 
-test('a minor that raises the engine floor past the installed engine is treated like a major', async () => {
-  const fx = await updatableFixture();
-  fx.registry = manifest('1.3.0', '99.0.0');
-  const r = await runInit(['--workspace', fx.consumer], fx);
-  assert.equal(r.status, 10, r.stderr);
-  assert.match(r.stderr, /APPROVAL REQUIRED — update .* needs engine 99\.0\.0/);
-  assert.ok(!log(fx).some((l) => l.startsWith('npm-add:')));
-});
-
-test('a release that declares no engine floor is treated like a major, not trusted', async () => {
-  const fx = await updatableFixture();
-  fx.registry = manifest('1.3.0');
-  const r = await runInit(['--workspace', fx.consumer], fx);
-  assert.equal(r.status, 10, r.stderr);
-  assert.match(r.stderr, /does not declare its engine floor/);
-});
-
 test('no update motion: current version, registry BEHIND the install, or a prerelease latest', async () => {
   for (const latest of ['1.2.3', '1.0.0', '1.3.0-rc.1']) {
     const fx = await updatableFixture();
-    fx.registry = manifest(latest, '0.9.0');
+    fx.registry = manifest(latest);
     const r = await runInit(['--workspace', fx.consumer], fx);
     assert.equal(r.status, 0, `latest=${latest}: ${r.stderr}`);
     assert.doesNotMatch(r.stderr, /updated @veedstudio/, `latest=${latest}`);
@@ -350,7 +292,7 @@ test('every lookup failure is silent and the session starts ready: offline, 4xx/
 
 test('an install that fails after a good lookup is reported, non-fatal, and leaves the pin alone', async () => {
   const fx = await updatableFixture();
-  fx.registry = manifest('1.3.0', '0.9.0');
+  fx.registry = manifest('1.3.0');
   fx.npmAddFails = true;
   const r = await runInit(['--workspace', fx.consumer], fx);
   assert.equal(r.status, 0, 'a failed update must not fail the session');
@@ -368,12 +310,12 @@ test('an unpublished version (dev checkout, 0.0.0-* stamp) never checks the regi
     const errLines: string[] = [];
     const status = await main(['--workspace', fx.consumer], {
       os: 'darwin', arch: 'arm64',
-      env: { PATH: '/usr/bin', OPEN_EDIT_HOMEBREW_PATH_PREFIX: '', VEED_ENGINE_BIN: fx.enginePath, OPENEDIT_STATE_DIR: fx.stateDir },
+      env: { PATH: '/usr/bin', OPEN_EDIT_HOMEBREW_PATH_PREFIX: '', OPENEDIT_STATE_DIR: fx.stateDir },
       which: (cmd: string) => fx.bins[cmd] ?? null,
       exec: makeExec(fx),
-      fetch: async (url: string) => {
-        if (!String(url).includes('api.github.com')) registryHit = true;
-        return { ok: true, json: async () => ({ tag_name: 'weave-v1.0.0' }) };
+      fetch: async () => {
+        registryHit = true;
+        return { ok: true, json: async () => manifest('9.9.9') };
       },
       err: (line: string) => errLines.push(line),
       out: () => {},
@@ -390,7 +332,7 @@ test('a project without the dep is pinned by the scaffold, not raced by the upda
   fx.cliVersion = '1.2.3';
   await writeFile(join(fx.consumer, '.open-edit-prefs.json'), '{}');
   await writeFile(join(fx.consumer, 'package.json'), JSON.stringify({ name: 'proj', private: true }));
-  fx.registry = manifest('1.2.3', '0.9.0');
+  fx.registry = manifest('1.2.3');
   const r = await runInit(['--workspace', fx.consumer], fx);
   assert.equal(r.status, 0, r.stderr);
   // The scaffold pins first; with the registry on the same version there is nothing to update.
@@ -432,33 +374,7 @@ test('a folder the consent gate refuses gets NO SessionStart hooks', async () =>
   assert.ok(existsSync(join(fx.consumer, '.claude', 'settings.json')), 'the hook lands once the folder is claimed');
 });
 
-// ---------- pins, migration, PM absence, approvals, dry truth, refresh ----------
-async function plantPinnedClone(fx: Fixture, repository: string): Promise<string> {
-  const clone = await plantManagedClone(fx);
-  execFileSync('git', ['init', '-q'], { cwd: clone });
-  execFileSync('git', ['config', 'user.name', 'Pin Test'], { cwd: clone });
-  execFileSync('git', ['config', 'user.email', 'pin@example.com'], { cwd: clone });
-  execFileSync('git', ['add', '.'], { cwd: clone });
-  execFileSync('git', ['commit', '-q', '-m', 'pin'], { cwd: clone });
-  execFileSync('git', ['remote', 'add', 'origin', repository], { cwd: clone });
-  const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: clone, encoding: 'utf8' }).trim();
-  const state = join(clone, '.git', 'open-edit-preflight-state');
-  for (const [key, value] of [['schema', '1'], ['repository', repository], ['ref', 'my-branch'], ['installedCommit', commit]]) {
-    execFileSync('git', ['config', '--file', state, `preflight.${key}`, value]);
-  }
-  return clone;
-}
-
-test('a clone pinned to a non-default source survives bare init: no promotion, the clone stays the root', async () => {
-  const fx = await fixture();
-  const clone = await plantPinnedClone(fx, 'https://example.com/fork.git');
-  const r = await runInit(['--workspace', fx.consumer], fx);
-  assert.doesNotMatch(r.stderr, /promoted to packaged content/);
-  assert.match(r.stderr, /managed clone/, 'the pinned clone is announced as the root');
-  assert.ok(!existsSync(join(fx.consumer, '.gitignore')), 'no scaffold ran against the pinned setup');
-  if (r.status === 0) assert.equal(r.stdout.trim(), real(clone), 'a ready pinned setup reports the clone as the root');
-});
-
+// ---------- migration, PM absence, approvals, dry truth, refresh ----------
 test('session-start lets init resolve the workspace (git toplevel), never bare cwd', async () => {
   const { sessionStart } = await import('../src/commands/session-start.ts');
   const calls: string[][] = [];
@@ -498,49 +414,78 @@ test('a lockfile whose package manager is absent waits at an approval, never a h
   assert.equal(r.status, 10, r.stderr);
   assert.match(r.stderr, /APPROVAL REQUIRED — [^\n]*yarn/);
   assert.ok(!log(fx).some((l) => l.startsWith('npm-add:')), 'no cross-manager install behind the project\'s back');
+
+  // --auto-approve never runs that install, so sending the agent back to it after a yes was a loop.
+  const auto = await runInit(['--auto-approve', '--workspace', fx.consumer], fx);
+  assert.equal(auto.status, 10, auto.stderr);
+  assert.match(auto.stderr.trim().split('\n').at(-1) ?? '', /the user runs the install commands init cannot run here, then re-runs init$/);
+  assert.doesNotMatch(auto.stderr, /run with --auto-approve/);
 });
 
-test('an open-edit source tree without .git is reused for its content, never scaffolded over', async () => {
-  // A ZIP download: every marker matches, so it is content, and only runtime UPDATES need git.
+const plantSourceTree = async (dir: string, name: string) => {
+  await mkdir(join(dir, 'cli', 'src'), { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, private: true }));
+  writeFileSync(join(dir, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+  writeFileSync(join(dir, 'cli', 'src', 'cli.ts'), '');
+};
+
+test('an open-edit source tree without .git is reused in place, never scaffolded over', async () => {
+  // A ZIP download: every marker matches, so it is a checkout even with no repository around it.
   const fx = await fixture();
-  await mkdir(join(fx.consumer, 'pipeline', 'scripts'), { recursive: true });
-  await mkdir(join(fx.consumer, 'refs'), { recursive: true });
-  writeFileSync(join(fx.consumer, 'package.json'), '{"name":"open-edit","private":true}');
-  writeFileSync(join(fx.consumer, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
-  writeFileSync(join(fx.consumer, 'pipeline', 'scripts', 'preflight.sh'), '#!/bin/bash\n');
-  writeFileSync(join(fx.consumer, 'refs', 'tags.json'), JSON.stringify({ version: 3, refs: [] }));
+  await plantSourceTree(fx.consumer, '@veedstudio/openedit-cli');
   const r = await runInit(['--workspace', fx.consumer], fx);
-  assert.match(r.stderr, /not a Git work tree — using its content/);
   assert.match(r.stderr, /reusing the local checkout/);
   assert.ok(!existsSync(join(fx.consumer, '.gitignore')), 'the source tree was not scaffolded over');
-  assert.equal(JSON.parse(readFileSync(join(fx.consumer, 'package.json'), 'utf8')).name, 'open-edit', 'its package.json is untouched');
+  assert.equal(JSON.parse(readFileSync(join(fx.consumer, 'package.json'), 'utf8')).name, '@veedstudio/openedit-cli', 'its package.json is untouched');
 });
 
+// A checkout skips the consent gate and gets pnpm install and hooks without asking, so a user's own
+// pnpm project that merely has a cli/src/cli.ts must never pass for one.
+test('a lookalike pnpm project is not taken for a checkout: the consent gate still asks', async () => {
+  const fx = await fixture();
+  await plantSourceTree(fx.consumer, 'their-tool');
+  const r = await runInit(['--workspace', fx.consumer], fx);
+  assert.doesNotMatch(r.stderr, /reusing the local checkout/);
+  assert.equal(r.status, 10, r.stderr);
+  assert.match(r.stderr, /APPROVAL REQUIRED — [^\n]*already holds other files/);
+  assert.ok(!log(fx).some((l) => l.startsWith('pnpm:')), 'installed into a project nobody offered');
+  assert.ok(!existsSync(join(fx.consumer, '.claude', 'settings.json')), 'hooked a project nobody offered');
+});
+
+// Linux, because there the FFmpeg approval is one --auto-approve never carries out.
 test('an approved-but-unfulfilled FFmpeg install is not erased by an auto-approved update', async () => {
   const fx = await updatableFixture();
   fx.bins.ffmpeg = null;
   fx.bins.ffprobe = null;
-  fx.ffmpegInstallWorks = false;
-  fx.registry = manifest('2.0.0', '0.9.0');
-  const r = await runInit(['--auto-approve', '--workspace', fx.consumer], fx, { os: 'win32', arch: 'x64' });
+  fx.registry = manifest('2.0.0');
+  const r = await runInit(['--auto-approve', '--workspace', fx.consumer], fx, { os: 'linux', arch: 'x64' });
   assert.equal(r.status, 10, `the FFmpeg approval is still pending:\n${r.stderr}`);
-  assert.match(r.stderr, /FFmpeg/);
+  assert.match(r.stderr, /updated @veedstudio\/openedit-cli 1\.2\.3 → 2\.0\.0/);
+  assert.match(r.stderr, /APPROVAL REQUIRED — install FFmpeg globally/);
 });
 
-test('--dry on an un-scaffolded workspace ends "not ready yet", even with the engine installed', async () => {
+test('a local FFmpeg install that exits 0 but leaves nothing usable fails instead of waiting silently', async () => {
   const fx = await fixture();
-  mkdirSync(join(fx.root, 'engine'), { recursive: true });
-  writeFileSync(fx.enginePath, '1.0.0');
-  chmodSync(fx.enginePath, 0o755);
+  fx.bins.ffmpeg = null;
+  fx.bins.ffprobe = null;
+  fx.ffmpegInstallWorks = false;
+  const r = await runInit(['--workspace', fx.consumer], fx, { os: 'win32', arch: 'x64' });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /the local FFmpeg install exited cleanly, but no ffmpeg\/ffprobe pair is usable afterwards/);
+  assert.match(r.stderr, /ERROR — the local FFmpeg install failed/);
+});
+
+test('--dry on an un-scaffolded workspace ends "not ready yet"', async () => {
+  const fx = await fixture();
   const r = await runInit(['--dry', '--workspace', fx.consumer], fx);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /not ready yet — run bare preflight/);
+  assert.match(r.stderr, /not ready yet — run bare init/);
   assert.doesNotMatch(r.stderr, /ready — OPEN_EDIT_ROOT=/);
 });
 
-test('--dry reports a clean minor as WOULD APPLY when the renderer install is also pending', async () => {
+test('--dry reports a clean minor as WOULD APPLY, not as an approval', async () => {
   const fx = await updatableFixture();
-  fx.registry = manifest('1.3.0', '0.9.0');
+  fx.registry = manifest('1.3.0');
   const r = await runInit(['--dry', '--workspace', fx.consumer], fx);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /WOULD APPLY LOCALLY — update @veedstudio\/openedit-cli 1\.2\.3 → 1\.3\.0/);

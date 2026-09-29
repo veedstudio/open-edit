@@ -35,7 +35,7 @@ export interface StillSource {
 
 function api(http: Http | undefined): Http {
   return http ?? (async (url, init) => {
-    const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body, signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body as BodyInit | undefined, signal: AbortSignal.timeout(30_000) });
     return { status: res.status, json: () => res.json(), arrayBuffer: () => res.arrayBuffer() };
   });
 }
