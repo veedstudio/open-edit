@@ -8,17 +8,5 @@
         "storage.googleapis.com"
       ]
     }
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "npx --yes @veedstudio/openedit-cli session-start claude"
-          }
-        ]
-      }
-    ]
   }
 }

@@ -16,6 +16,26 @@ export function stateDirFor(platform: string, env: Record<string, string | undef
         : join(env.XDG_CONFIG_HOME ?? join(home, '.config'), 'veed-openedit'));
 }
 
+// Only plain releases are compared and offered: a prerelease install chose to leave the release line,
+// and the shape keeps anything but digits and dots out of printed text and install commands.
+export const isRelease = (version: string): boolean => /^\d+\.\d+\.\d+$/.test(version);
+
+// Numeric core only: a prerelease segment (10.17.0-beta.1) would make Number() NaN and report a NEWER tool
+// as missing. A prerelease of the floor passes.
+export function versionAtLeast(candidate: string, floor: string): boolean {
+  if (!candidate) return false;
+  const core = (v: string) => String(v).trim().replace(/^v/, '').split(/[-+]/)[0].split('.');
+  const a = core(candidate);
+  const b = core(floor);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = Number(a[i] ?? 0);
+    const y = Number(b[i] ?? 0);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
+
 // Where install-ffmpeg puts its no-admin copy (binaries under bin/).
 export function ffmpegInstallDir(platform = process.platform, env: Record<string, string | undefined> = process.env): string {
   return join(stateDirFor(platform, env), 'ffmpeg');

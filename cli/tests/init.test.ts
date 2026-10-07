@@ -20,7 +20,7 @@ interface Fixture {
   // What `corepack enable pnpm` leaves `pnpm --version` reporting. Not always the floor: the shim
   // resolves from the CWD project, which is the consumer's.
   corepackYields: string;
-  /** The scaffold/update dep-add (`npm install --save-dev …`) exits non-zero when true. */
+  /** The stubbed npm (`npm install --save-dev …` and a bare `npm install`) exits non-zero when true. */
   npmAddFails: boolean;
   bins: Record<string, string | null>;
 }
@@ -157,7 +157,6 @@ async function runPreflight(
     env: { PATH: '/usr/bin', OPEN_EDIT_HOMEBREW_PATH_PREFIX: '', OPENEDIT_STATE_DIR: fx.stateDir, ...extraEnv },
     which: (cmd: string) => fx.bins[cmd] ?? null,
     exec: makeExec(fx),
-    fetch: async () => { throw new Error('offline'); },
     err: (line: string) => errLines.push(line),
     out: (line: string) => outLines.push(line),
   });
@@ -173,7 +172,6 @@ test('init adds the Homebrew prefixes BEHIND the caller PATH on darwin, honourin
     env,
     which: (cmd: string) => fx.bins[cmd] ?? null,
     exec: makeExec(fx),
-    fetch: async () => { throw new Error('offline'); },
     err: () => {},
     out: () => {},
   });
@@ -189,7 +187,6 @@ test('init adds the Homebrew prefixes BEHIND the caller PATH on darwin, honourin
     env: untouched,
     which: (cmd: string) => fx.bins[cmd] ?? null,
     exec: makeExec(fx),
-    fetch: async () => { throw new Error('offline'); },
     err: () => {},
     out: () => {},
   });
@@ -599,10 +596,7 @@ test('after a bare init, a fresh dry run has no local work left to advertise', a
   assert.equal(bare.status, 0, bare.stderr);
 
   const after = await runPreflight(['--dry', ...common], fx, WIN);
-  const outstanding = (after.stderr.match(/WOULD APPLY LOCALLY[^\r\n]*/g) ?? [])
-    // Advisory and re-printed unconditionally, so it says nothing about work remaining; making it
-    // conditional needs a "would this change anything" query installProjectHooks does not expose.
-    .filter((line) => !line.includes('SessionStart hooks'));
+  const outstanding = after.stderr.match(/WOULD APPLY LOCALLY[^\r\n]*/g) ?? [];
   assert.deepEqual(outstanding, [], 'bare init left work it had advertised as local');
 });
 

@@ -88,7 +88,7 @@ export function packageRoot(): string {
   return resolve(fileURLToPath(new URL("../..", import.meta.url)));
 }
 
-const PACKAGE_NAME = "@veedstudio/openedit-cli";
+export const PACKAGE_NAME = "@veedstudio/openedit-cli";
 
 const readPackageJson = (dir: string): Record<string, any> | null => {
   try {

@@ -30,6 +30,7 @@ import * as veedPull from "./commands/veed-pull.ts";
 import * as init from "./commands/init.ts";
 import * as sessionStart from "./commands/session-start.ts";
 import { errorText, installEnvProxy } from "./proxy.ts";
+import { updateNotice } from "./update-notice.ts";
 
 // package.json sits two levels above both src/ (dev via tsx) and dist/ (published build): the
 // package root is the repository root.
@@ -145,11 +146,23 @@ export async function run(argv: string[]): Promise<number> {
     return 0;
   }
 
+  // session-start stays silent: earlier versions' SessionStart hooks still call it, and what a hook
+  // prints lands in the agent's session.
+  const lookUpdate = command === "session-start" ? undefined : updateNotice({
+    version: pkg.version ?? "",
+    env: process.env,
+    platform: process.platform,
+    now: Date.now,
+    fetch: (url, init) => fetch(url, init),
+    err: (line) => console.error(line),
+  });
   try {
     return await entry.run(rest);
   } catch (error) {
     console.error(errorText(error));
     return 1;
+  } finally {
+    await lookUpdate?.();
   }
 }
 
