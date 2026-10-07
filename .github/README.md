@@ -41,8 +41,9 @@ Add subtitles to my video clip.mp4
 The first run sets itself up: it checks for Node and ffmpeg and names the command for anything missing
 (on a Mac it installs through Homebrew once you approve; on Linux and Windows the commands are printed
 for you to run, and on Windows ffmpeg is fetched into your user folder with no admin rights); pins itself into your project as a
-dev dependency and registers a session hook in the settings of Claude Code, Codex and Gemini CLI; and
-asks once how you want speech transcribed. The first render downloads the browser it renders with into
+dev dependency; and asks once how you want speech transcribed. It adds no hooks to your agent's settings
+and never updates itself: when a newer release is out, commands say so, and your agent installs that
+version only after you say yes. The first render downloads the browser it renders with into
 your user's app-data folder. Hosted by VEED
 transcribes best (a veed.io account, [sign up](https://www.veed.io/signup) or
 [log in](https://www.veed.io/login); the free tier covers about ten minutes a month); WhisperX runs

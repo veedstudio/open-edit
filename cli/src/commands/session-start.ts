@@ -1,63 +1,66 @@
-// SessionStart adapter for Claude Code, Codex, and Gemini CLI: the command the workspace hook
-// entries invoke when an agent session opens. Runs init against the invoking workspace and turns
-// the report into the context note each harness expects. Advisory by design — always exits 0; the
-// note itself carries any setup failure to the agent.
-import { join } from 'node:path';
-import { parseUsage, type Usage } from '../args.ts';
-import { main as initMain } from './init.ts';
-
-// Codex and Gemini do not discover .claude/skills on their own, so the note is their only way to the skill.
-// Named under the root rather than the workspace: init installs no skill into the workspace of a pinned
-// managed clone, and every root it reports carries one.
-const skillPointer = (root?: string): string =>
-  `For video work, the open-edit skill is ${root ? join(root, '.claude', 'skills', 'open-edit', 'SKILL.md') : '.claude/skills/open-edit/SKILL.md under OPEN_EDIT_ROOT'}.`;
-
-export function composeContext(status: number, output: string): string {
-  if (status === 0 && !/APPROVAL REQUIRED|incomplete|not ready|waiting/.test(output)) {
-    // This hook already RAN init, so sending the agent to run it again buys nothing but a round trip —
-    // the one thing it needed from that run was the root, and the run it just did knows it. When
-    // anything needs approval the message below is unchanged: that path still goes through --dry.
-    const root = /OPEN_EDIT_ROOT=(.+)/.exec(output)?.[1]?.trim();
-    return root
-      ? `Open Edit preflight is ready and OPEN_EDIT_ROOT=${root}. No further preflight is needed; proceed silently. ${skillPointer(root)}`
-      : `Open Edit preflight is ready. Before using the open-edit skill in this session, still run \`npx @veedstudio/openedit-cli init --dry\` and resolve OPEN_EDIT_ROOT. Proceed silently if preflight remains ready. ${skillPointer()}`;
-  }
-  return `Open Edit startup preflight reported:\n${output}\nBefore doing Open Edit work, ALWAYS run \`npx @veedstudio/openedit-cli init --dry\`, communicate every APPROVAL REQUIRED action to the user, and wait for explicit approval. Run init --auto-approve only after the user approves all reported actions. Never install machine-global dependencies or update existing code without that approval (the one self-update bare init performs is a clean patch/minor of the CLI itself).`;
-}
-
-export function formatNote(agent: string, context: string): string {
-  if (agent === 'gemini') {
-    // Gemini requires JSON on stdout.
-    return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } });
-  }
-  return context;
-}
-
-type RunInit = (argv: string[]) => Promise<{ status: number; output: string }>;
-
-const runInitInProcess: RunInit = async (argv) => {
-  const errLines: string[] = [];
-  const outLines: string[] = [];
-  const status = await initMain(argv, {
-    err: (line: string) => errLines.push(line),
-    out: (line: string) => outLines.push(line),
-  });
-  // The report goes to stderr and stdout carries only the final root, so stderr-then-stdout reads in order.
-  return { status, output: [...errLines, ...outLines].join('\n') };
-};
+// Earlier versions' SessionStart hooks still call this, and what it prints to stdout lands in the agent's
+// session. It removes those hooks and gives Codex and Gemini the skill copy they used to reach through the
+// hook's note, and runs nothing else.
+import { cpSync, existsSync, lstatSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import type { Usage } from '../args.ts';
+import { findWorkspace } from '../config.ts';
+import { removeProjectHooks } from '../project-hooks.ts';
 
 export const usage = {
-  summary: 'Agent SessionStart adapter: run init and print the context note',
-  positionals: '[claude|codex|gemini|plain]',
+  summary: 'Remove the SessionStart hooks earlier versions installed, and copy the skill to .agents/skills (what those hooks still call)',
+  positionals: '[claude|codex|gemini]',
   flags: {},
-  notes: 'Always exits 0; the note itself carries any setup failure to the agent. gemini gets JSON on stdout.',
+  notes: 'The agent is what old hook command lines pass. Always exits 0, so a hook never fails a session; what it cannot do is reported on stderr.',
 } satisfies Usage;
 
-export async function sessionStart(args: string[], runInit: RunInit = runInitInProcess): Promise<number> {
-  const { positionals: [agent = 'plain'] } = parseUsage('session-start', usage, args);
-  // No explicit --workspace: a hook's cwd may be a subdirectory, and init's own resolution
-  // (nearest project, then git toplevel, then cwd) is better than pinning it here.
-  const { status, output } = await runInit([]);
-  console.log(formatNote(agent, composeContext(status, output.replace(/\n+$/, ''))));
+// Codex and Gemini list skills when a session opens, before this runs, so the session that lays the copy
+// down hears where it is once; Gemini reads hook output as JSON.
+const pointer = (agent: string, skill: string): string | null => {
+  const note = `For video work, the open-edit skill is ${skill}.`;
+  if (agent === 'codex') return note;
+  if (agent === 'gemini') return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: note } });
+  return null;
+};
+
+const isLink = (path: string): boolean => Boolean(lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink());
+
+export async function sessionStart(args: string[], cwd: string = process.cwd()): Promise<number> {
+  try {
+    // The tool found the hook in its working directory's config, which init may resolve to a different
+    // project above it; both are cleaned.
+    const workspace = findWorkspace(cwd) ?? cwd;
+    for (const dir of new Set([workspace, resolve(cwd)])) {
+      removeProjectHooks(dir, (line) => {
+        if (!line.startsWith('removed')) console.error(line);
+      });
+    }
+    const claude = join(workspace, '.claude', 'skills', 'open-edit');
+    const agents = join(workspace, '.agents', 'skills', 'open-edit');
+    if (!existsSync(join(claude, 'SKILL.md')) || existsSync(join(agents, 'SKILL.md'))) return 0;
+    // Unlike init, this follows no link at all: it runs unattended, and a link can lead anywhere.
+    if ([join(workspace, '.agents'), join(workspace, '.agents', 'skills'), agents].some(isLink)) {
+      console.error(`did not copy the open-edit skill to ${agents}: a link is on the way; bare init lays it there`);
+      return 0;
+    }
+    // Copied aside and renamed into place, so a failed copy leaves nothing a later run takes for done. The
+    // staging folder sits outside skills/, where Codex and Gemini would list a half-copied skill.
+    const staging = join(workspace, '.agents', `.open-edit-${process.pid}.tmp`);
+    try {
+      rmSync(agents, { recursive: true, force: true });
+      cpSync(claude, staging, { recursive: true });
+      mkdirSync(join(workspace, '.agents', 'skills'), { recursive: true });
+      renameSync(staging, agents);
+    } catch (error) {
+      try { rmSync(staging, { recursive: true, force: true }); } catch { /* the copy's own error is the one worth reporting */ }
+      console.error(`could not copy the open-edit skill to ${agents} (${(error as Error).message}); bare init lays it there`);
+      return 0;
+    }
+    const note = pointer(args[0] ?? '', join(agents, 'SKILL.md'));
+    if (note) console.log(note);
+  } catch (error) {
+    // Advisory: nothing here may fail a session.
+    console.error(`could not finish removing the old Open Edit hook (${(error as Error).message}); bare init does the rest`);
+  }
   return 0;
 }

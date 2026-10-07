@@ -13,10 +13,7 @@ renderer that re-renders only the stretch you changed. `openedit` below is short
 ## Setup
 
 Once per workspace, before the first command. WORKSPACE is the current project root, or the current
-directory outside a project. It is done when your own init run below ends on `ready — OPEN_EDIT_ROOT=…`,
-or when a session-opening note says
-`Open Edit preflight is ready and OPEN_EDIT_ROOT=<path>. No further preflight is needed`; a note that
-lists `APPROVAL REQUIRED` never means that, whatever else it quotes.
+directory outside a project.
 ```
 npx --yes @veedstudio/openedit-cli init --dry --workspace "$WORKSPACE"
 npx --yes @veedstudio/openedit-cli init --workspace "$WORKSPACE"
@@ -26,7 +23,9 @@ and the recorded preferences live under that root. If init prints `APPROVAL REQU
 every exact action and wait for an explicit yes, then run it again with `--auto-approve`. When the final
 line says the user runs the install commands, `--auto-approve` cannot run them: give the user those
 commands and run init again once they are done. Never install anything machine-global without that
-yes, and never infer it from the render request.
+yes, and never infer it from the render request. When a command prints `update available`, tell the user
+once; run the `init --update` command it names only after they say yes, and if they decline, carry on
+without asking again.
 
 ## One folder per piece
 

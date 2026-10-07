@@ -14,6 +14,9 @@ if (!IT_DIR) throw new Error('run these suites through `npm run test:integration
 
 // A registry nothing listens on — no test may consult the real registry for this real package name.
 export const DEAD_REGISTRY = 'http://127.0.0.1:9/';
+// The update notice writes its daily answer into app-data; suites that test it opt back in with a
+// state dir of their own, so no other suite writes the notice cache into the developer's real one.
+const QUIET_NOTICE = { NO_UPDATE_NOTIFIER: '1' };
 
 // .native expands Windows 8.3 short names (RUNNER~1), which plain realpathSync leaves in place.
 export const real = (p: string): string => realpathSync.native(p);
@@ -40,7 +43,7 @@ export function cli(installedPkg: string, args: string[], opts: { cwd?: string; 
   const r = spawnSync(process.execPath, [join(installedPkg, 'cli', 'dist', 'cli.js'), ...args], {
     encoding: 'utf8',
     cwd: opts.cwd,
-    env: { ...process.env, OPENEDIT_REGISTRY: DEAD_REGISTRY, ...opts.env },
+    env: { ...process.env, OPENEDIT_REGISTRY: DEAD_REGISTRY, ...QUIET_NOTICE, ...opts.env },
     timeout: 300_000,
   });
   if (r.error) throw r.error;

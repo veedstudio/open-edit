@@ -251,22 +251,33 @@ npx @veedstudio/openedit-cli stills search "berlin skyline" --limit 10
 ### init
 
 `init` is the workspace setup: it checks the machine dependencies (Node,
-ffmpeg), npm-ifies the workspace (a minimal private `package.json` when none
-exists, this CLI exact-pinned as a devDependency, `git init` when git is
-available, `runs/` gitignored, the skill refreshed from packaged content), and
-applies clean patch/minor updates of the CLI itself — a major release waits for
-approval. Bare `init` applies only safe,
+ffmpeg) and npm-ifies the workspace (a minimal private `package.json` when none
+exists, this CLI exact-pinned as a devDependency and installed, `git init` when
+git is available, `runs/` gitignored, the skill refreshed from packaged content
+into `.claude/skills/` for Claude Code and `.agents/skills/` for Codex and Gemini
+CLI). In a clone whose `node_modules` lacks the pinned CLI, init asks for
+approval to run the project's install (with lifecycle scripts off), since until
+then `npx` would run the registry's latest rather than the pinned version.
+It adds nothing to agent settings, and removes the SessionStart hooks earlier
+versions added. Bare `init` applies only safe,
 workspace-local setup; `--dry` reports without writing; `--auto-approve` also
 applies the machine-global installs init can run on the system (Node and FFmpeg
 only through Homebrew on macOS; on Windows bare init already fetches FFmpeg into
 the app-data dir, no admin rights needed; the rest it prints for the user to
-run) and clean updates, and is only for after a person has approved every reported
+run), and is only for after a person has approved every reported
 action. Exit 10 means something is awaiting
 that approval; on success the workspace root is printed on stdout.
+
+The CLI never updates itself. About once a day per machine a command asks the
+registry whether a newer release is out; from the next command on, until the
+update, each prints `update available` with both versions and the exact
+`init --update <version>` that installs that version and refreshes the skill.
+`NO_UPDATE_NOTIFIER=1` turns the lookup off.
 
 ```sh
 npx @veedstudio/openedit-cli init --dry --workspace <dir>
 npx @veedstudio/openedit-cli init --workspace <dir>
+npx @veedstudio/openedit-cli init --update <version> --workspace <dir>
 ```
 
 ## Configuration
@@ -274,10 +285,11 @@ npx @veedstudio/openedit-cli init --workspace <dir>
 | Environment variable | Effect |
 | --- | --- |
 | `VEED_ORIGIN` | Overrides the default `https://www.veed.io` origin. |
-| `OPENEDIT_STATE_DIR` | Overrides where login state is stored. |
+| `OPENEDIT_STATE_DIR` | Overrides where login state, the update-check cache and init's lease are stored. |
 | `OPEN_EDIT_ROOT` | Where `runs/<key>/` outputs and `.open-edit-prefs.json` are written (default: the nearest project above the working directory, else the app-data directory below). |
 | `OPENEDIT_PACKAGE_SOURCE` | Overrides what init pins into a scaffolded workspace (a packed tarball path in tests and CI). |
-| `OPENEDIT_REGISTRY` | Overrides the npm registry the auto-update check consults (default: `https://registry.npmjs.org`). |
+| `OPENEDIT_REGISTRY` | Overrides the registry the update notice reads the latest version from (default: `https://registry.npmjs.org`); installs use npm's own registry config. |
+| `NO_UPDATE_NOTIFIER` | Any non-empty value stops the once-a-day lookup and the `update available` notice. CI runs skip both already. |
 | `OPENEDIT_FFMPEG` / `OPENEDIT_FFPROBE` | ffmpeg/ffprobe binaries (default: the copy `install-ffmpeg` put in the app-data directory, else `PATH`; ffprobe defaults beside a configured ffmpeg; an empty value counts as unset). |
 | `WHISPERX_BIN` / `WHISPERX_MODEL` | WhisperX binary and fallback model tier (defaults: `whisperx` on `PATH`, `small.en`). |
 | `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE` | WhisperX device/compute (defaults: `cpu`/`int8`). |

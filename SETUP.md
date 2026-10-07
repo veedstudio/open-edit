@@ -8,18 +8,21 @@ npx skills add veedstudio/open-edit --skill open-edit
 The CLI package is self-contained — the skill ships inside it. On first use, bare
 `npx @veedstudio/openedit-cli init` turns the current folder into an ordinary npm project (a minimal
 private `package.json` when none exists, the CLI exact-pinned as a devDependency, `git init` when git is
-available, `runs/` gitignored), installs the skill, and registers project hooks for Claude, Codex, and
-Gemini. An empty folder needs no questions; a folder that already
+available, `runs/` gitignored), and installs the skill into `.claude/skills/` for Claude Code and
+`.agents/skills/` for Codex and Gemini CLI. It writes no hooks into any agent's settings, and removes the
+ones earlier versions added. An empty folder needs no questions; a folder that already
 holds other files (or another project's `package.json`) is asked about first — approve it, or point
 `--workspace` at the location you want (a fresh subfolder works well). Your project is reproducible from `package.json` plus its
 lockfile, like any npm project. Init reuses a valid Open Edit checkout when run inside one, and it never
-installs system tools or updates existing code without explicit approval. Later sessions apply clean
-patch/minor CLI updates automatically; a major release waits for your approval.
+installs system tools or updates existing code without explicit approval. The CLI never updates itself:
+commands print `update available` when a newer release is out (about one registry lookup a day;
+`NO_UPDATE_NOTIFIER=1` turns it off), and once you say yes, `init --update <version>` installs exactly
+that version.
 
 Init has three modes: bare applies safe local setup, `--dry` reports without writing, and
 `--auto-approve` also applies the reported machine-global installs init can run on this system (see
-Requirements) and clean updates. An agent must run `--auto-approve` only after showing every proposed
-action and receiving explicit approval.
+Requirements). An agent must run `--auto-approve` only after showing every proposed action and receiving
+explicit approval. `--update <version>` is separate, and runs only when asked for.
 
 ## Requirements
 1. **macOS, Linux or Windows** and **Node 20.18.1 or newer**. Git is optional (init versions your project with it
@@ -61,8 +64,8 @@ checkout but never updates it.
 ## Gotchas
 - On Windows, run repo commands through their `node` forms (`node --import tsx …`). In PowerShell,
   quote globs and paths with double quotes.
-- The orchestration is an agent skill — run it from Claude Code (or any harness reading `.claude/skills/`);
-  there is no `node run.js`.
+- The orchestration is an agent skill — run it from Claude Code, Codex, Gemini CLI or any harness reading
+  `.claude/skills/` or `.agents/skills/`; init puts the skill in both. There is no `node run.js`.
 
 ## Run
 Invoke the `open-edit` skill on a video (pass its path), or describe a piece with no footage. Everything a
