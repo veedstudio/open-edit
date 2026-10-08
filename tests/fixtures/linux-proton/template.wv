@@ -1,0 +1,8 @@
+<!doctype html>
+<html><head><style>
+body { margin: 0; width: 320px; height: 240px; background: #102030; }
+#label { position: absolute; left: 24px; top: 20px; font-size: 24px; color: #ffffff; }
+#box { position: absolute; left: 40px; top: 90px; width: 80px; height: 80px;
+  background: #ff6600; animation: travel 1000ms linear both; }
+@keyframes travel { from { transform: translateX(0px); } to { transform: translateX(120px); } }
+</style></head><body><div id="label">Linux render test</div><div id="box"></div></body></html>
