@@ -44,7 +44,9 @@ The presenter can be theirs: `--image <url|path>` uses their own still, and then
 **A SET of stills is ONE approval.** Several shots is one video: write a shots file
 `[{ id, script, image | character, voice }, …]` and run
 `npx @veedstudio/openedit-cli generate-set --shots shots.json --key <key> --workspace <id>`; it prints each
-shot's cost and one total and spends the lot on a single `--yes`. Join the clips with `concat-videos`.
+shot's cost and one total and spends the lot on a single `--yes`. Join the clips with
+`concat-videos --canvas WxH` at the delivery's size, which cuts any whose shape differs from it as `reframe` does
+(portrait and landscape presenters can mix); without `--canvas` the largest clip sets it, the first of equals.
 
 1. CONFIRM (spends nothing):
    `npx @veedstudio/openedit-cli generate --script "<the script>" --key <key> --workspace <id>`

@@ -1,6 +1,6 @@
 // What ffprobe knows about a file, asked once here rather than re-typed by every command that needs it.
-import { execFileSync } from 'node:child_process';
-import { FFPROBE } from './config.ts';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { FFMPEG, FFPROBE } from './config.ts';
 
 export interface Display {
   width: number;
@@ -13,7 +13,8 @@ export interface ColourTags {
   readonly space: string;
 }
 
-export const ASSUMED_COLOUR: ColourTags = Object.freeze({ primaries: 'bt709', transfer: 'bt709', space: 'bt709' });
+export const BT709: ColourTags = Object.freeze({ primaries: 'bt709', transfer: 'bt709', space: 'bt709' });
+export const ASSUMED_COLOUR = BT709;
 
 export interface ColourReport {
   /** What the output is stamped with. */
@@ -38,13 +39,16 @@ function probeJson(video: string, args: string[], what: string): Record<string, 
   }
 }
 
+/** A file ffprobe read, with no picture in it: a sound file, as a page's `<video>` may play one. */
+export class NoVideoStream extends Error {}
+
 /** The first video stream's requested entries. */
 function videoStream(video: string, entries: string, what: string): Record<string, unknown> {
   const streams = probeJson(video, ['-select_streams', 'v:0', '-show_entries', entries], what).streams as
     | Record<string, unknown>[]
     | undefined;
   const stream = streams?.[0];
-  if (!stream) throw new Error(`no video stream in ${video}`);
+  if (!stream) throw new NoVideoStream(`no video stream in ${video}`);
   return stream;
 }
 
@@ -59,6 +63,54 @@ export function probeDisplaySize(video: string): Display {
     [width, height] = [height, width];
   }
   return { width, height };
+}
+
+/**
+ * The size the picture is shown at in square pixels: probeDisplaySize stretched by a non-square sample aspect
+ * (anamorphic footage stores 1440x1080 for a 1920x1080 picture), along the stored width, which a quarter-turn
+ * rotation makes the shown height. `sar` is 1 for square pixels.
+ */
+export function probeSquareSize(video: string): Display & { sar: number } {
+  const stream = videoStream(video, 'stream=width,height,sample_aspect_ratio:stream_side_data=rotation', 'pixel aspect');
+  const [n, d] = String(stream.sample_aspect_ratio ?? '').split(':').map(Number);
+  const sar = n > 0 && d > 0 ? n / d : 1;
+  const { width, height } = probeDisplaySize(video);
+  if (sar === 1) return { width, height, sar };
+  const rotation = ((stream.side_data_list ?? []) as { rotation?: number }[]).find((s) => s.rotation !== undefined)?.rotation;
+  const turned = rotation !== undefined && Math.abs(Math.round(Number(rotation))) % 180 === 90;
+  const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
+  return turned ? { width, height: even(height * sar), sar } : { width: even(width * sar), height, sar };
+}
+
+/** The first video stream's codec as ffprobe names it, e.g. `hevc`. */
+export function codecOf(video: string): string {
+  return String(videoStream(video, 'stream=codec_name', 'codec').codec_name ?? '');
+}
+
+/** The first video stream's pixel format as ffmpeg names it, e.g. `yuv420p10le`. */
+export function pixelFormatOf(video: string): string {
+  return String(videoStream(video, 'stream=pix_fmt', 'pixel format').pix_fmt ?? '');
+}
+
+const WITH_ALPHA = /^(yuva|gbrap|ya\d|rgba|bgra|argb|abgr)/;
+
+/**
+ * Whether the first video stream carries alpha, and if so the input arguments that decode it with the alpha:
+ * `args` go before `-i`, and are empty when ffmpeg's own decoder keeps it; `webm` says Chrome plays it as it is.
+ * A WebM keeps VP8 or VP9 alpha beside the picture, tagged alpha_mode, and ffmpeg's native decoders drop it, so
+ * libvpx is named for those.
+ */
+export function alphaInput(video: string): { args: string[]; webm: boolean } | null {
+  const s = videoStream(video, 'stream=codec_name,pix_fmt:stream_tags', 'pixel format');
+  const tags = (s.tags ?? {}) as Record<string, unknown>;
+  const mode = Object.entries(tags).find(([k]) => k.toLowerCase() === 'alpha_mode')?.[1];
+  if (String(mode) === '1' && (s.codec_name === 'vp9' || s.codec_name === 'vp8')) {
+    const args = ['-c:v', s.codec_name === 'vp9' ? 'libvpx-vp9' : 'libvpx'];
+    // The tag outlives a re-encode that dropped the alpha, so the first frame is decoded to see it is there.
+    const r = spawnSync(FFMPEG, ['-nostdin', '-v', 'error', ...args, '-i', video, '-map', '0:v:0', '-frames:v', '1', '-vf', 'alphaextract', '-f', 'null', '-']);
+    return r.status === 0 ? { args, webm: true } : null;
+  }
+  return WITH_ALPHA.test(String(s.pix_fmt ?? '')) ? { args: [], webm: false } : null;
 }
 
 export interface FrameRate {
@@ -130,5 +182,53 @@ export function streamDurationOf(video: string, selector: 'a:0' | 'v:0'): number
   throw new Error(`could not measure the ${kind} duration of ${video}`);
 }
 
+/**
+ * The first video stream's own length: its duration, else the DURATION tag Matroska writes for each stream,
+ * less where the stream starts, since the tag is where it ends. Null when only the container's length is
+ * known, since that counts the audio too.
+ */
+export function ownVideoDurationOf(video: string): number | null {
+  const stream = videoStream(video, 'stream=duration,start_time:stream_tags', 'video duration');
+  const own = Number(stream.duration);
+  if (Number.isFinite(own) && own > 0) return own;
+  const tag = Object.entries((stream.tags ?? {}) as Record<string, string>).find(([k]) => /^DURATION(-\w+)?$/i.test(k))?.[1];
+  const hms = tag?.match(/^(\d+):(\d{2}):(\d{2}(?:\.\d+)?)$/);
+  if (!hms) return null;
+  const start = Number(stream.start_time);
+  return Number(hms[1]) * 3600 + Number(hms[2]) * 60 + Number(hms[3]) - (Number.isFinite(start) && start > 0 ? start : 0);
+}
+
+/** Where one stream starts on the file's timeline, in seconds; 0 when ffprobe declares no start. */
+export function streamStartOf(video: string, selector: 'a:0' | 'v:0'): number {
+  const kind = selector === 'a:0' ? 'audio' : 'video';
+  const stream = (probeJson(video, ['-select_streams', selector, '-show_entries', 'stream=start_time'], `${kind} start`).streams as
+    | { start_time?: string }[]
+    | undefined)?.[0];
+  const start = Number(stream?.start_time);
+  return Number.isFinite(start) ? start : 0;
+}
+
 export const audioDurationOf = (video: string): number => streamDurationOf(video, 'a:0');
 export const videoDurationOf = (video: string): number => streamDurationOf(video, 'v:0');
+/** Seconds of picture alone: videoDurationOf falls back to a Matroska container's length, which counts the audio too. */
+export const pictureDurationOf = (video: string): number => ownVideoDurationOf(video) ?? videoDurationOf(video);
+
+/**
+ * Where the video's first frame starts and its last ends, in seconds on the clock ffmpeg filters see, which
+ * starts at the earliest stream: an MP4 whose picture begins a second after its sound has its frames from 1 s.
+ */
+export function probeVideoSpan(video: string): { start: number; end: number } {
+  const format = probeJson(video, ['-show_entries', 'format=start_time,duration'], 'start time').format as
+    | { start_time?: string; duration?: string }
+    | undefined;
+  const stream = videoStream(video, 'stream=start_time,duration', 'start time');
+  const origin = Number(format?.start_time);
+  const first = Number(stream.start_time);
+  const start = Number.isFinite(origin) && Number.isFinite(first) ? Math.max(0, first - origin) : 0;
+  const own = Number(stream.duration);
+  if (Number.isFinite(own) && own > 0) return { start, end: start + own };
+  // A stream with no duration of its own (Matroska): the container's, which is measured from that clock's start.
+  const whole = Number(format?.duration);
+  if (Number.isFinite(whole) && whole > 0) return { start, end: whole };
+  throw new Error(`could not measure the video duration of ${video}`);
+}

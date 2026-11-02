@@ -18,7 +18,8 @@ import { FFMPEG, stateDir } from '../config.ts';
 import { loadEdl, snapRanges, sourceOrder, sourcePath } from '../edl.ts';
 import { readJsonFile } from '../json-file.ts';
 import { openUrl } from '../open-url.ts';
-import { audioDurationOf, probeDisplaySize, probeFps, videoDurationOf } from '../probe.ts';
+import { audioDurationOf, probeDisplaySize, probeFps, probeSquareSize, videoDurationOf } from '../probe.ts';
+import { sendableLater } from '../hdr.ts';
 import { errorText } from '../proxy.ts';
 import { contentTypeOf } from '../providers/fal-storage.ts';
 import { resolveChrome } from '../render/browser.ts';
@@ -26,8 +27,11 @@ import { inspectPng } from '../render/png.ts';
 import { startPageServer } from '../render/server.ts';
 import { RenderSession } from '../render/session.ts';
 import { splitContiguous, workersFor } from '../render/timing.ts';
+import { channelLevels } from '../channels.ts';
 import { readSpec } from './mix-audio.ts';
-import { BUDGET_MS, EPOCH, SEED, pageRoots } from './render.ts';
+import { cropFor } from './reframe.ts';
+import { BUDGET_MS, EPOCH, SEED } from '../render/lead.ts';
+import { pageRoots } from './render.ts';
 import { VEED_ORIGIN } from '../veed/api.ts';
 import { uploadLocalAsset } from '../veed/asset-upload.ts';
 import {
@@ -62,7 +66,7 @@ export const usage = {
     '  audio {file, at, in?, out?, volume?, fadeIn?, fadeOut?}',
     '  text {text, at, to, x, y, size, font?, color?, align?, bold?, italic?, animation?} (animation: one of the editor\'s)',
     '  edl {file, at?, volume?}: an apply-edl EDL, each range its own clip, cut where apply-edl cuts',
-    '  mix {file}: a mix-audio spec, each track its own audio item at its own gain (ducking is not carried)',
+    '  mix {file}: a mix-audio spec, each track its own audio item at its own gain (ducking, and centring of a one-sided track, are not carried)',
     '  captions {transcript, x?, y?, size?, font?, color?, bold?, animation?, words?}: one editable text per cue, from a',
     '    transcript already on the project timeline (after a cut, what retime-transcript wrote)',
     '  layer {select, page?, at?, to?, shift?, moved?}: the page elements a CSS selector matches, drawn alone, one clip per',
@@ -112,7 +116,7 @@ async function run(planPath: string, values: Values, made: { url?: string }): Pr
   // mix-audio's do against its run.
   const parts: Exclude<Part, { type: 'mix' | 'edl' }>[] = plan.parts.flatMap((p) => {
     if (p.type === 'mix') {
-      const mixed = mixParts(readSpec(at(p.file)), (track) => audioDurationOf(at(track)));
+      const mixed = mixParts(readSpec(at(p.file)), (track) => audioDurationOf(at(track)), (track) => channelLevels(at(track)));
       for (const note of mixed.notes) console.error(`veed-project: ${note}`);
       return mixed.parts;
     }
@@ -120,6 +124,13 @@ async function run(planPath: string, values: Values, made: { url?: string }): Pr
       const loaded = loadEdl(at(p.file));
       const ids = sourceOrder(loaded.edl.ranges);
       const ranges = snapRanges(loaded.edl.ranges, new Map(ids.map((id) => [id, probeFps(sourcePath(loaded, id))])));
+      // apply-edl cuts such a source as reframe does; the editor is handed the whole picture to frame its own way.
+      for (const id of ids) {
+        const { width, height } = probeSquareSize(sourcePath(loaded, id));
+        if (cropFor(width, height, plan.width / plan.height).travel === 0) continue;
+        console.error(`veed-project: source "${id}" of ${p.file} is ${width}x${height}, another shape than the ${plan.width}x${plan.height} canvas: `
+          + 'the editor lays its ranges full-canvas and frames them its own way, not cut as apply-edl cuts them; reframe it to the canvas\'s shape first for the same picture');
+      }
       return edlParts(p, ranges, (id) => sourcePath(loaded, id));
     }
     return [p];
@@ -302,22 +313,30 @@ function writeHandoffRecord(project: string, planPath: string, plan: Plan, parts
   writeFileSync(join(stateDir(), 'veed-handoffs', `${project}.json`), JSON.stringify(record, null, 2));
 }
 
+/** How an upload copy is encoded: the editor makes its own proxy of it, so it need only stay visually clean. */
+const UPLOAD_ENCODE = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart'];
+
 /**
  * The file to upload for a video: footage above 1080p as a 1080p copy, since the editor proxies it anyway and a 4K
  * source can be gigabytes on a home connection. Its timeline is the source's, so every trim still holds. The copy is
- * named by the source's path, size and time, so another file of the same name never takes its place.
+ * named by the source's path, size and time, so another file of the same name never takes its place. HDR footage
+ * goes up as the SDR picture every render of it has, so the piece and its hand-off are one picture, whatever the
+ * editor's own conversion would make of it.
  */
-async function uploadCopy(file: string, work: string): Promise<string> {
-  if (extname(file).toLowerCase() === '.webm') return file;
+export async function uploadCopy(file: string, work: string, say = (line: string) => { process.stderr.write(`veed-project: ${line}\n`); }): Promise<string> {
   const { width, height } = probeDisplaySize(file);
-  if (Math.max(width, height) <= 1920) return file;
+  const fit = Math.max(width, height) <= 1920 ? undefined : width >= height ? 'scale=1920:-2' : 'scale=-2:1920';
+  const sdr = await sendableLater(file, join(work, 'media'), say, { after: fit, encode: UPLOAD_ENCODE });
+  if (sdr !== file) return sdr;
+  if (extname(file).toLowerCase() === '.webm') return file;
+  if (!fit) return file;
   const st = statSync(file);
   const stamp = createHash('sha1').update(`${file}\0${st.size}\0${st.mtimeMs}`).digest('hex').slice(0, 10);
   const light = join(work, 'media', `${basename(file, extname(file))}-${stamp}.1080p.mp4`);
   if (!existsSync(light)) {
     mkdirSync(dirname(light), { recursive: true });
-    process.stderr.write(`veed-project: making a 1080p copy of ${basename(file)} to upload\n`);
-    await ffmpeg(['-v', 'error', '-y', '-i', file, '-vf', width >= height ? 'scale=1920:-2' : 'scale=-2:1920', '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', `${light}.tmp.mp4`]);
+    say(`making a 1080p copy of ${basename(file)} to upload`);
+    await ffmpeg(['-v', 'error', '-y', '-i', file, '-vf', fit, ...UPLOAD_ENCODE, `${light}.tmp.mp4`]);
     renameSync(`${light}.tmp.mp4`, light);
   }
   return light;
@@ -372,7 +391,7 @@ async function renderFrames(page: string, parts: LayerPart[], dir: string, plan:
   const total = Math.ceil(end * fps - 1e-6);
   // The frames are kept with what made them: the layers, the canvas and frame rate, and every file the page asked
   // for (the page itself included), by size and time or by being missing. A change to any of them renders again.
-  const key = JSON.stringify({ capture: 5, layers: parts.map((p) => p.select), fps, width: plan.width, height: plan.height, total });
+  const key = JSON.stringify({ capture: 6, layers: parts.map((p) => p.select), fps, width: plan.width, height: plan.height, total });
   const index = join(dir, 'layers.json');
   const kept = readCache<{ key?: string; read?: Record<string, number[] | null>; warnings?: string[] }>(index);
   const unchanged = (read: Record<string, number[] | null>) => Object.entries(read).every(([f, was]) => JSON.stringify(stamp(f)) === JSON.stringify(was));

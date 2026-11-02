@@ -9,16 +9,19 @@
 //             route has no fast variant. VEED login still hosts the local file (so fal has a URL to
 //             fetch); the GENERATION call bills fal, not VEED.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { hostname } from 'node:os';
-import { extname, join, resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { type VeedHttp, unwrap } from '../veed/api.ts';
 import { getDefaultSpace, createProject } from '../veed/fabric-routes.ts';
 import { uploadLocalAsset, readVideoBytes } from '../veed/asset-upload.ts';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { resolveVideoArg, runKeyOf } from '../resolve-video.ts';
+import { shellArg } from '../shell-arg.ts';
 import { FFPROBE, runsDir } from '../config.ts';
+import { sendable } from '../hdr.ts';
+import { speakerScript } from '../render/speaker.ts';
 import {
   submitOnce, await_, download, firstUrl, falKey, completeJob, billedCost, listedPrices, describePrice, describeBilled,
   type Http as FalHttp,
@@ -210,6 +213,13 @@ export interface RemoveBackgroundOptions {
   falKey?: string;
 }
 
+const runDirOf = (deps: RemoveBackgroundDeps, opts: RemoveBackgroundOptions): string =>
+  deps.runDir ?? join(runsDir(), runKeyOf(opts.videoPath));
+
+/** The file the service is sent: an HDR video's SDR copy, converted as a render converts it, so the cut-out matches the plate. */
+const sendableVideo = (deps: RemoveBackgroundDeps, opts: RemoveBackgroundOptions): string =>
+  sendable(opts.videoPath, join(runDirOf(deps, opts), 'sdr'), deps.log ?? (() => {}));
+
 /** The output keeps the name asked for but takes the extension of what was actually returned. */
 function withExtensionOf(outPath: string, url: string): string {
   const got = extname(new URL(url).pathname).toLowerCase();
@@ -232,8 +242,9 @@ async function removeWithVeed(deps: RemoveBackgroundDeps, opts: RemoveBackground
   log(`workspace ${ws.name} (${ws.id}): ${ws.why}. Background removal is free on this route, so this bills nothing; ` +
     'the workspace only holds the project it runs in.');
 
-  const { bytes, mimeType, extension } = await deps.readVideoBytes(opts.videoPath);
-  const duration = probeDuration(opts.videoPath);
+  const sent = sendableVideo(deps, opts);
+  const { bytes, mimeType, extension } = await deps.readVideoBytes(sent);
+  const duration = probeDuration(sent);
   const spaceId = await getDefaultSpace(http, ws.id);
   const projectId = await createProject(http, { name: `background-removal-${runKeyOf(opts.videoPath)}`, workspaceId: ws.id, spaceId });
 
@@ -282,8 +293,6 @@ function falEstimate(deps: RemoveBackgroundDeps, opts: RemoveBackgroundOptions):
     : `about $${((frames / 30) * rate).toFixed(4)} (an estimate: ${frames} frames at $${rate} per 30 frames, edge refinement ${refine ? 'on' : 'off'}; fal bills by output frames)`;
 }
 
-const shellArg = (a: string): string => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
-
 /** The command that buys this same removal on fal, flags carried over, ready to paste. */
 export function falCommandFor(opts: RemoveBackgroundOptions): string {
   const args = ['background-removal', opts.videoPath, '--fal'];
@@ -328,8 +337,9 @@ async function removeWithFal(deps: RemoveBackgroundDeps, opts: RemoveBackgroundO
     log(`[fal] note: the rate above could not be checked against fal's list (${listing.unread}).`);
   }
 
-  const { bytes } = await deps.readVideoBytes(opts.videoPath);
-  const runDir = deps.runDir ?? join(runsDir(), runKeyOf(opts.videoPath));
+  const sent = sendableVideo(deps, opts);
+  const { bytes } = await deps.readVideoBytes(sent);
+  const runDir = runDirOf(deps, opts);
   // One file with alpha by default; the mask alone comes as the alpha half of the two-file h264 output.
   const settings = { output_codec: opts.maskOnly ? 'h264' : 'vp9', refine_foreground_edges: refine };
   const identity = { video_url: `file:${digestOf(bytes)}`, ...settings };
@@ -337,7 +347,7 @@ async function removeWithFal(deps: RemoveBackgroundDeps, opts: RemoveBackgroundO
   const { job, reused, recovered, ledgerRecord } = await submitOnce(runDir, FAL_BG_REMOVAL_MODEL, identity, {
     key, http: deps.falHttp, sleep, identity,
     prepare: async () => {
-      const url = await upload(opts.videoPath, key);
+      const url = await upload(sent, key);
       log(`uploaded to fal storage for this job: ${url}`);
       return { video_url: url, ...settings };
     },
@@ -402,9 +412,9 @@ async function removeFast(deps: RemoveBackgroundDeps, opts: RemoveBackgroundOpti
     `fal's listed rate: ${FAL_BG_REMOVAL_FAST_PRICE_NOTE}. This run: refine=${refine}.`,
   );
 
-  const { bytes, mimeType, extension } = await deps.readVideoBytes(opts.videoPath);
+  const { bytes, mimeType, extension } = await deps.readVideoBytes(sendableVideo(deps, opts));
   const key = opts.falKey ?? falKey();
-  const runDir = deps.runDir ?? join(runsDir(), runKeyOf(opts.videoPath));
+  const runDir = runDirOf(deps, opts);
   // The hosted url is new on every upload, so the job is known by the file's content: a re-run of the
   // same file resumes the job it already bought instead of hosting it again and buying it twice.
   const identity = { video_url: `file:${digestOf(bytes)}`, refine_foreground_edges: refine };
@@ -470,7 +480,7 @@ export const usage = {
     fal: { type: 'boolean', help: "Buy fal's full model on your own fal key (cost stated before it runs); without --fal or --fast nothing is bought" },
     fast: { type: 'boolean', help: "fal's fast model instead of the free VEED route; bills your own fal key" },
     'no-refine': { type: 'boolean', help: 'Skip the edge refinement pass' },
-    out: { type: 'string', value: '<path>', help: 'Output file (default runs/<key>/background-removed.mp4; the extension follows what is returned)' },
+    out: { type: 'string', value: '<path>', help: 'Output file (default runs/<key>/background-removed.mp4; the extension follows what is returned); speaker.js is written beside it' },
     workspace: { type: 'string', value: '<id>', help: "VEED workspace to hold the free route's project (default: remembered, else the first; bills nothing)" },
   },
 } satisfies Usage;
@@ -502,7 +512,7 @@ export async function backgroundRemoval(argv: string[]): Promise<number> {
     })
     : undefined;
 
-  await removeBackground(
+  const out = await removeBackground(
     { http, readVideoBytes, rememberedWorkspace: () => rememberedWorkspace(DEFAULT_WORKSPACE_PATH, (m) => console.error(`[bg-removal] ${m}`)), log: (m) => console.log(`[bg-removal] ${m}`) },
     {
       videoPath, outPath, workspaceId: values.workspace, maskOnly: values['mask-only'], fast: values.fast,
@@ -510,5 +520,11 @@ export async function backgroundRemoval(argv: string[]): Promise<number> {
       refineForegroundEdges: values['no-refine'] ? false : undefined,
     },
   );
+  // Beside the cut-out, so a page that lays it over graphics previews in a browser as it renders.
+  if (!values['mask-only']) {
+    const script = join(dirname(out), 'speaker.js');
+    writeFileSync(script, speakerScript());
+    console.log(`[bg-removal] wrote ${script}: load it with <script src="speaker.js"></script> on a page whose stage names the cut-out (data-cutout)`);
+  }
   return 0;
 }

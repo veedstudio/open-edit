@@ -254,7 +254,8 @@ export async function runSet(
 
   // Spent: the approval is gone, so one yes buys one set — the same rule a single shot follows.
   await deps.removeState(setPath);
-  log(`\n[fabric] ${clips.length} clips generated. Join them with:\n  npx @veedstudio/openedit-cli concat-videos ${join(runDirFor(args.key), `${args.key}.mp4`)} ${clips.join(' ')}`);
+  log(`\n[fabric] ${clips.length} clips generated. Join them at the delivery's size (e.g. 1080x1920), which without --canvas is the largest clip's, the first of equals:\n`
+    + `  npx @veedstudio/openedit-cli concat-videos --canvas <W>x<H> ${join(runDirFor(args.key), `${args.key}.mp4`)} ${clips.join(' ')}`);
   return { status: 'generated', clips };
 }
 

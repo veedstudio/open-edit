@@ -9,6 +9,7 @@ import { basename, dirname, extname, join } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, FFPROBE } from '../config.ts';
 import { hasAudioStream } from '../probe.ts';
+import { channelLevels, describeBalance, oneSided, toStereo } from '../channels.ts';
 
 class MuxError extends Error {
   constructor(msg: string, readonly code: number) { super(msg); }
@@ -23,6 +24,10 @@ export const usage = {
     out: { type: 'string', required: true, value: '<file>', help: 'Where to write the result' },
     'no-loudnorm': { type: 'boolean', help: 'Skip levelling to the delivery loudness' },
   },
+  notes: [
+    'A source with its sound on one channel of two is centred in both channels, with or without --no-loudnorm;',
+    'one leaning 12 dB or more to a side is named and left as it is.',
+  ].join('\n'),
 } satisfies Usage;
 
 export function muxAudio(argv: string[]): number {
@@ -50,7 +55,8 @@ function run(argv: string[]): void {
 
   const probe = (args: string[]) => {
     try {
-      return execFileSync(FFPROBE, args, { encoding: 'utf8' }).trim();
+      // A stream with side data (a phone's rotation, HDR10's metadata) prints an empty field after the value.
+      return execFileSync(FFPROBE, args, { encoding: 'utf8' }).trim().split(',')[0];
     } catch {
       return '';
     }
@@ -72,11 +78,23 @@ function run(argv: string[]): void {
 
   // A named track with no audio in it is a mistake, and a silent deliverable that exits 0 hides it.
   if (!hasAudioStream(src)) fail(`mux: ${src} has no audio stream — nothing to lay on the render`, 1);
+  // A source with its sound on one of two channels (a narration on one input of a two-channel recorder)
+  // would play in one ear. It is centred, and measured for loudness as it will be heard.
+  let levels: number[];
+  try {
+    levels = channelLevels(src);
+  } catch (error) {
+    throw new MuxError(`mux: ${(error as Error).message}`, 1);
+  }
+  const centre = oneSided(levels) ? toStereo(levels) : null;
+  const balance = describeBalance(levels);
+  if (balance) console.log(`mux: ${src} ${balance}`);
   // Camera audio commonly lands several decibels under the delivery target and plays quieter than its
   // neighbours in a feed; the track is re-encoded here anyway, so the correction costs one measurement
   // pass. --no-loudnorm keeps the source level for one chapter of a longer piece, whose level belongs
   // to the whole film.
-  const loudness: Loudnorm = normalise ? loudnormFilter(src) : { mode: 'none', filter: null, why: 'not requested' };
+  const loudness: Loudnorm = normalise ? loudnormFilter(src, centre) : { mode: 'none', filter: null, why: 'not requested' };
+  const af = [centre, loudness.filter].filter(Boolean).join(',');
   if (normalise && loudness.mode !== 'measured') {
     console.log(`mux: loudness ${loudness.mode === 'dynamic' ? 'corrected dynamically' : 'left as recorded'} — ${loudness.why}`);
   }
@@ -85,7 +103,7 @@ function run(argv: string[]): void {
     execFileSync(FFMPEG, [
       '-y', '-hide_banner', '-loglevel', 'error', '-i', silent, '-i', src,
       '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
-      ...(loudness.filter ? ['-af', loudness.filter] : []),
+      ...(af ? ['-af', af] : []),
       // 48 kHz on every path: loudnorm works at 192 kHz and would otherwise hand the encoder 96 kHz,
       // and a chapter muxed with --no-loudnorm must not differ in rate from its neighbours.
       '-c:a', 'aac', '-ar', '48000', '-t', vdur, '-movflags', '+faststart', tmp,
@@ -175,11 +193,12 @@ export function decideLoudnorm(measured: LoudnormMeasurement): Loudnorm {
 
 const unmeasured = (why: string): Loudnorm => ({ mode: 'dynamic', filter: TARGET, why });
 
-export function loudnormFilter(source: string): Loudnorm {
+/** The loudness correction for `source`, measured through `pre` when a filter runs ahead of it. */
+export function loudnormFilter(source: string, pre: string | null = null): Loudnorm {
   // spawnSync, not execFileSync: the measurement is printed to STDERR, and execFileSync only hands
   // stderr back on a throw, so a successful pass would silently lose it.
   const measure = spawnSync(FFMPEG, [
-    '-hide_banner', '-nostats', '-i', source, '-af', `${TARGET}:print_format=json`, '-vn', '-f', 'null', '-',
+    '-hide_banner', '-nostats', '-i', source, '-af', `${pre ? `${pre},` : ''}${TARGET}:print_format=json`, '-vn', '-f', 'null', '-',
   ], { encoding: 'utf8' });
 
   if (measure.error) return { filter: null, mode: 'none', why: `ffmpeg could not run: ${measure.error.message}` };

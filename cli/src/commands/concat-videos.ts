@@ -1,25 +1,24 @@
 // Joins several clips into one, end to end.
 //
 //   openedit concat-videos <out.mp4> <in1.mp4> <in2.mp4> [...]
-//   openedit concat-videos --canvas 1080x1920 --fit crop <out.mp4> <in...>
-//   openedit concat-videos --fit open <in1.mp4> <in2.mp4> [...]
+//   openedit concat-videos --canvas 1080x1920 --fit letterbox <out.mp4> <in...>
 //
-// Generated clips do NOT share a canvas: a Fabric still decides its own aspect, so a portrait presenter
-// and a landscape one produce different dimensions. ffmpeg's concat demuxer refuses that outright, and
-// the stream-copy path people reach for first fails with a size-mismatch that reads like a codec problem.
-// So this re-encodes every input onto one canvas, and a clip whose aspect differs from that canvas has to
-// lose something: --fit letterbox (the default) pads it and keeps the whole frame behind black bars;
-// --fit crop fills the canvas and cuts the overflow; --fit open decides nothing in code and instead
-// reports which clips differ, so the agent can reframe each shot itself. Re-encoding is the price of
-// accepting mixed inputs at all.
-//
-// The canvas defaults to the LARGEST input by area, so the sharpest clip keeps its resolution and the
-// others are upscaled to meet it rather than everything collapsing to the smallest.
+// Clips that disagree in size or shape (a portrait and a landscape Fabric presenter) are re-encoded onto one
+// canvas, the largest as shown unless --canvas names it, since ffmpeg's concat demuxer refuses them outright.
+// A clip of another shape is cut to the canvas's with reframe's own code (--fit crop) or padded whole (--fit letterbox).
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { FFMPEG, FFPROBE } from '../config.ts';
+import { converted, describeHdr, hdrKind, toSdr } from '../hdr.ts';
+import { colourTagsOf, probeSquareSize, type ColourReport, type ColourTags } from '../probe.ts';
+import { resolveVideoArg } from '../resolve-video.ts';
+import { asShown } from '../shown.ts';
+import { decideColour } from './apply-edl.ts';
+import { cropFor, describeShape, parseFit, planShape, shapeChain, type Fit } from './reframe.ts';
 
 const run = promisify(execFile);
 
@@ -27,18 +26,6 @@ export interface Size {
   width: number;
   height: number;
 }
-
-// letterbox pads a mismatched clip (keeps all framing); crop fills the canvas (cuts the overflow); open
-// runs no encode and reports the mismatches for the agent to reframe by hand.
-export type FitMode = 'letterbox' | 'crop' | 'open';
-
-// Only these two reach the encoder — open never does, so the filter graph does not model it.
-type EncodeFit = 'letterbox' | 'crop';
-
-// Two aspects count as the same shape when they are within this FRACTION of each other — relative, so
-// the threshold means the same thing in portrait and landscape. Even-dimension rounding moves a ratio by
-// well under this, while a visibly different frame exceeds it.
-const ASPECT_TOLERANCE = 0.01;
 
 export function aspectOf(size: Size): number {
   return size.width / size.height;
@@ -61,30 +48,6 @@ export function parseCanvas(text: string): Size {
   return evenSize({ width: Number(m[1]), height: Number(m[2]) });
 }
 
-export function parseFit(text: string | undefined): FitMode {
-  if (text === undefined) return 'letterbox';
-  if (text === 'letterbox' || text === 'crop' || text === 'open') return text;
-  throw new Error(`--fit expects letterbox, crop or open, got "${text}"`);
-}
-
-export interface AspectReport {
-  size: Size;
-  matchesCanvas: boolean;
-}
-
-// Which clips differ in shape from the canvas — the ones a fit strategy actually acts on. A clip that
-// already matches gets the same result from crop or letterbox, so only these are worth reporting.
-export function aspectReport(sizes: Size[], canvas: Size): AspectReport[] {
-  const target = aspectOf(canvas);
-  return sizes.map((size) => ({
-    size,
-    matchesCanvas: Math.abs(aspectOf(size) - target) <= target * ASPECT_TOLERANCE,
-  }));
-}
-
-// One filter chain per input: fit or fill the canvas, force a common timebase and pixel aspect. setsar
-// stops a clip with a non-square pixel aspect from concatenating at the wrong shape; a clip that already
-// matches the canvas is unaffected by either shape (nothing to pad or crop).
 // Per-input audio facts the concat needs: whether the clip HAS an audio track, and how long it runs so a
 // silent stand-in can be cut to match when it does not.
 export interface AudioTrack {
@@ -93,19 +56,29 @@ export interface AudioTrack {
 }
 
 export interface InputMeta extends AudioTrack {
+  /** As shown: upright, in square pixels. */
   size: Size;
+  /** The pixel aspect it is stored in, 1 for square pixels. */
+  sar: number;
+  colour: ColourReport;
 }
 
-export function filterGraph(canvas: Size, fit: EncodeFit, audio: AudioTrack[]): string {
+/**
+ * One chain per input: its SDR conversion (`sdr[i]`), its cut to the canvas's shape (`shapes[i]`), then the fit,
+ * where crop covers and letterbox pads what even pixels leave. `tags` labels every clip alike before the join,
+ * which concat would otherwise take from the first clip and newer libavfilter would convert between.
+ */
+export function filterGraph(canvas: Size, fit: Fit, audio: AudioTrack[], sdr: (string | null)[] = [], tags?: ColourTags,
+  shapes: string[][] = []): string {
   const { width: W, height: H } = canvas;
-  // crop scales to COVER then cuts; letterbox scales to FIT then pads. Without force_original_aspect_ratio
-  // ffmpeg stretches and every face goes oval.
-  const shape = fit === 'crop'
+  // Without force_original_aspect_ratio ffmpeg stretches and every face goes oval.
+  const fitTo = fit === 'crop'
     ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
     : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black`;
   const parts: string[] = [];
   audio.forEach((track, i) => {
-    parts.push(`[${i}:v]${shape},setsar=1,fps=30[v${i}]`);
+    const label = tags ? `,setparams=color_primaries=${tags.primaries}:color_trc=${tags.transfer}:colorspace=${tags.space}` : '';
+    parts.push(`[${i}:v]${[sdr[i], ...(shapes[i] ?? []), fitTo].filter(Boolean).join(',')},setsar=1,fps=30${label}[v${i}]`);
     // A clip with no audio track cannot be mapped as [i:a]; ffmpeg aborts the whole concat with an opaque
     // "Stream specifier :a matches no streams". Synthesise silence of the clip's own length instead, so
     // concat's a=1 always has a stream and a silent motion-graphics shot joins like any other.
@@ -119,108 +92,103 @@ export function filterGraph(canvas: Size, fit: EncodeFit, audio: AudioTrack[]): 
   return parts.join(';');
 }
 
-export function ffmpegArgs(inputs: string[], out: string, canvas: Size, fit: EncodeFit, audio: AudioTrack[]): string[] {
+export function ffmpegArgs(inputs: string[], out: string, canvas: Size, fit: Fit, audio: AudioTrack[], sdr: (string | null)[] = [], tags?: ColourTags,
+  shapes: string[][] = []): string[] {
   return [
     '-loglevel', 'error', '-y',
     ...inputs.flatMap((i) => ['-i', i]),
-    '-filter_complex', filterGraph(canvas, fit, audio),
+    '-filter_complex', filterGraph(canvas, fit, audio, sdr, tags, shapes),
     '-map', '[v]', '-map', '[a]',
-    '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-crf', '20', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '192k',
     '-movflags', '+faststart',
     out,
   ];
 }
 
-export async function probeSize(file: string): Promise<Size> {
-  const { stdout } = await run(FFPROBE, [
-    '-v', 'error', '-select_streams', 'v:0',
-    '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x', file,
-  ]);
-  const [width, height] = stdout.trim().split('x').map(Number);
-  if (!width || !height) throw new Error(`could not read the dimensions of ${file}`);
-  return { width, height };
-}
-
-// One probe for everything the encode path needs: video size, whether an audio track is present, and the
+// One probe for everything the encode path needs: the shown size, whether an audio track is present, and the
 // container duration (used only to size synthesised silence for an audio-less clip).
 export async function probeInput(file: string): Promise<InputMeta> {
   const { stdout } = await run(FFPROBE, [
     '-v', 'error',
-    '-show_entries', 'stream=codec_type,width,height:format=duration',
+    '-show_entries', 'stream=codec_type:format=duration',
     '-of', 'json', file,
   ]);
-  const data = JSON.parse(stdout) as {
-    streams?: { codec_type?: string; width?: number; height?: number }[];
-    format?: { duration?: string };
-  };
+  const data = JSON.parse(stdout) as { streams?: { codec_type?: string }[]; format?: { duration?: string } };
   const streams = data.streams ?? [];
-  const video = streams.find((s) => s.codec_type === 'video');
-  if (!video?.width || !video?.height) throw new Error(`could not read the dimensions of ${file}`);
   const duration = Number(data.format?.duration);
   if (!Number.isFinite(duration)) throw new Error(`could not read the duration of ${file}`);
+  const { width, height, sar } = probeSquareSize(file);
   return {
-    size: { width: video.width, height: video.height },
+    size: { width, height },
+    sar,
     hasAudio: streams.some((s) => s.codec_type === 'audio'),
     duration,
+    colour: colourTagsOf(file),
   };
 }
 
 export interface ConcatOptions {
   canvas?: Size;
-  fit?: EncodeFit;
-}
-
-// Shared by the encode and report paths so the "clip not found" message lives in exactly one place.
-function assertClipsExist(inputs: string[]): void {
-  const missing = inputs.filter((i) => !existsSync(i));
-  if (missing.length > 0) throw new Error(`clip not found:\n  ${missing.join('\n  ')}`);
+  fit?: Fit;
 }
 
 export async function concatVideos(inputs: string[], out: string, opts: ConcatOptions = {}): Promise<Size> {
   if (inputs.length < 2) throw new Error('concat needs at least two clips; one clip is already the answer');
-  assertClipsExist(inputs);
+  const missing = inputs.filter((i) => !existsSync(i));
+  if (missing.length > 0) throw new Error(`clip not found:\n  ${missing.join('\n  ')}`);
+  // Absolute, since ffmpeg runs where the crops' moves are written.
+  const paths = inputs.map(resolveVideoArg);
   // Every input is probed now — the audio plan (present vs silent, and each clip's length) is needed even
   // when --canvas pins the size, so there is nothing to skip.
-  const metas = await Promise.all(inputs.map(probeInput));
+  const metas = await Promise.all(paths.map(probeInput));
   const target = opts.canvas ?? largestByArea(metas.map((m) => m.size));
-  await run(FFMPEG, ffmpegArgs(inputs, out, target, opts.fit ?? 'letterbox', metas));
-  return target;
-}
-
-// The report path, a sibling to concatVideos that encodes nothing: probe, choose the canvas, and say which
-// clips differ in shape — the --fit open answer, exported so it is testable without a subprocess.
-export async function reportAspects(inputs: string[], canvas?: Size): Promise<{ canvas: Size; report: AspectReport[] }> {
-  assertClipsExist(inputs);
-  const sizes = await Promise.all(inputs.map(probeSize));
-  const target = canvas ?? largestByArea(sizes);
-  return { canvas: target, report: aspectReport(sizes, target) };
-}
-
-// Prints the --fit open report: the chosen canvas, then each clip's shape against it. The report is in
-// input order, so the clip path is taken by position.
-function printAspectReport(inputs: string[], canvas: Size, report: AspectReport[]): void {
-  console.log(`[concat] canvas ${canvas.width}x${canvas.height} (aspect ${aspectOf(canvas).toFixed(3)})`);
-  report.forEach((r, i) => {
-    const tag = r.matchesCanvas ? 'matches ' : 'MISMATCH';
-    console.log(`  ${tag}  ${r.size.width}x${r.size.height} (${aspectOf(r.size).toFixed(3)})  ${inputs[i]}`);
+  const fit = opts.fit ?? 'crop';
+  // Planned before anything is encoded, so stale face boxes are refused up front.
+  const plans = fit === 'crop' ? paths.map((p, i) => planShape(p, aspectOf(target), { label: inputs[i], ways: ', or join with --fit letterbox' })) : null;
+  const sdr = metas.map((m, i) => (hdrKind(m.colour) ? toSdr(m.colour, inputs[i]) : null));
+  // A converted clip is BT.709, so the others must be too, as apply-edl decides it: a clip of another colour
+  // would otherwise be labelled with whichever clip came first.
+  const tags = sdr.some(Boolean) ? decideColour(inputs.map((id, i) => ({ id, colour: converted(metas[i].colour) }))).tags : undefined;
+  const work = mkdtempSync(join(tmpdir(), 'open-edit-concat-'));
+  try {
+    const shapes = metas.map((m, i) => {
+      const plan = plans?.[i];
+      if (!plan) return asShown({ ...m.size, sar: m.sar });
+      const { filters, script } = shapeChain(plan, `c${i}`);
+      if (script) writeFileSync(join(work, script.file), script.text);
+      return filters;
+    });
+    await run(FFMPEG, ffmpegArgs(paths, resolve(out), target, fit, metas, sdr, tags, shapes), { cwd: work });
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+  metas.forEach((m, i) => {
+    if (sdr[i]) console.log(`[concat] ${describeHdr(inputs[i], m.colour)}`);
+    const plan = plans?.[i];
+    if (plan && plan.how !== 'already') console.log(`[concat] ${describeShape(inputs[i], plan, `the canvas's shape (${target.width}x${target.height})`)}`);
+    else if (!plan && cropFor(m.size.width, m.size.height, aspectOf(target)).travel > 0) {
+      console.log(`[concat] ${inputs[i]} (${m.size.width}x${m.size.height}) is letterboxed onto the ${target.width}x${target.height} canvas`);
+    }
   });
-  const off = report.filter((r) => !r.matchesCanvas).length;
-  console.log(
-    off === 0
-      ? '[concat] every clip already matches the canvas — --fit letterbox or crop will both join cleanly.'
-      : `[concat] ${off}/${report.length} clips differ from the canvas aspect — reframe them per shot, ` +
-        'or fall back to --fit crop (fills, cuts overflow) or --fit letterbox (pads, keeps all framing).',
-  );
+  return target;
 }
 
 export const usage = {
   summary: 'Re-encode clips that disagree onto one canvas at 30 fps',
   positionals: '<out.mp4> <in1.mp4> <in2.mp4> [...]',
   flags: {
-    canvas: { type: 'string', value: 'WxH', help: 'Target canvas (default: the largest clip by area)' },
-    fit: { type: 'string', value: 'letterbox|crop|open', help: 'How clips meet the canvas (default letterbox); open only reports and takes no out path' },
+    canvas: { type: 'string', value: 'WxH', help: 'Target canvas (default: the largest clip by area as shown, the first on a tie)' },
+    fit: {
+      type: 'string', value: 'crop|letterbox',
+      help: 'How a clip of another shape meets the canvas: crop (default) cuts it as reframe does, around its faces when faces has run on it, else from the middle; letterbox pads it',
+    },
   },
+  notes: [
+    'Sizes are as shown: a rotated phone clip is upright and anamorphic footage square-pixelled. A line names',
+    'each clip cut to the canvas\'s shape and whether it followed the faces or cut from the middle. An HDR (PQ/HLG)',
+    'clip is converted to SDR BT.709, and a line says so.',
+  ].join('\n'),
 } satisfies Usage;
 
 export async function concatVideosCommand(argv: string[]): Promise<number> {
@@ -229,19 +197,6 @@ export async function concatVideosCommand(argv: string[]): Promise<number> {
   const { values, positionals } = parseUsage('concat-videos', usage, argv);
   const canvas = values.canvas === undefined ? undefined : parseCanvas(values.canvas);
   const fit = parseFit(values.fit);
-
-  if (fit === 'open') {
-    // open reports on the inputs and writes nothing, so every positional is a clip — there is no out path.
-    const clips = positionals;
-    if (clips.length < 2) {
-      console.error(`usage: openedit concat-videos --fit open <in1.mp4> <in2.mp4> [...]\n${usageLine('concat-videos', usage)}`);
-      return 1;
-    }
-    const { canvas: target, report } = await reportAspects(clips, canvas);
-    printAspectReport(clips, target, report);
-    return 0;
-  }
-
   const [out, ...inputs] = positionals;
   if (!out || inputs.length < 2) {
     console.error(usageLine('concat-videos', usage));

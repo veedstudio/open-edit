@@ -1,20 +1,24 @@
 // Assemble an EDL's kept ranges into one file in a single encode.
 // An EDL (edit decision list) is the list of source intervals to keep, in order.
 //
-//   openedit apply-edl --edl <edl.json> --out <cut.mp4> [--crossfade 40] [--crf 20]
+//   openedit apply-edl --edl <edl.json> --out <cut.mp4> [--crossfade 40] [--crf 20] [--fit crop|letterbox]
 //
 // Joins are crossfaded, not butt-joined: a butt join clicks at the seam, and a crossfade needs one
 // encode over both sides of it. That is why this re-encodes instead of stream-copying.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
 import { loadEdl, snapRanges, sourceOrder, sourcePath, type SnappedRange } from '../edl.ts';
+import { converted, describeHdr, hdrKind, hdrTags, toSdr } from '../hdr.ts';
 import {
-  ASSUMED_COLOUR, audioDurationOf, colourTagsOf, probeDisplaySize, probeFrameRate, videoDurationOf,
+  ASSUMED_COLOUR, audioDurationOf, colourTagsOf, pixelFormatOf, probeFrameRate, probeSquareSize, videoDurationOf,
   type ColourReport, type ColourTags, type Display,
 } from '../probe.ts';
+import { asShown } from '../shown.ts';
+import { cropFor, describeShape, parseFit, planShape, shapeChain, type Fit, type Shaping } from './reframe.ts';
 
 const seconds = (t: number) => t.toFixed(6);
 const AUDIO_RATE = 48000;
@@ -46,6 +50,15 @@ export function inputSeeks(ranges: SnappedRange[]): number[] {
  * sound that bleeds across a join is the room tone that genuinely followed the last kept frame. The
  * last segment is padded to its snapped length, so the mix is exactly as long as the concatenated
  * video even when the source's audio ends a few milliseconds before its last frame does.
+ *
+ * The ranges of an HDR source (`hdr` maps its id to its conversion) are converted to SDR before they are
+ * scaled, so every range is scaled as the same SDR BT.709 picture; every other range is left as it is. When
+ * the ranges share one conversion and reach the join untouched (sharedConversion), as in a cut of one clip,
+ * `after` converts the joined picture once instead, since each conversion sets up its own curves and a long
+ * cut has hundreds of ranges.
+ *
+ * `shapes[i]` cuts range i to the canvas's shape after its conversion, on the range's own clock. What even pixels
+ * leave, `fit` crop covers and letterbox pads.
  */
 export function buildGraph(
   ranges: SnappedRange[],
@@ -53,11 +66,16 @@ export function buildGraph(
   canvas: Display,
   colour: ColourTags,
   crossfadeSec: number,
+  o: { hdr?: ReadonlyMap<string, string>; after?: string; shapes?: string[][]; fit?: Fit } = {},
 ): { filter: string; videoLabel: string; audioLabel: string } {
   const parts: string[] = [];
-  const scale =
-    `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease:flags=lanczos,` +
-    `pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+  const { width: W, height: H } = canvas;
+  const fitTo = o.fit === 'letterbox'
+    ? `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
+    : `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`;
+  // Every range is stamped with the output's colour before the concat: newer libavfilter converts between
+  // concat inputs that are labelled differently, which would shift an untagged clip beside a converted one.
+  const scale = `${fitTo},setsar=1,setparams=color_primaries=${colour.primaries}:color_trc=${colour.transfer}:colorspace=${colour.space}`;
 
   let offset = 0;
   ranges.forEach((range, i) => {
@@ -66,9 +84,9 @@ export function buildGraph(
     const end = range.end - seeks[i];
     const length = range.end - range.start;
     const halfFrame = 0.5 / range.fps;
+    const video = [o.hdr?.get(range.source), ...(o.shapes?.[i] ?? []), scale].filter(Boolean).join(',');
     parts.push(
-      `[${i}:v]trim=start=${seconds(Math.max(0, start - halfFrame))}:end=${seconds(end - halfFrame)},` +
-        `setpts=PTS-STARTPTS,${scale}[v${i}]`,
+      `[${i}:v]trim=start=${seconds(Math.max(0, start - halfFrame))}:end=${seconds(end - halfFrame)},setpts=PTS-STARTPTS,${video}[v${i}]`,
     );
     const audio = [
       `atrim=start=${seconds(start)}:end=${seconds(isLast ? end : end + crossfadeSec)}`,
@@ -88,8 +106,7 @@ export function buildGraph(
   // Colour is stamped as frame properties: the encoder takes its tags from the frames it is handed, and
   // the -color_* output options are ignored on the ffmpeg builds this runs against.
   parts.push(
-    `${ranges.map((_, i) => `[v${i}]`).join('')}concat=n=${ranges.length}:v=1:a=0,` +
-      `setparams=color_primaries=${colour.primaries}:color_trc=${colour.transfer}:colorspace=${colour.space}[vout]`,
+    `${ranges.map((_, i) => `[v${i}]`).join('')}concat=n=${ranges.length}:v=1:a=0${o.after ? `,${o.after}` : ''}[vout]`,
   );
   parts.push(
     ranges.length === 1
@@ -103,6 +120,19 @@ export function buildGraph(
 const describeTags = (t: ColourTags) => `${t.primaries}/${t.transfer}/${t.space}`;
 const sameTags = (a: ColourTags, b: ColourTags) =>
   a.primaries === b.primaries && a.transfer === b.transfer && a.space === b.space;
+
+/**
+ * The conversion every range shares, run once after the join, or undefined when each HDR range is converted
+ * on its own: some source is SDR or converted differently, or a range would not reach the join as decoded.
+ * concat brings every input to one pixel format, so a deeper source would lose bits before its conversion,
+ * and the canvas scale, or the stretch of pixels that are not square, would resample a source as an HDR signal.
+ */
+export function sharedConversion(sources: { chain?: string; size: Display; pixFmt: string; sar?: number }[]): string | undefined {
+  const [first] = sources;
+  const alike = (s: (typeof sources)[number]) => s.chain === first.chain && s.pixFmt === first.pixFmt && (s.sar ?? 1) === 1 &&
+    s.size.width === first.size.width && s.size.height === first.size.height;
+  return first?.chain && sources.every(alike) ? first.chain : undefined;
+}
 
 /**
  * One colour for the whole output, or a refusal: every source must agree, and a source that declares
@@ -140,7 +170,16 @@ export const usage = {
     out: { type: 'string', value: '<cut.mp4>', required: true, help: 'Where the assembled file is written' },
     crossfade: { type: 'string', value: '<ms>', help: 'Audio crossfade at each join, at least 1 (default 40)' },
     crf: { type: 'string', value: '0-51', help: 'x264 quality (default 20)' },
+    fit: {
+      type: 'string', value: 'crop|letterbox',
+      help: 'How a range from a source of another shape meets the canvas: crop (default) cuts it as reframe does, around its faces when faces has run on that source, else from the middle; letterbox fits it whole and pads',
+    },
   },
+  notes: [
+    'The canvas is the first range\'s source as shown: upright, in square pixels. A line names each source cut',
+    'to its shape and whether it followed the faces or cut from the middle. An HDR (PQ/HLG) source is converted to',
+    'SDR BT.709, and a line says so.',
+  ].join('\n'),
 } satisfies Usage;
 
 export function applyEdl(argv: string[]): number {
@@ -154,6 +193,7 @@ export function applyEdl(argv: string[]): number {
   const crossfadeMs = numberFlag('crossfade', values.crossfade, 40, (n) => n >= 1, 'at least 1 millisecond');
   const crf = numberFlag('crf', values.crf, 20, (n) => n >= 0 && n <= 51, '0-51');
   const crossfadeSec = crossfadeMs / 1000;
+  const fit = parseFit(values.fit);
 
   // Probed once per distinct source; the encode opens one input per RANGE (see inputSeeks).
   const order = sourceOrder(loaded.edl.ranges);
@@ -167,7 +207,7 @@ export function applyEdl(argv: string[]): number {
       // guard below needs; the container's length would pass a file whose audio ends early or is absent.
       throw new Error(`source "${id}": ${(cause as Error).message} — apply-edl assembles picture and sound together`, { cause });
     }
-    return [id, { path, ...probeFrameRate(path), duration, video: videoDurationOf(path), colour: colourTagsOf(path) }];
+    return [id, { path, ...probeFrameRate(path), duration, video: videoDurationOf(path), colour: colourTagsOf(path), shown: probeSquareSize(path) }];
   }));
   const sourceOf = (id: string) => sources.get(id)!;
   // One frame rate for the whole output: the encode is forced to it, and a source at another rate would
@@ -226,27 +266,57 @@ export function applyEdl(argv: string[]): number {
     }
   });
 
-  const colour = decideColour(order.map((id) => ({ id, colour: sourceOf(id).colour })));
-  const assumedFor = order.filter((id) => sourceOf(id).colour.assumed);
-  const canvas = probeDisplaySize(first.path);
+  const hdr = order.filter((id) => hdrKind(sourceOf(id).colour));
+  // Judged as converted, so an HDR clip joins SDR ones instead of disagreeing with them.
+  const colour = decideColour(order.map((id) => ({ id, colour: converted(sourceOf(id).colour) })));
+  const assumedFor = order.filter((id) => converted(sourceOf(id).colour).assumed);
+  const canvas = { width: first.shown.width, height: first.shown.height };
+  const ratio = canvas.width / canvas.height;
+  // Planned before anything is encoded, so stale face boxes are refused up front.
+  const plans = new Map<string, Shaping>(fit === 'crop'
+    ? order.map((id) => [id, planShape(sourceOf(id).path, ratio, { label: `source "${id}"`, ways: ', or assemble with --fit letterbox' })])
+    : []);
+  const letterboxed = fit === 'letterbox'
+    ? order.filter((id) => cropFor(sourceOf(id).shown.width, sourceOf(id).shown.height, ratio).travel > 0)
+    : [];
   const seeks = inputSeeks(ranges);
-  const { filter, videoLabel, audioLabel } = buildGraph(ranges, seeks, canvas, colour.tags, crossfadeSec);
+  const chains = new Map(hdr.map((id) => [id, toSdr(sourceOf(id).colour, `source "${id}"`)]));
+  const once = hdr.length === order.length
+    ? sharedConversion(order.map((id) => ({ chain: chains.get(id), size: sourceOf(id).shown, sar: sourceOf(id).shown.sar, pixFmt: pixelFormatOf(sourceOf(id).path) })))
+    : undefined;
 
   const outPath = resolve(values.out);
   mkdirSync(dirname(outPath), { recursive: true });
-  execFileSync(FFMPEG, [
-    '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
-    ...ranges.flatMap((range, i) => [...(seeks[i] > 0 ? ['-ss', String(seeks[i])] : []), '-i', sourceOf(range.source).path]),
-    '-filter_complex', filter,
-    '-map', videoLabel, '-map', audioLabel,
-    // -r pins the output to the source rate and gives the LAST frame a duration. Without it that frame
-    // reaches the muxer with none, the mp4 edit list ends a frame early, and players drop the frame.
-    '-r', first.rate,
-    '-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
-    '-movflags', '+faststart',
-    outPath,
-  ], { stdio: ['ignore', 'inherit', 'inherit'] });
+  const work = mkdtempSync(join(tmpdir(), 'open-edit-apply-edl-'));
+  try {
+    // Each range's crop is moved on that range's own clock, which starts at its first frame.
+    const shapes = ranges.map((range, i) => {
+      const plan = plans.get(range.source);
+      if (!plan) return asShown(sourceOf(range.source).shown);
+      const { filters, script } = shapeChain(plan, `r${i}`, { from: range.start, to: range.end });
+      if (script) writeFileSync(join(work, script.file), script.text);
+      return filters;
+    });
+    const { filter, videoLabel, audioLabel } = once
+      ? buildGraph(ranges, seeks, canvas, hdrTags(sourceOf(order[0]).colour), crossfadeSec, { after: once, shapes, fit })
+      : buildGraph(ranges, seeks, canvas, colour.tags, crossfadeSec, { hdr: chains, shapes, fit });
+    // Run where the crops' moves are written, so every other path it is given is absolute.
+    execFileSync(FFMPEG, [
+      '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
+      ...ranges.flatMap((range, i) => [...(seeks[i] > 0 ? ['-ss', String(seeks[i])] : []), '-i', sourceOf(range.source).path]),
+      '-filter_complex', filter,
+      '-map', videoLabel, '-map', audioLabel,
+      // -r pins the output to the source rate and gives the LAST frame a duration. Without it that frame
+      // reaches the muxer with none, the mp4 edit list ends a frame early, and players drop the frame.
+      '-r', first.rate,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf), '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
+      '-movflags', '+faststart',
+      outPath,
+    ], { stdio: ['ignore', 'inherit', 'inherit'], cwd: work });
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 
   const kept = ranges.reduce((total, r) => total + (r.end - r.start), 0);
   const joins = ranges.length - 1;
@@ -254,6 +324,10 @@ export function applyEdl(argv: string[]): number {
     `assembled ${ranges.length} range(s) from ${order.length} source(s) -> ${outPath}\n` +
       `  ${kept.toFixed(3)}s kept, ${joins} crossfaded join(s) of ${crossfadeMs}ms; ${canvas.width}x${canvas.height}, ` +
       `colour ${describeTags(colour.tags)}${assumedFor.length > 0 ? ` (assumed for ${assumedFor.map((id) => `"${id}"`).join(', ')}: no tags declared)` : ''}.\n` +
+      hdr.map((id) => `  ${describeHdr(`source "${id}"`, sourceOf(id).colour)}.\n`).join('') +
+      [...plans].filter(([, plan]) => plan.how !== 'already')
+        .map(([id, plan]) => `  ${describeShape(`source "${id}"`, plan, `the canvas's shape (${canvas.width}x${canvas.height})`)}.\n`).join('') +
+      letterboxed.map((id) => `  source "${id}" (${sourceOf(id).shown.width}x${sourceOf(id).shown.height}) is letterboxed onto the canvas.\n`).join('') +
       '  Each range is snapped to its source\'s frame grid, so the timeline is exactly the sum of the ' +
       'snapped ranges — a transcript retimed from the same EDL lands on the same instants.',
   );

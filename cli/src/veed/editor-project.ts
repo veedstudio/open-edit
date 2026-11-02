@@ -1,7 +1,8 @@
 // A finished edit as a VEED editor project, and a project read back as a plan. Footage cuts, text, images and audio
 // become the editor's own items, and a page's graphics become transparent clips cut to their boxes, so a person can
 // take the edit apart in VEED and the agent can pick it up again from what they left.
-import type { MixSpec } from '../commands/mix-audio.ts';
+import { oneSided } from '../channels.ts';
+import { ducks, type MixSpec } from '../commands/mix-audio.ts';
 import type { SnappedRange } from '../edl.ts';
 import type { TranscriptChunk, TranscriptWord } from '../transcript/transcript-types.ts';
 
@@ -454,15 +455,22 @@ export function edlParts(p: EdlPart, ranges: SnappedRange[], source: (id: string
 
 /**
  * The tracks of a mix-audio spec as audio parts, as mix-audio plays them: gain as the editor's linear volume, each
- * track cut at the film's end, and its fade-out where the film's falls. `length` gives a track file's own length.
- * Ducking has no editor counterpart, so a ducked track is named in `notes` and plays at its own gain.
+ * track cut at the film's end, and its fade-out where the film's falls. `length` gives a track file's own length,
+ * and `levels` its channel levels. The editor plays each file as it is, so a ducked track and a one-sided one that
+ * mix-audio would centre are named in `notes`.
  */
-export function mixParts(spec: MixSpec, length: (path: string) => number): { parts: AudioPart[]; notes: string[] } {
+export function mixParts(
+  spec: MixSpec,
+  length: (path: string) => number,
+  levels: (path: string) => readonly number[],
+): { parts: AudioPart[]; notes: string[] } {
   const notes: string[] = [];
+  const hasVoice = spec.tracks.some((t) => t.role === 'voice');
   const parts = spec.tracks.flatMap((t): AudioPart[] => {
     const end = Math.min(t.atSec + length(t.path), spec.durationSec);
     if (end <= t.atSec) return [];
-    if (t.duck) notes.push(`${t.path}: ducking under the voice is not carried; it plays at its own gain`);
+    if (ducks(t, hasVoice)) notes.push(`${t.path}: ducking under the voice is not carried; it plays at its own gain`);
+    if (!t.keepPan && oneSided(levels(t.path))) notes.push(`${t.path}: centring is not carried; it plays on one channel, as recorded`);
     // mix-audio fades every track over the film's last fadeOutSec, which reaches a track only if it is still playing then.
     const fadeOut = t.fadeOutSec ? Math.min(t.fadeOutSec, end - Math.max(t.atSec, spec.durationSec - t.fadeOutSec)) : 0;
     return [{

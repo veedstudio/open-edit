@@ -15,7 +15,8 @@ import { copyFileSync, mkdirSync, existsSync, readdirSync, statSync, writeFileSy
 import { join, basename, extname, resolve } from 'node:path';
 import { parseUsage, usageLine, numberFlag, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
-import { probeFrameRate, probeDisplaySize, videoDurationOf } from '../probe.ts';
+import { describeHdr, hdrKind, toSdr } from '../hdr.ts';
+import { colourTagsOf, probeFrameRate, probeDisplaySize, probeVideoSpan } from '../probe.ts';
 import { tilePath, tileSheet, withTileDir } from '../sheet.ts';
 
 export interface Still { frame: number; sec: number; path: string }
@@ -25,12 +26,15 @@ export interface FramePlan {
   fps: number;
   /** The exact rate `render --fps` takes (`24000/1001`, or `25`): `fps` is its float, which render refuses whenever the rate is not whole. */
   frameRate: string;
+  /** Where the picture ends on the clock `--at` and `--frame` count on, later than its length when the sound starts first. */
   durationSec: number;
   width: number;
   height: number;
   /** In frame order, row-major on the sheet. */
   stills: Still[];
   sheet?: Sheet;
+  /** Present when the video is HDR: what it was, and that the stills are converted to SDR. */
+  hdr?: string;
 }
 
 export interface Selection {
@@ -74,12 +78,26 @@ export function seekFor(frame: number, fps: number): number {
   return Math.max(0, (frame - 0.5) / fps);
 }
 
+/**
+ * The index whose seek lands on the frame shown from `sec`: the last whose seek point is not after it. A
+ * timestamp rounded down or a cut a few milliseconds early still lands on its frame, and so does a frame
+ * stamped exactly between two grid points, which a thousandth of a frame keeps from rounding to the one before.
+ */
+export function frameShowing(sec: number, fps: number): number {
+  return Math.floor(sec * fps + 0.5 + 1e-3);
+}
+
 const splitList = (raw: string[] | undefined): string[] =>
   (raw ?? []).flatMap((v) => v.split(',')).map((s) => s.trim()).filter(Boolean);
 
-/** The frame indices a selection names, deduplicated and in order; a named moment past the picture is refused. */
-export function selectFrames(sel: Selection, fps: number, durationSec: number): number[] {
-  const last = frameAt(durationSec, fps) - 1;
+/**
+ * The frame indices a selection names, deduplicated and in order; a named moment past the picture is refused. The
+ * picture runs from `startSec` to `durationSec` on the clock `--at` and `--frame` count on.
+ */
+export function selectFrames(sel: Selection, fps: number, durationSec: number, startSec = 0): number[] {
+  // The picture's whole frames, counted from the index `--frame` lands its first on: one starting half a frame or
+  // more off the grid ends an index later than its length alone gives.
+  const last = frameShowing(startSec, fps) + Math.floor((durationSec - startSec) * fps + 1e-3) - 1;
   const named: number[] = [];
   for (const t of splitList(sel.at)) named.push(frameAt(parseTimeSpec(t), fps));
   for (const f of splitList(sel.frame)) named.push(...parseFrameSpec(f));
@@ -127,8 +145,20 @@ export function parseCrop(raw: string): { x: number; y: number; w: number; h: nu
   return { x: p[0], y: p[1], w: p[2], h: p[3] };
 }
 
-function stillFilters(o: ExtractOptions): string[] {
-  const chain: string[] = [];
+/**
+ * The filter that shows `video` as renders show it, so a still shows the picture the piece will have: its SDR
+ * conversion when it is HDR, else null.
+ */
+export function sdrFilterOf(video: string, colour = colourTagsOf(video)): string | null {
+  return hdrKind(colour) ? toSdr(colour, basename(video)) : null;
+}
+
+/** The ffmpeg arguments that decode frame `frame` of `video` alone, landed by `seekFor`. */
+export const oneFrameOf = (video: string, frame: number, fps: number): string[] =>
+  ['-ss', String(seekFor(frame, fps)), '-i', video, '-frames:v', '1'];
+
+function stillFilters(o: ExtractOptions, sdr: string | null): string[] {
+  const chain: string[] = sdr ? [sdr] : [];
   if (o.crop) chain.push(`crop=${o.crop.w}:${o.crop.h}:${o.crop.x}:${o.crop.y}`);
   // -2 keeps the height even, which every codec downstream of a still will want.
   if (o.width) chain.push(`scale=${o.width}:-2`);
@@ -139,9 +169,13 @@ export function extractFrames(video: string, o: ExtractOptions): FramePlan {
   const rate = probeFrameRate(video);
   const { fps } = rate;
   const frameRate = rate.rate.replace(/\/1$/, '');
-  const durationSec = videoDurationOf(video);
+  const span = probeVideoSpan(video);
+  const durationSec = span.end;
   const { width, height } = probeDisplaySize(video);
-  const frames = selectFrames(o, fps, durationSec);
+  const frames = selectFrames(o, fps, durationSec, span.start);
+  const colour = colourTagsOf(video);
+  const kind = hdrKind(colour);
+  const sdr = sdrFilterOf(video, colour);
   mkdirSync(o.out, { recursive: true });
 
   const stills: Still[] = frames.map((frame) => {
@@ -150,25 +184,26 @@ export function extractFrames(video: string, o: ExtractOptions): FramePlan {
   });
   const missing: string[] = [];
   for (const s of stills) {
-    execFileSync(FFMPEG, ['-y', '-v', 'error', '-ss', String(seekFor(s.frame, fps)), '-i', video,
-      '-frames:v', '1', ...stillFilters(o), s.path]);
+    // -update 1 writes one picture, so a % in the folder's name is a character, not image2's frame-number pattern.
+    execFileSync(FFMPEG, ['-y', '-v', 'error', ...oneFrameOf(video, s.frame, fps), ...stillFilters(o, sdr), '-update', '1', s.path]);
     // A seek past the picture exits 0 and writes nothing; the duration probe catches most of these,
     // but a stream whose declared length outruns its frames still reaches here.
     if (!existsSync(s.path) || statSync(s.path).size === 0) missing.push(`frame ${s.frame} (${s.sec}s)`);
   }
   if (missing.length) throw new Error(`ffmpeg wrote no still for ${missing.join(', ')}: past the last decodable frame`);
 
-  const plan: FramePlan = { video, fps, frameRate, durationSec, width, height, stills };
+  const plan: FramePlan = { video, fps, frameRate, durationSec, width, height, stills, ...(kind ? { hdr: describeHdr(basename(video), colour) } : {}) };
   if (o.sheet) {
     const cols = o.cols ?? Math.ceil(Math.sqrt(stills.length));
     const rows = Math.ceil(stills.length / cols);
     const tileWidth = o.width ?? 320;
     const path = join(o.out, 'sheet.png');
+    // Each still read as the one file it is, and the sheet written as one: a % in the folder is a character.
     execFileSync(FFMPEG, ['-y', '-v', 'error',
-      ...stills.flatMap((s) => ['-i', s.path]),
+      ...stills.flatMap((s) => ['-f', 'image2', '-pattern_type', 'none', '-i', s.path]),
       '-filter_complex',
       `concat=n=${stills.length}:v=1:a=0,scale=${tileWidth}:-2,tile=${cols}x${rows}:padding=4:margin=4:color=0x202020`,
-      '-frames:v', '1', path]);
+      '-frames:v', '1', '-update', '1', path]);
     plan.sheet = { path, cols, rows, tileWidth };
   }
   writeFileSync(join(o.out, 'frames.json'), JSON.stringify(plan, null, 2) + '\n');
@@ -241,7 +276,7 @@ export const usage = {
     cols: { type: 'string', value: 'N', help: 'Columns on the sheet (default: square)' },
     json: { type: 'boolean', help: 'Print the plan as JSON' },
   },
-  notes: 'A still is named f<frame>-<sec>s.png and frames.json lists every one, so a finding can cite a frame rather than "around 12s". frameRate is the source\'s exact rate, what render --fps takes (never the decimal fps beside it). The sheet has no labels: read tile positions off frames.json. With --images nothing is extracted: sheet.png and images.json (tile, place, file, native size) are the output.',
+  notes: 'An HDR (PQ/HLG) video\'s stills are converted to SDR BT.709, and a line says so. A still is named f<frame>-<sec>s.png and frames.json lists every one, so a finding can cite a frame rather than "around 12s". frameRate is the source\'s exact rate, what render --fps takes (never the decimal fps beside it). The sheet has no labels: read tile positions off frames.json. With --images nothing is extracted: sheet.png and images.json (tile, place, file, native size) are the output.',
 } satisfies Usage;
 
 export function frames(argv: string[]): number {
@@ -296,6 +331,7 @@ export function frames(argv: string[]): number {
   console.log(`frames: ${plan.stills.length} still(s) from ${video} (${plan.fps} fps, frameRate: ${plan.frameRate}, ${plan.width}x${plan.height}, ${plan.durationSec.toFixed(3)}s) → ${out}`);
   for (const s of plan.stills) console.log(`  f${String(s.frame).padStart(6, '0')}  ${s.sec.toFixed(3)}s  ${s.path}`);
   if (plan.sheet) console.log(`  sheet: ${plan.sheet.cols}x${plan.sheet.rows}, row-major in the order above → ${plan.sheet.path}`);
+  if (plan.hdr) console.log(`  ${plan.hdr}`);
   console.log(`  plan: ${join(out, 'frames.json')}`);
   return 0;
 }

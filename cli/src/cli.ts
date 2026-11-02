@@ -13,13 +13,19 @@ import * as backgroundRemoval from "./commands/background-removal.ts";
 import * as lipsync from "./commands/lipsync.ts";
 import * as installFfmpeg from "./commands/install-ffmpeg.ts";
 import * as installWhisperx from "./commands/install-whisperx.ts";
+import * as installMediapipe from "./commands/install-mediapipe.ts";
 import * as muxAudio from "./commands/mux-audio.ts";
 import * as mixAudio from "./commands/mix-audio.ts";
 import * as concatVideos from "./commands/concat-videos.ts";
 import * as frames from "./commands/frames.ts";
+import * as shotsCmd from "./commands/shots.ts";
+import * as facesCmd from "./commands/faces.ts";
+import * as behindCmd from "./commands/behind.ts";
+import * as reframeCmd from "./commands/reframe.ts";
 import * as renderCmd from "./commands/render.ts";
 import * as installBrowser from "./commands/install-browser.ts";
 import * as fontsCmd from "./commands/fonts.ts";
+import * as safeZoneCmd from "./commands/safe-zone.ts";
 import * as speechProbe from "./commands/speech-probe.ts";
 import * as applyEdl from "./commands/apply-edl.ts";
 import * as retimeTranscript from "./commands/retime-transcript.ts";
@@ -27,6 +33,7 @@ import * as stills from "./commands/stills.ts";
 import * as fal from "./commands/fal.ts";
 import * as veedProject from "./commands/veed-project.ts";
 import * as veedPull from "./commands/veed-pull.ts";
+import * as reviewCmd from "./commands/review.ts";
 import * as init from "./commands/init.ts";
 import * as sessionStart from "./commands/session-start.ts";
 import { errorText, installEnvProxy } from "./proxy.ts";
@@ -65,13 +72,19 @@ const COMMANDS: Record<string, Command> = {
   lipsync: { usage: lipsync.usage, run: lipsync.lipsync },
   "install-ffmpeg": { usage: installFfmpeg.usage, run: installFfmpeg.installFfmpeg },
   "install-whisperx": { usage: installWhisperx.usage, run: installWhisperx.installWhisperx },
+  "install-mediapipe": { usage: installMediapipe.usage, run: installMediapipe.installMediapipe },
   "mux-audio": { usage: muxAudio.usage, run: muxAudio.muxAudio },
   "mix-audio": { usage: mixAudio.usage, run: mixAudio.mixAudio },
   "concat-videos": { usage: concatVideos.usage, run: concatVideos.concatVideosCommand },
   frames: { usage: frames.usage, run: frames.frames },
+  shots: { usage: shotsCmd.usage, run: shotsCmd.shots },
+  faces: { usage: facesCmd.usage, run: facesCmd.faces },
+  behind: { usage: behindCmd.usage, run: behindCmd.behind },
+  reframe: { usage: reframeCmd.usage, run: reframeCmd.reframe },
   render: { usage: renderCmd.usage, run: renderCmd.render },
   "install-browser": { usage: installBrowser.usage, run: installBrowser.installBrowser },
   fonts: { usage: fontsCmd.usage, run: fontsCmd.fonts },
+  "safe-zone": { usage: safeZoneCmd.usage, run: safeZoneCmd.safeZone },
   "speech-probe": { usage: speechProbe.usage, run: speechProbe.speechProbe },
   "apply-edl": { usage: applyEdl.usage, run: applyEdl.applyEdl },
   "retime-transcript": { usage: retimeTranscript.usage, run: retimeTranscript.retimeTranscript },
@@ -79,6 +92,7 @@ const COMMANDS: Record<string, Command> = {
   fal: { usage: fal.usage, run: fal.falCommand },
   "veed-project": { usage: veedProject.usage, run: veedProject.veedProject },
   "veed-pull": { usage: veedPull.usage, run: veedPull.veedPull },
+  review: { usage: reviewCmd.usage, run: reviewCmd.review },
   init: { usage: init.usage, run: (argv) => init.main(argv) },
   "session-start": { usage: sessionStart.usage, run: sessionStart.sessionStart },
 };

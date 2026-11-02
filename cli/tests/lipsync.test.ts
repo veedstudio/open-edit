@@ -8,6 +8,8 @@ import type { VeedHttp } from '../src/veed/api.ts';
 import type { Http as FalHttp } from '../src/providers/fal.ts';
 import { test } from 'node:test';
 import { runLipsync, FAL_LIPSYNC_V2_MODEL } from '../src/commands/lipsync.ts';
+import { assertConverted, hdr10Data, hdrClip, lumaOf } from './helpers/hdr.ts';
+import { probeStream, scratchDir } from './helpers/synth.ts';
 
 const readVideoBytes = async () => ({ bytes: new Uint8Array([1, 2, 3]), mimeType: 'video/mp4', extension: 'mp4' });
 const readAudioBytes = async () => ({ bytes: new Uint8Array([4, 5, 6]), mimeType: 'audio/mpeg', extension: 'mp3' });
@@ -223,4 +225,25 @@ await test('a re-run of the same video and audio resumes the bought job: no seco
     { videoPath: 'v.mp4', audioPath: 'b.mp3', outPath: join(runDir, 'out2.mp4'), falKey: 'test-key' },
   );
   assert.equal(fal.calls.filter((c) => c === 'POST https://queue.fal.run/veed/lipsync/v2').length, 2);
+});
+
+await test('an HDR video is sent as its SDR copy, the picture a render over it gets, and the run says so', async () => {
+  const dir = scratchDir('lipsync-hdr');
+  const pq = hdrClip(dir, 'pq.mp4', { transfer: 'smpte2084', hdr10: true });
+  const read: string[] = [];
+  const logs: string[] = [];
+  await runLipsync(
+    {
+      http: makeVeedFake().http, readVideoBytes: async (path: string) => { read.push(path); return readVideoBytes(); }, readAudioBytes,
+      sleep: async () => {}, log: (m) => logs.push(m), falHttp: makeFalFake().http, runDir: dir,
+    },
+    { videoPath: pq, audioPath: 'a.mp3', outPath: join(dir, 'out.mp4'), falKey: 'test-key' },
+  );
+  assert.equal(read.length, 1);
+  assert.notEqual(read[0], pq);
+  assert.deepEqual(probeStream(read[0], 'v:0', 'color_primaries,color_transfer,color_space'), { color_primaries: 'bt709', color_transfer: 'bt709', color_space: 'bt709' });
+  // The source's HDR10 boxes stay behind, on every ffmpeg: the copy is made through a graph with two sources.
+  assert.deepEqual([hdr10Data(read[0], 'stream'), hdr10Data(read[0], 'frame')], [[], []]);
+  assertConverted(pq, 5, lumaOf(read[0], 5, 'video'), { transfer: 'smpte2084', width: 320, tolerance: 1.5, what: 'the copy sent' });
+  assert.ok(logs.some((l) => /^pq\.mp4 is HDR \(PQ, /.test(l)), logs.join('\n'));
 });

@@ -12,6 +12,7 @@ import { uploadLocalAsset, readVideoBytes } from '../veed/asset-upload.ts';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { resolveVideoArg, runKeyOf } from '../resolve-video.ts';
 import { runsDir } from '../config.ts';
+import { sendable } from '../hdr.ts';
 import { submitOnce, await_, download, firstUrl, falKey, completeJob, type Http as FalHttp } from '../providers/fal.ts';
 import { refreshingHttp } from '../veed/http.ts';
 import { resolveVeedToken } from '../veed/resolve-token.ts';
@@ -51,10 +52,12 @@ export async function runLipsync(deps: LipsyncDeps, opts: LipsyncOptions): Promi
   // No per-run dollar estimate: fal prices by OUTPUT seconds, not known until the job finishes.
   log(`[fal] ${FAL_LIPSYNC_V2_MODEL} bills YOUR OWN fal account, not any VEED workspace. fal's listed rate: $${FAL_LIPSYNC_V2_PRICE_PER_SECOND} per second of output video.`);
 
-  const [video, audio] = await Promise.all([deps.readVideoBytes(opts.videoPath), deps.readAudioBytes(opts.audioPath)]);
+  const runDir = deps.runDir ?? join(runsDir(), runKeyOf(opts.videoPath));
+  // An HDR video goes as its SDR copy, converted as a render converts it, so the result matches the rest of the piece.
+  const sent = sendable(opts.videoPath, join(runDir, 'sdr'), log);
+  const [video, audio] = await Promise.all([deps.readVideoBytes(sent), deps.readAudioBytes(opts.audioPath)]);
 
   const key = opts.falKey ?? falKey();
-  const runDir = deps.runDir ?? join(runsDir(), runKeyOf(opts.videoPath));
   // Every upload hosts the file at a new url, so the job is known by the two files' content: a re-run of
   // the same pair resumes the job it already bought instead of hosting both again and buying it twice.
   const identity = { video_url: `file:${digestOf(video.bytes)}`, audio_url: `file:${digestOf(audio.bytes)}` };

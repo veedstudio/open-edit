@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseTimeSpec, parseFrameSpec, parseCrop, frameAt, seekFor, selectFrames, extractFrames, collectImages, sheetImages, frames } from '../src/commands/frames.ts';
 import { FFMPEG, FFPROBE } from '../src/config.ts';
+import { probeVideoSpan } from '../src/probe.ts';
 import { parseFps } from '../src/render/timing.ts';
 
 const cliEntry = resolve(import.meta.dirname, '../src/cli.ts');
@@ -67,6 +68,10 @@ test('frames: a selection is deduplicated, ordered, and refuses a named moment p
   assert.throws(() => selectFrames({ at: ['5'] }, 24, 4), /past the last frame/);
   assert.throws(() => selectFrames({ frame: ['96'] }, 24, 4), /past the last frame/);
   assert.throws(() => selectFrames({}, 24, 4), /nothing selected/);
+  // 300 frames at 30 fps from 0.021 s (sound leading): the last, at 9.988 s, is the one --frame 300 lands on.
+  assert.deepEqual(selectFrames({ frame: ['300'] }, 30, 10.021, 0.021), [300]);
+  assert.throws(() => selectFrames({ frame: ['301'] }, 30, 10.021, 0.021), /past the last frame of the picture \(frame 300,/);
+  assert.throws(() => selectFrames({ frame: ['300'] }, 30, 10), /past the last frame of the picture \(frame 299,/);
 });
 
 test('frames: a sweep is clipped to the picture rather than refused', () => {
@@ -78,6 +83,9 @@ test('frames: a sweep is clipped to the picture rather than refused', () => {
   assert.deepEqual(selectFrames({ count: 1 }, 24, 4), [48]);
   assert.deepEqual(selectFrames({ count: 2, from: 0, to: 2 }, 24, 4), [12, 36]);
   assert.throws(() => selectFrames({ every: 1, from: 3, to: 1 }, 24, 4), /before --from/);
+  // A last frame held past the grid adds no frame; a picture starting off the grid ends an index later.
+  assert.deepEqual(selectFrames({ every: 1 }, 30, 10.02), [0, 30, 60, 90, 120, 150, 180, 210, 240, 270]);
+  assert.deepEqual(selectFrames({ every: 1 }, 30, 10.021, 0.021), [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300]);
 });
 
 test('frames: stills are written, named by frame and second, and listed in frames.json', () => {
@@ -91,6 +99,33 @@ test('frames: stills are written, named by frame and second, and listed in frame
   assert.equal(onDisk.stills.length, 2);
   assert.equal(onDisk.fps, 24);
   assert.equal(onDisk.sheet, undefined);
+});
+
+test('frames: a % in the folder is part of its name, for the stills and the sheet alike', () => {
+  const out = join(mkdtempSync(join(tmpdir(), 'frames-pct-')), 'clip%03d');
+  const plan = extractFrames(clip(2), { frame: ['3', '9'], out, sheet: true });
+  for (const path of [...plan.stills.map((s) => s.path), plan.sheet!.path]) assert.ok(existsSync(path), `${path} written`);
+  assert.equal(existsSync(join(out, '..', 'clip001')), false);
+});
+
+test('frames: a picture that starts after its sound is selected to its last frame on the clock --frame counts on', () => {
+  // testsrc for two seconds, then smptebars, the picture starting a second in: its frames run from 25 to 99 on
+  // the clock, past the three seconds the stream lasts. -fps_mode vfr keeps the first second empty, which ffmpeg
+  // 6.1 otherwise fills with copies of the first frame.
+  const dir = mkdtempSync(join(tmpdir(), 'frames-late-'));
+  const late = join(dir, 'late.mp4');
+  execFileSync(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=160x90:rate=25',
+    '-f', 'lavfi', '-i', 'smptebars=size=160x90:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
+    '-filter_complex', '[0:v]trim=end_frame=50,setpts=PTS-STARTPTS[a];[1:v]trim=end_frame=25,setpts=PTS-STARTPTS[b];' +
+    '[a][b]concat=n=2:v=1:a=0,setpts=PTS+1/TB,format=yuv420p[v]', '-map', '[v]', '-map', '2:a', '-t', '4', '-fps_mode', 'vfr',
+    '-c:a', 'aac', late]);
+  // The frames below are the same on a filled fixture, so only this tells the test it has a late picture.
+  assert.equal(probeVideoSpan(late).start, 1, 'the fixture\'s picture starts a second in');
+  const plan = extractFrames(late, { frame: ['74', '75', '90'], out: join(dir, 'out') });
+  assert.deepEqual(plan.stills.map((s) => s.frame), [74, 75, 90]);
+  // The bars' top-left is light grey, the test pattern's is not: 75 is the first frame of the bars.
+  const corner = (png: string) => execFileSync(FFMPEG, ['-v', 'error', '-i', png, '-vf', 'crop=1:1:2:2,format=gray', '-f', 'rawvideo', '-'])[0];
+  assert.deepEqual(plan.stills.map((s) => corner(s.path) > 150), [false, true, true]);
 });
 
 // The skill passes this to `render --fps`, which refuses a decimal: 23.976023976023978 is not a rate.

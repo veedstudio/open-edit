@@ -30,16 +30,19 @@ wrote it (`$OPEN_EDIT_ROOT/runs/<key>/transcript.json`, `<key>` from the source 
 `note` is optional. Every source path must exist for both tools (the frame grid comes from the file).
 Ranges play in the order written; reorder them freely.
 ```
-npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20]
+npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20] [--fit letterbox]
 ```
-One encode, one canvas (the first range's source's), joins crossfaded, colour tags kept; sources that
-disagree on colour or frame rate are refused, not relabelled. `--crossfade` is milliseconds. Each range
-is snapped to the frame grid, so the assembled timeline is exactly the sum of the snapped ranges and the
-retimed transcript below lands on the same instants.
+One encode, one canvas (the first range's source's, as shown), joins crossfaded, colour tags kept; an HDR
+source is converted to SDR first, so it joins SDR ones. A range from a source of another shape is cut to
+the canvas's shape as `reframe` cuts it, around its faces when `faces` has run on that source, else from
+the middle, and a line says which; `--fit letterbox` keeps it whole and pads it instead. Sources that
+otherwise disagree on colour, or on frame rate, are refused, not relabelled. `--crossfade` is milliseconds.
+Each range is snapped to the frame grid, so the assembled timeline is exactly the sum of the snapped ranges
+and the retimed transcript below lands on the same instants.
 
-This is the joiner for an edit: parts of clips, in an order you chose. `concat-videos` is for
-whole generated clips whose shapes disagree and hands back an ordinary source file you then transcribe;
-this one hands back a cut whose transcript you retime.
+This is the joiner for an edit: parts of clips, in an order you chose. `concat-videos` joins whole
+clips, generated ones say, and hands back an ordinary source file you then transcribe; it cuts a clip of
+another shape to the canvas's the same way. This one hands back a cut whose transcript you retime.
 
 **Move the timings; do not buy them again.**
 ```

@@ -71,14 +71,22 @@ await test('a range starting at zero does not ask ffmpeg for a negative trim sta
   assert.match(filter, /\]trim=start=0\.000000:end=0\.980000/);
 });
 
-await test('every clip is fitted to one canvas, padded rather than cropped, and stamped with the colour', () => {
+await test('every clip is fitted to one canvas, cut to its shape first or padded when letterboxed, and stamped with the colour', () => {
   const colour = { primaries: 'bt2020', transfer: 'arib-std-b67', space: 'bt2020nc' };
   const snapped = grid([{ source: '0', start: 0, end: 1 }]);
-  const { filter } = buildGraph(snapped, inputSeeks(snapped), canvas, colour, 0.04);
-  assert.match(filter, /scale=1080:1920:force_original_aspect_ratio=decrease/);
-  assert.match(filter, /pad=1080:1920/);
-  assert.match(filter, /setsar=1/);
-  assert.match(filter, /setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc\[vout\]/);
+  // A range of another shape arrives cut to the canvas's by reframe's filters, so covering it cuts only rounding.
+  const shape = ['sendcmd=f=r0.cmd', 'crop@r0=w=606:h=1080:x=0:y=0'];
+  const { filter } = buildGraph(snapped, inputSeeks(snapped), canvas, colour, 0.04, { shapes: [shape] });
+  assert.match(filter, /setpts=PTS-STARTPTS,sendcmd=f=r0\.cmd,crop@r0=w=606:h=1080:x=0:y=0,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,/);
+  assert.doesNotMatch(filter, /,pad=\d/);
+  const boxed = buildGraph(snapped, inputSeeks(snapped), canvas, colour, 0.04, { fit: 'letterbox' }).filter;
+  assert.match(boxed, /scale=1080:1920:force_original_aspect_ratio=decrease/);
+  assert.match(boxed, /pad=1080:1920/);
+  for (const f of [filter, boxed]) {
+    // On every clip before the join, so the concat has nothing to convert between.
+    assert.match(f, /setsar=1,setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc\[v0\]/);
+    assert.match(f, /concat=n=1:v=1:a=0\[vout\]/);
+  }
 });
 
 await test('the chain ends on the labels the caller maps', () => {

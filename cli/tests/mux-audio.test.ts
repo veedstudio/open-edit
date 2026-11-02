@@ -3,13 +3,17 @@
 // will DO with a measurement is arithmetic, and is pinned as such.
 //   Run:  node --import tsx tests/mux-audio.test.ts
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   LOUDNORM_I, LOUDNORM_LRA, LOUDNORM_TP, decideLoudnorm, loudnormFilter, muxAudio, parseLoudnormSummary,
 } from '../src/commands/mux-audio.ts';
-import { SINE, TESTSRC, captureConsole, probeStream, scratchDir, synthClip } from './helpers/synth.ts';
+import { channelLevels, toStereo } from '../src/channels.ts';
+import { FFMPEG } from '../src/config.ts';
+import { hdrClip } from './helpers/hdr.ts';
+import { SINE, TESTSRC, bandLevels, captureConsole, probeStream, scratchDir, synthClip } from './helpers/synth.ts';
 
 const dir = scratchDir('mux');
 const audioOnly = (name: string, source: string) => synthClip(dir, name, { audio: source, seconds: 2 });
@@ -90,6 +94,61 @@ await test('--no-loudnorm muxes the track as recorded and says nothing about a l
   assert.doesNotMatch(out, /LUFS|dynamic/);
 });
 
+// A narration on one input of a two-channel recorder, the other left open, played in one ear.
+await test('a source with its sound on one channel of two is centred in the deliverable, and the line says so', () => {
+  const track = synthClip(dir, 'left-src.m4a', { audio: 'aevalsrc=sin(2*PI*1000*t)/8|0:s=48000', seconds: 2 });
+  for (const flags of [[], ['--no-loudnorm']]) {
+    const out = join(dir, `left${flags.length}`, 'out.mp4');
+    const { result, out: said } = captureConsole(() => muxAudio(['--video', picture(`left${flags.length}`), '--audio', track, '--out', out, ...flags]));
+    assert.equal(result, 0);
+    assert.match(said, /mux: .*left-src\.m4a has its sound on one channel only \(-21\.\d dBFS \/ .+\); centred in both channels/);
+    const [left, right] = channelLevels(out);
+    assert.ok(Math.abs(left - right) < 0.5, `left ${left} dB, right ${right} dB`);
+    if (flags.length) {
+      // Equal power: each channel 3 dB under the one that carried it, so the loudness does not move.
+      const [source] = channelLevels(track);
+      for (const side of [left, right]) assert.ok(Math.abs(side - (source - 3.01)) < 0.5, `${side} dB against a source of ${source} dB`);
+    }
+  }
+});
+
+await test('the deliverable is levelled as it will be heard: centred, a peak that would trip the limiter fits', () => {
+  // On the left only, this source's true peak sits 0.9 dB over the ceiling after the gain to -14 LUFS, so
+  // loudnorm would go dynamic; centred, the peak is 3 dB lower and the plain linear gain fits.
+  const track = join(dir, 'left-peak.wav');
+  const left = '0.1*sin(2*PI*1000*t)*if(lt(t,3),1,0.5)+0.18*sin(2*PI*1000*t)*between(t,1,1.02)';
+  execFileSync(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', `aevalsrc='${left}|0':s=48000:d=6`, '-c:a', 'pcm_s16le', track]);
+  const uncentred = loudnormFilter(track);
+  assert.match(uncentred.mode === 'dynamic' ? uncentred.why : '', /would put the true peak at/, 'the source as it stands would go dynamic');
+  const { result, out: said } = captureConsole(() => muxAudio(['--video', picture('peak'), '--audio', track, '--out', join(dir, 'peak', 'out.mp4')]));
+  assert.equal(result, 0);
+  assert.match(said, /\(normalised to -14 LUFS\)/);
+  assert.doesNotMatch(said, /dynamic/);
+});
+
+await test('the loudness is measured through the centring, since its peak is 3 dB under the source\'s', () => {
+  // A true peak 3 dB too high can send loudnorm to its dynamic mode when the linear one would have fitted.
+  const track = synthClip(dir, 'left-measure.m4a', { audio: 'aevalsrc=sin(2*PI*1000*t)/8|0:s=48000', seconds: 4 });
+  const peak = (r: ReturnType<typeof loudnormFilter>) => Number(/measured_TP=(-?[\d.]+)/.exec(r.filter ?? '')?.[1]);
+  const drop = peak(loudnormFilter(track)) - peak(loudnormFilter(track, toStereo(channelLevels(track))));
+  assert.ok(Math.abs(drop - 3.01) < 0.3, `the centred peak sits ${drop.toFixed(2)} dB under the source's`);
+});
+
+await test('a balanced source is laid on as recorded, with no centring', () => {
+  const track = synthClip(dir, 'both-src.m4a', { audio: 'aevalsrc=sin(2*PI*200*t)/8|sin(2*PI*5000*t)/8:s=48000', seconds: 2 });
+  const { result, out: said } = captureConsole(() =>
+    muxAudio(['--video', picture('both'), '--audio', track, '--out', join(dir, 'both', 'out.mp4'), '--no-loudnorm']));
+  assert.equal(result, 0);
+  assert.doesNotMatch(said, /centred|leans/);
+  const out = join(dir, 'both', 'out.mp4');
+  const [low200, high200] = bandLevels(out, 200);
+  const [low5k, high5k] = bandLevels(out, 5000);
+  assert.ok(low200 - high200 > 20, `the left stays left (${low200} / ${high200})`);
+  assert.ok(high5k - low5k > 20, `and the right stays right (${low5k} / ${high5k})`);
+  const source = channelLevels(track);
+  channelLevels(out).forEach((level, c) => assert.ok(Math.abs(level - source[c]) < 0.5, `channel ${c}: ${level} dB against ${source[c]} dB`));
+});
+
 await test('an --audio file with no audio stream is refused: a silent deliverable must not exit 0', () => {
   const mute = synthClip(dir, 'named-mute.mp4', { video: TESTSRC, seconds: 2 });
   const { result, err } = captureConsole(() =>
@@ -118,4 +177,13 @@ await test('a --video that does not exist is named as the missing input', () => 
   const { result, err } = captureConsole(() => muxAudio(['--video', join(dir, 'nope.mp4'), '--audio', join(dir, 'nope.m4a'), '--out', join(dir, 'y.mp4')]));
   assert.equal(result, 1);
   assert.match(err, /no video at .*nope\.mp4/);
+});
+
+await test('a --video with stream side data (HDR10\'s, or a phone\'s rotation) is muxed to its own length', () => {
+  const track = synthClip(dir, 'rotated-src.mp4', { video: TESTSRC, audio: SINE, seconds: 3 });
+  const video = hdrClip(dir, 'hdr10-render.mp4', { transfer: 'smpte2084', seconds: 2, audio: null, hdr10: true });
+  const out = join(dir, 'rotated', 'out.mp4');
+  const { result, err } = captureConsole(() => muxAudio(['--video', video, '--audio', track, '--out', out, '--no-loudnorm']));
+  assert.equal(result, 0, err);
+  assert.ok(Math.abs(Number(probeStream(out, 'a:0', 'duration').duration) - 2) < 0.1, 'the sound is cut where the picture ends');
 });

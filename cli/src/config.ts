@@ -178,3 +178,8 @@ export function voiceRatesPath(): string {
 export function browserDir(): string {
   return join(stateDir(), "browser");
 }
+
+// Where install-mediapipe puts the face detector: a Python environment of its own and the model file.
+export function mediapipeDir(): string {
+  return join(stateDir(), "mediapipe");
+}
