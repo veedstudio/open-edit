@@ -11,6 +11,7 @@ import { browserProxy } from '../proxy.ts';
 import { CHROME_FLAGS, linuxHint } from './browser.ts';
 import { DRAWN_LARGER, runtimeScript, type ReadyInfo } from './page-runtime.ts';
 import { SPEAKER_BOX } from './speaker.ts';
+import { TEXT_SAMPLER_SCRIPT, type TextEntry } from './text-sampler.ts';
 import { onDisk, type PageServer } from './server.ts';
 import { frameTime, type Fps } from './timing.ts';
 
@@ -18,15 +19,16 @@ import { frameTime, type Fps } from './timing.ts';
  * Where a render's time goes, summed over every worker, so a slow render says which of its stages is
  * slow. Each stage is a pure wait from this process's side: the page's own work for a frame (`page`), the replay of
  * the frames before a worker's first (`preroll`), the page's own loads (`loads`), the screenshot
- * (`capture`), the launch of Chrome and the page's load and readiness; `encode` is the time a
- * worker was held back by ffmpeg. `draw` and `prerollDraw` count the draws forced on a stalled step, inside `page`
- * and `preroll`; a preroll steps through many frames at once, so it draws on its way without having stalled.
+ * (`capture`), the reading of a sampled frame's text for the record (`text`), the launch of Chrome and the page's
+ * load and readiness; `encode` is the time a worker was held back by ffmpeg. `draw` and `prerollDraw` count the draws
+ * forced on a stalled step, inside `page` and `preroll`; a preroll steps through many frames at once, so it draws on
+ * its way without having stalled.
  */
-export type Stage = 'launch' | 'load' | 'preroll' | 'page' | 'loads' | 'capture' | 'encode' | 'copy' | 'join' | 'draw' | 'prerollDraw';
+const STAGES = ['launch', 'load', 'preroll', 'page', 'loads', 'capture', 'text', 'encode', 'copy', 'join', 'draw', 'prerollDraw'] as const;
+export type Stage = (typeof STAGES)[number];
 export type Timings = Record<Stage, { ms: number; n: number }>;
 
-export const newTimings = (): Timings => Object.fromEntries((['launch', 'load', 'preroll', 'page', 'loads', 'capture', 'encode', 'copy', 'join', 'draw', 'prerollDraw'] as Stage[])
-  .map((s) => [s, { ms: 0, n: 0 }])) as Timings;
+export const newTimings = (): Timings => Object.fromEntries(STAGES.map((s) => [s, { ms: 0, n: 0 }])) as Timings;
 
 /**
  * What a frame leaves Chrome as. A PNG is the exact picture; a JPEG (quality 100, 4:2:0 chroma) is
@@ -366,6 +368,7 @@ export class RenderSession {
       try {
         const context = await browser.newContext({ viewport: o.viewport, deviceScaleFactor: 1 });
         await context.addInitScript(runtimeScript({ seed: o.seed, epoch: o.epoch, num: o.fps.num, den: o.fps.den, captureScale: o.scale ?? 1, speakerKey }));
+        await context.addInitScript(TEXT_SAMPLER_SCRIPT);
         if (o.layers?.length) await context.addInitScript(layersScript(o.layers));
         return { browser, context, page: await context.newPage() };
       } catch (e) {
@@ -600,6 +603,15 @@ export class RenderSession {
       }
     }
     return frame;
+  }
+
+  /**
+   * The text the page shows now, in the pixels of the frame `shoot` captures: called after the capture, it reads
+   * the layout that frame was drawn from.
+   */
+  async readText(): Promise<TextEntry[]> {
+    const call = `window.__oeText(${JSON.stringify(this.clip)}, ${this.o.viewport.width}, ${this.o.viewport.height}, ${this.o.scale ?? 1})`;
+    return timed(this.o.timings, 'text', () => this.evaluate<TextEntry[]>(call, 'reading the page\'s text'));
   }
 
   /** Draws only layer k of the session's `layers` from now on; -1 draws the whole page again. */

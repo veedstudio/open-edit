@@ -19,7 +19,7 @@ process.env.OPEN_EDIT_ROOT = workspace;
 const toneUntil = (until: number) => `aevalsrc=exprs='if(lt(t,${until}),0.3*sin(2*PI*220*t),0)':s=48000`;
 
 /** A context for a report built from stand-in checks, which read nothing from it. */
-const STAND_IN: ReviewContext = { video: 'out.mp4', duration: 1, transcript: { missing: 'none' }, askedLength: { missing: 'none' } };
+const STAND_IN: ReviewContext = { video: 'out.mp4', duration: 1, transcript: { missing: 'none' }, askedLength: { missing: 'none' }, textRecord: { missing: 'none' } };
 
 const transcriptEndingAt = (end: number): Transcript => ({
   text: 'the last line',
@@ -43,10 +43,11 @@ await test('a render with a dead tail gets a report that names it, and the revie
   assert.equal(result, 0);
   const lines = out.trimEnd().split('\n');
   assert.equal(lines[0], `review: ${video}`);
-  assert.match(lines[1], /^dead-tail {2}FOUND {4}the last 3\.00s are silent: nothing is heard after 3\.00s/);
+  assert.match(lines[1], /^dead-tail {5}FOUND {4}the last 3\.00s are silent: nothing is heard after 3\.00s/);
   // Each further line of a check sits under its first, past the name and the verdict.
-  assert.match(lines[2], /^ {20}the last spoken word, "line", ends at 2\.90s \(.*dead[\\/]transcript\.json\)$/);
-  assert.equal(lines.at(-1), 'Checks: 1 found something, 0 passed, 1 skipped, 0 could not run. The video was not changed: each finding is '
+  assert.match(lines[2], /^ {23}the last spoken word, "line", ends at 2\.90s \(.*dead[\\/]transcript\.json\)$/);
+  assert.match(out, /^blank-frames {2}pass {5}opens on a picture, no flash/m);
+  assert.equal(lines.at(-1), 'Checks: 1 found something, 1 passed, 3 skipped, 0 could not run. The video was not changed: each finding is '
     + 'yours to judge, and one you leave in place is worth a word to the user.');
 });
 
@@ -55,7 +56,7 @@ await test('a render that ends on its last line gets a report with nothing found
   const { out } = await captureConsoleAsync(() => review([video, '--length', '6']));
   assert.match(out, /^dead-tail +pass +ends on time/m);
   assert.match(out, /^length +pass +on length/m);
-  assert.match(out, /Checks: 0 found something, 2 passed, 0 skipped, 0 could not run\. The video was not changed\.$/m);
+  assert.match(out, /Checks: 0 found something, 3 passed, 2 skipped, 0 could not run\. The video was not changed\.$/m);
 });
 
 await test('without a transcript the review still runs, and says what it skipped', async () => {
@@ -69,7 +70,7 @@ await test('a pass with a comparison skipped is counted as such, so it never rea
   const video = piece('clean-no-transcript', { toneUntil: 5.8, seconds: 6 });
   const { out } = await captureConsoleAsync(() => review([video]));
   assert.match(out, /^dead-tail +pass +ends on time: the picture ends 0\.20s after the last sound$/m);
-  assert.match(out, /Checks: 0 found something, 1 passed \(1 with a comparison skipped\), 1 skipped, 0 could not run\./);
+  assert.match(out, /Checks: 0 found something, 2 passed \(1 with a comparison skipped\), 3 skipped, 0 could not run\./);
 });
 
 await test('a transcript keyed by the file\'s name is not read: another piece\'s render of that name may have written it', async () => {
@@ -84,7 +85,7 @@ await test('a transcript keyed by the file\'s name is not read: another piece\'s
 await test('the dead-tail check is given the picture\'s length the review probed, not one it probes again', async () => {
   const video = piece('duration', { toneUntil: 5.8, seconds: 6 });
   const deadTail = CHECKS.find((check) => check.name === 'dead-tail')!;
-  const report = await deadTail.run({ video, duration: 20, transcript: { missing: 'none' }, askedLength: { missing: 'none' } });
+  const report = await deadTail.run({ video, duration: 20, transcript: { missing: 'none' }, askedLength: { missing: 'none' }, textRecord: { missing: 'none' } });
   assert.match(report.lines[0], /nothing is heard after 5\.80s, and the picture runs to 20\.00s/);
 });
 
@@ -93,7 +94,7 @@ await test('a render shorter than the length asked for gets a report naming both
   const { result, out } = await captureConsoleAsync(() => review([video, '--length', '6']));
   assert.equal(result, 0);
   assert.match(out, /^length +FOUND +the video is 4\.00s, 2\.00s shorter than the 6\.00s asked for/m);
-  assert.match(out, /Checks: 1 found something, 1 passed \(1 with a comparison skipped\), 0 skipped, 0 could not run\./);
+  assert.match(out, /Checks: 1 found something, 2 passed \(1 with a comparison skipped\), 2 skipped, 0 could not run\./);
 });
 
 await test('a render within the tolerance of the length asked for passes', async () => {

@@ -9,15 +9,17 @@
 // A check that compares against speech reads the transcript named, else the transcript.json in the
 // render's own folder: the piece's folder, not a transcript keyed by file name, which another piece's
 // render of the same name could have written. It never transcribes: that would bill the recorded
-// provider, or take minutes of local compute, on every review.
+// provider, or take minutes of local compute, on every review. A check of on-screen text reads the record
+// `openedit render` wrote beside the video, `<video>.text.json`, which mux-audio carries to its output.
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFPROBE } from '../config.ts';
-import { pictureDurationOf } from '../probe.ts';
+import { pictureDurationOf, probeDisplaySize } from '../probe.ts';
+import { readRecord, recordPath, recordSeconds, timeOf, type TextRecord } from '../render/text-record.ts';
 import {
-  CHECKS, type Check, type CheckReport, type LengthInput, type ReviewContext, type TranscriptInput, type Verdict,
+  CHECKS, type Check, type CheckReport, type LengthInput, type ReviewContext, type TextRecordInput, type TranscriptInput, type Verdict,
 } from '../verify/checks.ts';
 import { readTranscript } from './retime-transcript.ts';
 
@@ -53,6 +55,40 @@ export function transcriptFor(video: string, named: string | undefined): Transcr
   } catch (error) {
     return { missing: (error as Error).message };
   }
+}
+
+/**
+ * The record of the video's on-screen text, or why there is none. A record for another picture is set aside rather
+ * than trusted, since its boxes would land on the wrong pixels: one of another size or length, or one older than the
+ * video, which render and mux-audio always write after it.
+ */
+export function textRecordFor(video: string, duration: number): TextRecordInput {
+  const path = recordPath(video);
+  if (!existsSync(path)) {
+    return {
+      missing: `no record of on-screen text at ${path}: openedit render writes one beside each video and mux-audio carries it along, `
+        + 'so this video was made another way, or before render wrote one, or render could not read its page\'s text',
+    };
+  }
+  let record: TextRecord;
+  try {
+    record = readRecord(path);
+  } catch (error) {
+    return { missing: (error as Error).message };
+  }
+  if (statSync(path).mtimeMs < statSync(video).mtimeMs) {
+    return { missing: `${path} is older than the video, so it describes a picture written there before` };
+  }
+  const seconds = recordSeconds(record);
+  const { width, height } = probeDisplaySize(video);
+  // A frame and a half either way: a container may round the picture's length by up to a frame.
+  if (record.width !== width || record.height !== height || Math.abs(seconds - duration) > 1.5 * timeOf(record, 1)) {
+    return {
+      missing: `${path} is for a ${record.width}x${record.height} picture of ${seconds.toFixed(2)}s and this one is ${width}x${height} of `
+        + `${duration.toFixed(2)}s, so it describes another render`,
+    };
+  }
+  return { path, record };
 }
 
 /** The length asked for, or why there is none; a value that is not a length is a mistake in the call and stops the review. */
@@ -128,6 +164,7 @@ export async function review(argv: string[]): Promise<number> {
   const askedLength = lengthFor(values.length);
   const duration = pictureSeconds(video);
   const transcript = transcriptFor(video, values.transcript);
-  for (const line of await reviewReport({ video, duration, transcript, askedLength })) console.log(line);
+  const textRecord = textRecordFor(video, duration);
+  for (const line of await reviewReport({ video, duration, transcript, askedLength, textRecord })) console.log(line);
   return 0;
 }

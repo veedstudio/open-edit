@@ -9,6 +9,7 @@ import { basename, dirname, extname, join } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, FFPROBE } from '../config.ts';
 import { hasAudioStream } from '../probe.ts';
+import { dropRecord, putRecord, takeRecord } from '../render/text-record.ts';
 import { channelLevels, describeBalance, oneSided, toStereo } from '../channels.ts';
 
 class MuxError extends Error {
@@ -27,6 +28,8 @@ export const usage = {
   notes: [
     'A source with its sound on one channel of two is centred in both channels, with or without --no-loudnorm;',
     'one leaning 12 dB or more to a side is named and left as it is.',
+    'The picture is copied unchanged, so the record of on-screen text render wrote beside --video (<video>.text.json)',
+    'is copied beside --out for openedit review; one already beside --out is removed when --video has none.',
   ].join('\n'),
 } satisfies Usage;
 
@@ -112,7 +115,13 @@ function run(argv: string[]): void {
     rmSync(tmp, { force: true });
     fail('', 1);
   }
+  // The picture is copied as it is, so the render's record of its on-screen text still describes it. It is read
+  // before anything moves, as --out may be --video; the output's own record goes before the output is replaced, so a
+  // failure in between never leaves it describing the old picture.
+  const record = takeRecord(silent);
+  dropRecord(outPath);
   renameSync(tmp, outPath);
+  if (record !== null) putRecord(outPath, record);
   // Say which correction actually ran: a line that claims -14 LUFS after a fallback is a lie the
   // deliverable cannot be checked against without re-measuring it.
   const said: Record<Loudnorm['mode'], string> = {

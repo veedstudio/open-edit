@@ -7,7 +7,7 @@ import type { LengthInput } from '../src/verify/checks.ts';
 import { measureLength, toleranceFor } from '../src/verify/length.ts';
 
 const judge = (duration: number, askedLength: LengthInput) =>
-  measureLength({ video: 'out.mp4', duration, transcript: { missing: 'none' }, askedLength });
+  measureLength({ video: 'out.mp4', duration, transcript: { missing: 'none' }, askedLength, textRecord: { missing: 'none' } });
 
 await test('a render shorter than the length asked for is reported with both durations', () => {
   const report = judge(20.8, { seconds: 25 });

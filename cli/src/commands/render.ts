@@ -31,6 +31,9 @@ import { onDisk, startPageServer, tooBroad, type PageServer } from '../render/se
 import { BUDGET_MS, EPOCH, openLead, SEED, sessionOptions, UsageError, type Canvas, type SessionBase } from '../render/lead.ts';
 import { CAPTURES, DRAW_EVERY_MS, DrawnLarger, drawnSize, newTimings, RenderSession, timed, type Capture, type Timings } from '../render/session.ts';
 import {
+  dropRecord, readSegmentText, recordPath, SAMPLE_MS, sampleAt, sampledFrames, sampleEvery, writeRecord, writeSegmentText, type TextSample,
+} from '../render/text-record.ts';
+import {
   fpsLabel, frameAtTime, frameSpan, frameTime, framesForDuration, parseFps, planSegments, segmentFramesFor,
   segmentsTouching, splitContiguous, splitFrames, workersFor, type Fps, type Segment,
 } from '../render/timing.ts';
@@ -117,6 +120,11 @@ export const usage = {
     '(plus any missing from the cache) with the same page, fps, size, length, segment length, transparency, capture,',
     'footage (its path, size and date), conversion of HDR videos, encoder settings, browser and ffmpeg, and rejoins',
     'by stream copy.',
+    `Text: a video render also writes <out>.text.json for openedit review: the text the page draws in its HTML and SVG, read about`,
+    `every ${SAMPLE_MS} ms of page time (a whole number of frames) on frames it captures anyway, with its words, its box and font`,
+    'size in the video\'s pixels, its colour and its opacity. Each segment\'s text is cached beside it, so a patch reads again',
+    'only the segments it renders again, and renders again, with a line saying so, a segment cached without its text.',
+    'mux-audio carries the record to the file it writes.',
     'Capture: each frame leaves Chrome as a PNG, the exact picture, and on a page full of gradients, shadows and large',
     'text that capture is most of what a frame costs. --capture jpeg has Chrome write a JPEG instead, at quality 100,',
     'which is about half the capture time on such a frame. It is a loss, a small one: Chrome stores the JPEG\'s colour',
@@ -206,6 +214,7 @@ export function breakdown(t: Timings, frames: number): string[] {
   const lines = [`per frame on its worker: page ${per('page')}, capture ${per('capture')}, loads ${per('loads')}, encode wait ${per('encode')}`];
   const rest = [`Chrome: ${t.launch.n} launched in ${sec('launch')}, pages ready in ${sec('load')}`];
   if (t.preroll.n) rest.unshift(`preroll: ${t.preroll.n} earlier frame(s) stepped through in ${sec('preroll')} (${Math.round(t.preroll.ms / t.preroll.n)} ms/frame)`);
+  if (t.text.n) rest.push(`text read on ${t.text.n} frame(s) in ${sec('text')} (${(t.text.ms / t.text.n).toFixed(1)} ms each)`);
   if (t.copy.n) rest.push(`all-intra copies ${sec('copy')}`);
   if (t.join.n) rest.push(`join ${sec('join')}`);
   // A frame's step ran past DRAW_EVERY_MS, slow or left undrawn; on every frame of a fast page, that would be Chrome
@@ -536,6 +545,8 @@ interface VideoResult {
   renderedSegments: number;
   workers: number;
   bytes: number;
+  /** Why no record of the video's text was written; null when it was. */
+  unread: string | null;
 }
 
 async function renderVideo(o: {
@@ -566,23 +577,40 @@ async function renderVideo(o: {
       browser: o.browser, ffmpeg: probeVersion(FFMPEG, FFMPEG_PROBE).banner.replace(/\s+Copyright.*$/, ''),
     };
     const segments = planSegments(o.total, o.segmentFrames);
-    const fileOf = (s: Segment) => join(cache, `seg-${pad(s.index, 5)}.${ext}`);
+    const stemOf = (s: Segment) => join(cache, `seg-${pad(s.index, 5)}`);
+    const fileOf = (s: Segment) => `${stemOf(s)}.${ext}`;
+    const textOf = (s: Segment) => `${stemOf(s)}.text.json`;
+    const every = sampleEvery(o.fps);
     const previous = readManifest(cache);
     let toRender: Segment[];
+    let targeted: Set<number> | null = null;
     const sizes = new Map<number, number>();
+    // The text each sampled frame shows: read as it is captured, and for a reused segment from the cache.
+    const samples = new Map<number, TextSample>();
 
     if (o.patch) {
       if (!previous) throw new UsageError(`nothing to patch: ${cache} holds no finished render; render once without --from/--to first`);
       const differ = paramsDiffer(previous.params, params);
       if (differ.length) throw new UsageError(`the cached render was made differently (${differ.join('; ')}); a patch keeps every one of these, so render without --from/--to`);
       const span = frameSpan(o.patch.from, o.patch.to, o.fps, o.total);
-      const targeted = new Set(segmentsTouching(segments, span.from, span.to).map((s) => s.index));
+      const inRange = new Set(segmentsTouching(segments, span.from, span.to).map((s) => s.index));
+      targeted = inRange;
       const recorded = new Map(previous.segments.map((s) => [s.index, s.bytes]));
+      const textless: string[] = [];
       for (const s of segments) {
         const f = fileOf(s);
         const ok = existsSync(f) && statSync(f).size === recorded.get(s.index);
-        if (ok && !targeted.has(s.index)) sizes.set(s.index, recorded.get(s.index)!);
+        if (!ok || inRange.has(s.index)) continue;
+        // A segment without usable cached text is rendered again, so the record of the whole video stays whole.
+        const text = readSegmentText(textOf(s), s, every);
+        if (!Array.isArray(text)) {
+          textless.push(`${s.index} (${text.unusable})`);
+          continue;
+        }
+        sizes.set(s.index, recorded.get(s.index)!);
+        for (const sample of text) samples.set(sample.frame, sample);
       }
+      if (textless.length) say(`also rendering segment(s) ${textless.join(', ')} outside --from/--to again, to record the text they show`);
       toRender = segments.filter((s) => !sizes.has(s.index));
     } else {
       // A full render starts from an empty cache: a segment left from a different render must never
@@ -626,15 +654,27 @@ async function renderVideo(o: {
         nextReport = Math.floor((doneFrames / renderedFrames) * 10) / 10 + 0.1;
       }
     };
+    // Why the page's text could not be read, once it could not: the render goes on without a record.
+    let unread: string | null = null;
+    /** A segment's samples, or null when a frame of it went unread. */
+    const samplesOf = (seg: Segment): TextSample[] | null => {
+      const taken = sampledFrames(seg, every).map((f) => samples.get(f));
+      return taken.every((x) => x !== undefined) ? taken as TextSample[] : null;
+    };
     const encode = async (seg: Segment, frames: AsyncIterable<Buffer> | Iterable<Buffer>) => {
-      const tmp = join(cache, `seg-${pad(seg.index, 5)}.${attempt}.tmp`);
+      const tmp = `${stemOf(seg)}.${attempt}.tmp`;
       const under = footage && overlay ? { file: footage.file, seek: seekArgs(seg.start, o.fps, footage.offset), overlay, frames: seg.frames } : null;
       const enc = startSegmentEncoder(tmp, o.fps, transparent, capture, under, x264);
       try {
         for await (const frame of frames) await timed(o.base.timings, 'encode', () => enc.write(frame));
         await timed(o.base.timings, 'encode', () => enc.finish(), 0);
+        // The old text goes first and the new comes last, so a failure in between leaves a segment with no text,
+        // which a patch renders again, and never old text beside new pixels.
+        rmSync(textOf(seg), { force: true });
         renameSync(tmp, fileOf(seg));
         sizes.set(seg.index, statSync(fileOf(seg)).size);
+        const taken = samplesOf(seg);
+        if (taken) writeSegmentText(textOf(seg), every, taken);
       } catch (e) {
         enc.kill();
         rmSync(tmp, { force: true });
@@ -658,6 +698,14 @@ async function renderVideo(o: {
             for (let i = piece.from; i < piece.to; i++) {
               if (stop()) throw new Error('stopped');
               const shot = await session.capture(i);
+              if (i % every === 0 && unread === null) {
+                try {
+                  samples.set(i, sampleAt(i, o.fps, await session.readText()));
+                } catch (e) {
+                  // The record serves the review; a page whose text cannot be read still renders.
+                  unread = firstLine(e);
+                }
+              }
               if (!drew.has(seg.index) || !letsThrough) {
                 const seen = await look(session, shot, i);
                 if (showsSomething(seen)) drew.add(seg.index);
@@ -689,10 +737,17 @@ async function renderVideo(o: {
     // A patch runs on a page edited since the render it patches, which says nothing about whether this
     // one draws, so a blank range is refused where that render drew; one that was blank may stay so.
     const drewBefore = new Map(previous?.segments.map((s) => [s.index, s.drawn !== false]) ?? []);
-    const blank = renderedFrames > 0 && !toRender.some((s) => drew.has(s.index));
-    if (blank && (!o.patch || toRender.some((s) => drewBefore.get(s.index) !== false))) {
+    // Judged on the range asked for, not on segments outside it rendered again only for their text.
+    const judged = targeted ? toRender.filter((s) => targeted!.has(s.index)) : toRender;
+    const blank = renderedFrames > 0 && !judged.some((s) => drew.has(s.index));
+    if (blank && (!o.patch || judged.some((s) => drewBefore.get(s.index) !== false))) {
       // The manifest still records the segments these replaced, so they must not stay in the cache.
-      if (o.patch) for (const s of toRender) rmSync(fileOf(s), { force: true });
+      if (o.patch) {
+        for (const s of toRender) {
+          rmSync(fileOf(s), { force: true });
+          rmSync(textOf(s), { force: true });
+        }
+      }
       const flat = `${o.base.transparent ? 'fully transparent or ' : ''}one flat colour`;
       throw new Error(o.patch
         ? `every re-rendered frame is ${flat} where the render it patches drew: the page drew nothing in the patched range; ${o.out} was left as it was. `
@@ -704,9 +759,18 @@ async function renderVideo(o: {
       throw new Error(`every rendered frame is opaque, so the footage never shows: the page paints a background over it (on html, body or the stage); `
         + `make that transparent, or render without --footage if the page is meant to cover the footage; ${o.out} was left as it was`);
     }
+    dropRecord(o.out);
     await timed(o.base.timings, 'join', async () => joinSegments(segments.map(fileOf), o.out));
     const counted = countFrames(o.out);
     if (counted !== o.total) throw new Error(`${o.out} holds ${counted} frames, expected ${o.total}; the segments in ${cache} do not add up`);
+    const taken = segments.map(samplesOf);
+    if (taken.every((x) => x !== null)) {
+      const size = videoSize(o.canvas, scale, transparent);
+      writeRecord(o.out, {
+        page: o.page, width: size.width, height: size.height, fps: fpsLabel(o.fps), frames: o.total, transparent, framesPerSample: every,
+        samples: taken.flat() as TextSample[],
+      });
+    }
     writeManifest(cache, {
       version: 1,
       params,
@@ -717,7 +781,7 @@ async function renderVideo(o: {
     });
     return {
       frames: o.total, rendered: renderedFrames, reusedSegments, renderedSegments: toRender.length,
-      workers: runs.length, bytes: statSync(o.out).size,
+      workers: runs.length, bytes: statSync(o.out).size, unread,
     };
   } finally {
     release();
@@ -967,6 +1031,9 @@ async function run(values: Values, positionals: string[]): Promise<number> {
     if (draft) console.log(`  draft: ${capture}${capture === 'jpeg' ? ` q${quality}` : ''} capture, ${transparent ? 'ProRes' : `x264 ${preset} CRF ${crf}`}; render without --draft for the deliverable`);
     console.log(`  wall ${wall.toFixed(1)} s, ${perFrame} ms/frame over ${r.rendered} rendered frame(s), ${r.workers} worker(s), segments: ${r.renderedSegments} rendered, ${r.reusedSegments} reused`);
     for (const line of breakdown(timings, r.rendered)) console.log(`  ${line}`);
+    console.log(r.unread === null
+      ? `  on-screen text: ${recordPath(out)}, for openedit review`
+      : `  on-screen text: not recorded, since the page's text could not be read (${r.unread}); openedit review skips the checks that need it`);
     delivered = true;
     return 0;
   } finally {

@@ -3,15 +3,25 @@
 // a module in this folder, one entry in CHECKS, and its sentence in the README's review section; an input
 // the review does not resolve yet becomes a ReviewContext field, typed like TranscriptInput, so a missing
 // one skips the checks that need it instead of stopping the review.
+import type { TextRecord } from '../render/text-record.ts';
 import type { Transcript } from '../transcript/transcript-types.ts';
+import { measureBlankFrames } from './blank-frames.ts';
+import { measureCaptions } from './captions.ts';
 import { measureDeadTail } from './dead-tail.ts';
 import { measureLength } from './length.ts';
+import { measureText } from './text.ts';
 
 /** The transcript on the render's timeline, or why there is none: the reason is printed in the report. */
 export type TranscriptInput = { path: string; transcript: Transcript } | { missing: string };
 
 /** The length the user asked for, in seconds, or why there is none: the reason is printed in the report. */
 export type LengthInput = { seconds: number } | { missing: string };
+
+/** The record of on-screen text the render wrote beside the video, or why there is none: the reason is printed in the report. */
+export type TextRecordInput = { path: string; record: TextRecord } | { missing: string };
+
+/** An input that is there. */
+export type Found<T> = Exclude<T, { missing: string }>;
 
 export interface ReviewContext {
   video: string;
@@ -21,6 +31,8 @@ export interface ReviewContext {
   transcript: TranscriptInput;
   /** From --length: how long the user asked the video to run, where `duration` is how long it does. */
   askedLength: LengthInput;
+  /** What text the video shows, where and how large, sampled while it was rendered. */
+  textRecord: TextRecordInput;
 }
 
 export type Verdict = 'found' | 'pass' | 'skipped';
@@ -42,4 +54,7 @@ export interface Check {
 export const CHECKS: readonly Check[] = [
   { name: 'dead-tail', run: measureDeadTail },
   { name: 'length', run: measureLength },
+  { name: 'blank-frames', run: measureBlankFrames },
+  { name: 'text', run: measureText },
+  { name: 'captions', run: measureCaptions },
 ];
