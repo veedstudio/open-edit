@@ -207,7 +207,7 @@ const dir = scratchDir('dead-tail');
 const toneUntil = (until: number) => `aevalsrc=exprs='if(lt(t,${until}),0.3*sin(2*PI*220*t),0)':s=48000`;
 /** The check as the review runs it, on the picture's length probed here. */
 const measure = (video: string, transcript: TranscriptInput) =>
-  measureDeadTail({ video, duration: pictureDurationOf(video), transcript, askedLength: { missing: 'none' } });
+  measureDeadTail({ video, duration: pictureDurationOf(video), transcript, askedLength: { missing: 'none' }, textRecord: { missing: 'none' } });
 
 await test('a clip with a silent tail is reported', () => {
   const clip = synthClip(dir, 'silent-tail.mp4', { video: TESTSRC, audio: toneUntil(3), seconds: 6 });

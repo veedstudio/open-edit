@@ -847,6 +847,8 @@ test('render: the timing breakdown reads per-frame costs off the summed stages, 
   t.copy.ms = 700; t.copy.n = 1;
   t.join.ms = 120; t.join.n = 1;
   assert.equal(breakdown(t, 100)[1], 'preroll: 50 earlier frame(s) stepped through in 1.5 s (30 ms/frame); Chrome: 2 launched in 3.2 s, pages ready in 1.0 s; all-intra copies 0.7 s; join 0.1 s');
+  t.text.ms = 51; t.text.n = 34;
+  assert.match(breakdown(t, 100)[1], /pages ready in 1\.0 s; text read on 34 frame\(s\) in 0\.1 s \(1\.5 ms each\); all-intra copies/);
   assert.deepEqual(breakdown(t, 0), [], 'nothing rendered, nothing to break down');
 });
 

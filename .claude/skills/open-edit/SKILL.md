@@ -195,7 +195,10 @@ not an order to re-render: tell the user about one you leave in place. Checks th
 read the `transcript.json` in the video's folder, or the one `--transcript` names; name one when the
 folder's is not on the video's timeline (for a cut, the retimed one). Without a transcript, the report says
 what it skipped. If the user asked for a length ("a 30-second video"), pass it in seconds as `--length 30`;
-without it, the length check is skipped.
+without it, the length check is skipped. The checks of on-screen text (its size, its contrast, captions
+missing under speech) read the record `render` writes beside the video, `<video>.text.json`, which
+`mux-audio` carries to the file it writes; without a record that matches the video, the report says they
+were skipped.
 
 ## Talking to the user
 

@@ -5,6 +5,7 @@ import { decode, envelopeOf, SAMPLE_RATE } from '../commands/speech-probe.ts';
 import { hasAudioStream, streamStartOf } from '../probe.ts';
 import type { Transcript } from '../transcript/transcript-types.ts';
 import type { CheckReport, ReviewContext, TranscriptInput } from './checks.ts';
+import { seconds as s } from './report.ts';
 
 /**
  * About a second is where a silence starts to read as something gone wrong (Jefferson 1989: a "standard
@@ -80,8 +81,6 @@ export interface DeadTailInput {
   sound: LastSound | null;
   transcript: TranscriptInput;
 }
-
-const s = (seconds: number) => `${seconds.toFixed(2)}s`;
 
 export function judgeDeadTail({ duration, sound: measured, transcript }: DeadTailInput, threshold = TAIL_SECONDS): CheckReport {
   const lines: string[] = [];

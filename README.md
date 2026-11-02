@@ -227,14 +227,37 @@ npx @veedstudio/openedit-cli mux-audio --video runs/<key>/out.mp4 --audio runs/<
 ### review
 
 Run every delivery check on the video about to be delivered and print one
-report. It changes nothing, and exits 0 whatever it finds. The dead-tail check
-reports a picture that runs on more than a second past its last sound or its
-last spoken word. The words come from the `transcript.json` in the video's
-folder, or the one `--transcript` names; the review never transcribes, and
-without a transcript it says what it skipped. The length check reports a picture
-that runs longer or shorter than the length `--length` names, in seconds, by
-more than a second or 5% of that length, whichever is more; without
-`--length` it is skipped:
+report. It changes nothing, and exits 0 whatever it finds. The blank-frames
+check reports a flash, a frame or two of one flat colour (a blank white page
+with only a caption on it, say) between other pictures; any flat colour held
+with nothing on it for more than a second; and a first frame that is blank,
+near-black or partway into a fade-in, since platforms show it as the cover.
+The dead-tail check reports a picture that runs on more than a second past its
+last sound or its last spoken word. The words come from the `transcript.json`
+in the video's folder, or the one `--transcript` names; the review never
+transcribes, and without a transcript it says what it skipped. The length check
+reports a picture that runs longer or shorter than the length `--length` names,
+in seconds, by more than a second or 5% of that length, whichever is more;
+without `--length` it is skipped.
+
+Two checks read the record of on-screen text that `render` writes beside each
+video, `<video>.text.json`: the text the page draws in its HTML and SVG (not
+text inside an image, a canvas or the footage), read about every 100 ms of the
+page's time, with its words, its box and font size in the video's pixels, its
+colour and its opacity. `mux-audio` carries the record to the file it writes,
+and a patch with `--from/--to` keeps it whole. The text check reports text
+smaller than a phone's body text, measured against the frame's shorter side,
+and text under WCAG's 3:1 contrast for large text against what is really behind
+it, measured on the video's pixels around the glyphs, so a backing, a stroke or
+a shadow counts; it skips the contrast of a transparent render, and of text
+that is translucent or has no solid fill of its own. The captions check reports
+a second or more of speech with no caption on screen. A caption is a text that
+shows the words being spoken, or, in another language than the voice, one of a
+run of texts in one place that change with the spoken phrases; a title is not
+one. It is skipped when the page captions too little of the speech to be
+captioning it, or there is no transcript. A video without a record, or with one
+for a picture of another size or length or older than the video, skips both
+checks:
 
 ```sh
 npx @veedstudio/openedit-cli review runs/<key>/final.mp4 [--transcript <transcript.json>] [--length <sec>]
