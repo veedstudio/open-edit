@@ -11,9 +11,14 @@ openedit veed-project runs/<key>/veed-plan.json
 ```
 It makes a private project in the user's VEED workspace in which every part is its own element: footage
 cuts, text, captions, images and each audio track are the editor's own, and each page element the plan
-names is a transparent clip cut to its box. `veed-project --help` lists the plan's fields.
+names is a transparent clip cut to its box. `veed-project --help` lists the plan's fields. The editor has no
+speaker layer: a layer clip holds its element alone, without the cut-out, so a graphic laid behind the speaker
+(`data-behind`) lies over the footage there and covers the speaker; tell the user.
 - Give the editor what it can own: footage as `video` parts or an `edl` part, text a person may retype as
-  `text` parts, captions as a `captions` part, the soundtrack as a `mix` part (its ducking is not carried).
+  `text` parts, captions as a `captions` part, the soundtrack as a `mix` part (its ducking, and the
+  centring of a track recorded on one channel, are not carried; the command names each). An `edl` source of
+  another shape than the canvas is laid full-canvas for the editor to frame, not cut as `apply-edl` cuts it;
+  the command names it, and `reframe` it to the canvas's shape first for the same picture.
 - Name as `layer` parts (a CSS selector each) the page elements a person would move or retime on their
   own. A layer's `at` and `to` are page time, which is project time unless it gives `shift`. The editor
   has no blend modes, so an element drawn with `mix-blend-mode` is left out of every layer, and the

@@ -5,11 +5,13 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import vm from 'node:vm';
 import { crc32, deflateSync } from 'node:zlib';
-import { scanFrames } from '../src/commands/veed-project.ts';
+import { scanFrames, uploadCopy } from '../src/commands/veed-project.ts';
 import {
   BOOKMARKLET, BUNDLE_VERSION, PULL_BOOKMARKLET, PlanError, audioItem, bookmarkletUrl, captionCues, captionItems, checkPlan, edlParts, encodeBundle, imageItem, isVeedId,
   mixParts, movedBox, place, planFromPulled, previewSafeSize, textItem, veedMediaUrl, videoItem, visibleSpans, type Bundle, type Plan, type PulledItem,
 } from '../src/veed/editor-project.ts';
+import { assertConverted, hdrClip, lumaOf } from './helpers/hdr.ts';
+import { probeStream, scratchDir, synthClip, TESTSRC } from './helpers/synth.ts';
 
 const W = 1920, H = 1080;
 const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -86,13 +88,39 @@ test('veed-project: a mix spec\'s tracks play as mix-audio plays them', () => {
       { path: 'sting.wav', atSec: 10, gainDb: 6, fadeOutSec: 2 },
       { path: 'sting.wav', atSec: 31 },
     ],
-  }, (p) => lengths[p]);
+  }, (p) => lengths[p], () => [-20, -20]);
   assert.equal(parts.length, 3, 'a track that starts after the film ends is left out');
   const [voice, music, sting] = parts;
   assert.equal(voice.volume, 1);
   assert.deepEqual([music.volume, music.out, music.fadeOut, music.name], [0.501, 30, 2, 'music: music.wav'], 'the bed stops and fades where the film does');
   assert.deepEqual([sting.volume, sting.out, sting.fadeOut], [1.995, 1, undefined], 'a track over before the film\'s fade is not faded');
   assert.deepEqual(notes, ['music.wav: ducking under the voice is not carried; it plays at its own gain']);
+});
+
+test('veed-project: music and effects that mix-audio ducks by default are named as not carried; ones that opted out are not', () => {
+  const tracks = (duck?: boolean) => [
+    { path: 'voice.wav', atSec: 0, role: 'voice' as const },
+    { path: 'music.wav', atSec: 0, role: 'music' as const, ...(duck === undefined ? {} : { duck }) },
+    { path: 'sting.wav', atSec: 2, role: 'sfx' as const, ...(duck === undefined ? {} : { duck }) },
+  ];
+  assert.deepEqual(mixParts({ durationSec: 10, tracks: tracks() }, () => 10, () => [-20, -20]).notes, [
+    'music.wav: ducking under the voice is not carried; it plays at its own gain',
+    'sting.wav: ducking under the voice is not carried; it plays at its own gain',
+  ]);
+  assert.deepEqual(mixParts({ durationSec: 10, tracks: tracks(false) }, () => 10, () => [-20, -20]).notes, []);
+});
+
+test('veed-project: a track mix-audio would centre is named, since the editor plays it on one channel', () => {
+  const levels: Record<string, number[]> = { 'vo.wav': [-84.3, -22.5], 'music.wav': [-17.1, -17.6], 'sting.wav': [-20], 'ping.wav': [-18, -90] };
+  const { notes } = mixParts({
+    durationSec: 10,
+    tracks: [
+      { path: 'vo.wav', atSec: 0 }, { path: 'music.wav', atSec: 0 }, { path: 'sting.wav', atSec: 2 },
+      { path: 'ping.wav', atSec: 3, keepPan: true },
+    ],
+  }, () => 10, (p) => levels[p]);
+  // A mono file plays in both channels in the editor as anywhere else, and a kept pan is meant; only the one-sided voice is lost.
+  assert.deepEqual(notes, ['vo.wav: centring is not carried; it plays on one channel, as recorded']);
 });
 
 test('veed-project: long transcript chunks become short captions, broken at pauses and sentence ends', () => {
@@ -320,4 +348,31 @@ test('veed-project: a layer\'s frames give their true box, however thin or faint
   assert.deepEqual(scanned.slice(0, 2), [{ peak: 255, x1: 8, x2: 47, y1: 10, y2: 10 }, { peak: 1, x1: 30, x2: 32, y1: 20, y2: 22 }]);
   assert.equal(scanned[2].peak, 0);
   assert.ok(scanned[2].x2 < scanned[2].x1, 'an empty frame has no box');
+});
+
+// The editor converts HDR its own way, so footage goes up as the SDR picture a render of it has.
+test('veed-project: HDR footage goes up as its SDR copy, above 1080p as a 1080p one, and SDR footage as it is', async () => {
+  const dir = scratchDir('veed-hdr');
+  const said: string[] = [];
+  const say = (line: string) => { said.push(line); };
+  const tags = (file: string) => probeStream(file, 'v:0', 'width,height,color_primaries,color_transfer,color_space');
+
+  const pq = hdrClip(dir, 'pq.mp4', { transfer: 'smpte2084', seconds: 0.4, audio: null });
+  const sent = await uploadCopy(pq, dir, say);
+  assert.notEqual(sent, pq);
+  assert.deepEqual({ ...tags(sent) }, { width: 320, height: 240, color_primaries: 'bt709', color_transfer: 'bt709', color_space: 'bt709' });
+  assertConverted(pq, 5, lumaOf(sent, 5, 'video'), { transfer: 'smpte2084', width: 320, tolerance: 1.5, what: 'the upload' });
+  assert.ok(readFileSync(sent).includes('crf=20.0'), 'encoded as an upload, not as a service\'s high-quality copy');
+  assert.equal(await uploadCopy(pq, dir, say), sent, 'a second hand-off sends the copy already made');
+
+  const wide = hdrClip(dir, 'wide.mp4', { transfer: 'arib-std-b67', video: 'testsrc=size=2400x120:rate=5', seconds: 0.4, audio: null });
+  assert.deepEqual({ ...tags(await uploadCopy(wide, dir, say)) },
+    { width: 1920, height: 96, color_primaries: 'bt709', color_transfer: 'bt709', color_space: 'bt709' });
+  assert.ok(said.some((l) => /^wide\.mp4 is HDR \(HLG, /.test(l)), said.join('\n'));
+  assert.ok(!said.some((l) => l.startsWith('making a 1080p copy')), 'the SDR copy is the 1080p one');
+
+  const count = said.length;
+  const sdr = synthClip(dir, 'sdr.mp4', { video: TESTSRC, seconds: 0.2 });
+  assert.equal(await uploadCopy(sdr, dir, say), sdr);
+  assert.equal(said.length, count);
 });

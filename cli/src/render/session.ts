@@ -2,24 +2,82 @@
 // frame at a time. Everything that can go wrong in the page is turned into a named error here, so the
 // command above only has to decide what to do with it.
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Browser, CDPSession, Page, Request } from 'playwright-core';
 import { browserProxy } from '../proxy.ts';
 import { CHROME_FLAGS, linuxHint } from './browser.ts';
-import { runtimeScript, type ReadyInfo } from './page-runtime.ts';
-import type { PageServer } from './server.ts';
+import { DRAWN_LARGER, runtimeScript, type ReadyInfo } from './page-runtime.ts';
+import { SPEAKER_BOX } from './speaker.ts';
+import { onDisk, type PageServer } from './server.ts';
 import { frameTime, type Fps } from './timing.ts';
+
+/**
+ * Where a render's time goes, summed over every worker, so a slow render says which of its stages is
+ * slow. Each stage is a pure wait from this process's side: the page's own work for a frame (`page`), the replay of
+ * the frames before a worker's first (`preroll`), the page's own loads (`loads`), the screenshot
+ * (`capture`), the launch of Chrome and the page's load and readiness; `encode` is the time a
+ * worker was held back by ffmpeg. `draw` and `prerollDraw` count the draws forced on a stalled step, inside `page`
+ * and `preroll`; a preroll steps through many frames at once, so it draws on its way without having stalled.
+ */
+export type Stage = 'launch' | 'load' | 'preroll' | 'page' | 'loads' | 'capture' | 'encode' | 'copy' | 'join' | 'draw' | 'prerollDraw';
+export type Timings = Record<Stage, { ms: number; n: number }>;
+
+export const newTimings = (): Timings => Object.fromEntries((['launch', 'load', 'preroll', 'page', 'loads', 'capture', 'encode', 'copy', 'join', 'draw', 'prerollDraw'] as Stage[])
+  .map((s) => [s, { ms: 0, n: 0 }])) as Timings;
+
+/**
+ * What a frame leaves Chrome as. A PNG is the exact picture; a JPEG (quality 100, 4:2:0 chroma) is
+ * about half the capture time on a busy frame and cannot carry alpha.
+ */
+export const CAPTURES = ['png', 'jpeg'] as const;
+export type Capture = (typeof CAPTURES)[number];
+
+/** Runs `work` and adds its wall time to `stage`, counting `n` units of it. */
+export async function timed<T>(t: Timings | undefined, stage: Stage, work: () => Promise<T>, n = 1): Promise<T> {
+  if (!t) return work();
+  const started = performance.now();
+  try {
+    return await work();
+  } finally {
+    t[stage].ms += performance.now() - started;
+    t[stage].n += n;
+  }
+}
 
 export interface SessionOptions {
   chrome: string;
   server: PageServer;
   page: string;
+  /** Shared by every session of a render; absent, nothing is timed. */
+  timings?: Timings;
   viewport: { width: number; height: number };
   /** Capture this box instead of the whole viewport. */
   clip?: { x: number; y: number; width: number; height: number } | null;
+  /** What `capture` returns each frame as (default png). */
+  capture?: Capture;
+  /** A JPEG capture's quality, 1-100 (default 100). */
+  quality?: number;
+  /**
+   * The size frames are drawn at, as a fraction of the canvas (default 1). Chrome rasterises the page at
+   * that size, so a smaller one costs less to draw and capture; the layout is the page's own.
+   */
+  scale?: number;
   transparent: boolean;
+  /**
+   * A file ffmpeg lays under the frames: every <video> whose source is this file is stood down before
+   * the first frame, so Chrome neither decodes nor seeks it, and however its load went it is not held against the page.
+   */
+  footage?: string | null;
+  /**
+   * When set, every <video> outside the elements this selector matches is stood down before the first frame, as
+   * footage is: for a check that draws only part of the page.
+   */
+  videosIn?: string | null;
+  /** URLs served from a copy smaller than the source: a frame that draws one larger fails with DrawnLarger. */
+  shrunk?: string[];
   /** Selectors that `showLayer(k)` switches between, each drawn alone in place; one page pass serves them all. */
   layers?: string[] | null;
   fps: Fps;
@@ -39,6 +97,10 @@ export interface SessionOptions {
    */
   refused: Set<string>;
 }
+
+// How often Chrome is made to draw while a page step lasts: far above a healthy frame, far below its budget. A
+// preroll spans many frames, so it may draw on its way.
+export const DRAW_EVERY_MS = 1000;
 
 // The page's own requests, which receive their 403 and can carry on without the file. Anything else
 // refused (a frame's document, a text track, an image) is drawn without it and fails the render.
@@ -188,10 +250,73 @@ function deadline<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   ]).finally(() => clearTimeout(timer));
 }
 
+/**
+ * Waits for `work` while calling `draw` every `everyMs` it lasts, since a fresh page can sit undrawn and a video's
+ * sought picture is presented only in a drawn frame. A draw in flight is awaited after `work` succeeds, up to
+ * `budgetMs`, as it would overlap the frame's own capture, and one that failed is dropped (the frame's own capture
+ * must succeed anyway); after `work` fails nothing is captured, so it is thrown at once, naming a draw that failed.
+ */
+export async function drawWhile<T>(work: Promise<T>, draw: () => Promise<unknown>, everyMs: number, budgetMs: number): Promise<T> {
+  let done = false;
+  let timer: NodeJS.Timeout | undefined;
+  let wake: (() => void) | undefined;
+  const last: { failure: Error | null } = { failure: null };
+  const loop = (async () => {
+    while (!done) {
+      await new Promise<void>((r) => { wake = r; timer = setTimeout(r, everyMs); });
+      if (done) break;
+      try {
+        await draw();
+      } catch (e) {
+        last.failure = e instanceof Error ? e : new Error(String(e));
+      }
+    }
+  })();
+  const stop = () => {
+    done = true;
+    clearTimeout(timer);
+    wake?.();
+  };
+  let result: T;
+  try {
+    result = await work;
+  } catch (e) {
+    stop();
+    // On the first line, the one part of a message a failed frame is sure to report.
+    if (last.failure && e instanceof Error) e.message = e.message.replace(/^[^\n]*/, (line) => `${line}; forcing Chrome to draw failed too: ${firstLines(last.failure!.message, 1)}`);
+    throw e;
+  }
+  stop();
+  await deadline(loop, budgetMs, 'a draw forced on a stalled step');
+  return result;
+}
+
+/** A frame drew a video larger than the smaller copy it is served from, so the copy cannot show it. */
+export class DrawnLarger extends Error {}
+
+/** A box captured at `scale`: each side rounded to the nearest pixel, as Chrome sizes a scaled capture. */
+export const drawnSize = (c: { width: number; height: number }, scale: number): { width: number; height: number } =>
+  ({ width: Math.round(c.width * scale), height: Math.round(c.height * scale) });
+
+/** A PNG's or a JPEG's size, from its header; null when it is neither. */
+export function imageSize(b: Buffer): { width: number; height: number } | null {
+  if (b.length >= 24 && b.readUInt32BE(0) === 0x89504e47) return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return null;
+  // A JPEG's size is in its start-of-frame segment: any SOFn but DHT (C4), JPG (C8) and DAC (CC).
+  for (let i = 2; i + 9 <= b.length && b[i] === 0xff;) {
+    const marker = b[i + 1];
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { width: b.readUInt16BE(i + 7), height: b.readUInt16BE(i + 5) };
+    }
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return null;
+}
+
 export class RenderSession {
   info!: ReadyInfo;
   private error: Error | null = null;
-  /** The page has been advanced through every frame below this one. */
+  /** The page has been advanced through every frame below this one, or jumped past them when it is stateless. */
   private next = 0;
   private inflight = new Set<Request>();
   private idleWaiters: (() => void)[] = [];
@@ -199,9 +324,25 @@ export class RenderSession {
   private failedUrls = new Set<string>();
 
   private clip: SessionOptions['clip'];
+  private readonly footage: string | null;
+  private shrunk: string[];
+  /** The speaker layer's cut-out as the debugging protocol knows it, found by its key; null until looked for. */
+  private cutout: number | null = null;
 
-  private constructor(private readonly o: SessionOptions, private readonly browser: Browser, private readonly pw: Page, private readonly cdp: CDPSession) {
+  private constructor(private readonly o: SessionOptions, private readonly browser: Browser, private readonly pw: Page, private readonly cdp: CDPSession,
+    private readonly speakerKey: string) {
     this.clip = o.clip ?? null;
+    this.footage = o.footage ? onDisk(o.footage) : null;
+    this.shrunk = o.shrunk ?? [];
+  }
+
+  /** The URLs served from smaller copies, from the page's next load on. */
+  serveShrunk(urls: string[]): void {
+    this.shrunk = urls;
+  }
+
+  get timings(): Timings | undefined {
+    return this.o.timings;
   }
 
   /** Captures this box of the viewport from now on: the page has to load before its stage can be measured. */
@@ -212,7 +353,8 @@ export class RenderSession {
   static async open(o: SessionOptions): Promise<RenderSession> {
     const { chromium } = await import('playwright-core');
     const proxy = launchProxy();
-    const { browser, context, page } = await withSandbox(async (sandbox) => {
+    const speakerKey = randomBytes(12).toString('hex');
+    const { browser, context, page } = await timed(o.timings, 'launch', () => withSandbox(async (sandbox) => {
       let browser: Browser;
       try {
         browser = await chromium.launch({
@@ -223,19 +365,19 @@ export class RenderSession {
       }
       try {
         const context = await browser.newContext({ viewport: o.viewport, deviceScaleFactor: 1 });
-        await context.addInitScript(runtimeScript({ seed: o.seed, epoch: o.epoch, num: o.fps.num, den: o.fps.den }));
+        await context.addInitScript(runtimeScript({ seed: o.seed, epoch: o.epoch, num: o.fps.num, den: o.fps.den, captureScale: o.scale ?? 1, speakerKey }));
         if (o.layers?.length) await context.addInitScript(layersScript(o.layers));
         return { browser, context, page: await context.newPage() };
       } catch (e) {
         await browser.close().catch(() => {});
         throw new Error(`Chrome could not open a page (${o.chrome}): ${firstLines((e as Error).message, 2)}`);
       }
-    }, { refused: () => sandboxRefused(o.chrome), say: (line) => console.error(`render: ${line}`) });
+    }, { refused: () => sandboxRefused(o.chrome), say: (line) => console.error(`render: ${line}`) }));
     try {
       const cdp = await context.newCDPSession(page);
-      const s = new RenderSession(o, browser, page, cdp);
+      const s = new RenderSession(o, browser, page, cdp, speakerKey);
       s.watch();
-      await s.load();
+      await timed(o.timings, 'load', () => s.load());
       return s;
     } catch (e) {
       await browser.close().catch(() => {});
@@ -245,6 +387,20 @@ export class RenderSession {
 
   private name(url: string): string {
     return this.o.server.fileFor(url) ?? url;
+  }
+
+  /** Whether a URL the page asked for is the footage, by the file it names. */
+  private isFootage(url: string): boolean {
+    if (!this.footage) return false;
+    const file = this.o.server.fileFor(url);
+    return file !== null && onDisk(file) === this.footage;
+  }
+
+  /** Stands down every <video> whose source is the footage, judged by the file each URL names. */
+  private async standDown(): Promise<void> {
+    const sources = await this.pw.evaluate('window.__openedit.videoSources()') as string[][];
+    const flags = sources.map((urls) => urls.some((u) => this.isFootage(u)));
+    if (flags.some(Boolean)) await this.pw.evaluate(`window.__openedit.standDown(${JSON.stringify(flags)})`);
   }
 
   private watch(): void {
@@ -268,14 +424,17 @@ export class RenderSession {
       if (from) settle(from);
     });
     page.on('requestfinished', settle);
+    // A <video> of the footage is stood down whatever the server answered its load with, so neither a
+    // refusal of the file nor a failed load of it is held against the page.
     page.on('requestfailed', (req) => {
       settle(req);
+      if (this.isFootage(req.url())) return;
       this.failedUrls.add(req.url());
       const why = req.failure()?.errorText ?? 'failed';
       if (!/ERR_ABORTED/.test(why) || req.resourceType() !== 'media') this.o.failedLoads.add(`${why}  ${this.name(req.url())}`);
     });
     page.on('response', (res) => {
-      if (res.status() < 400) return;
+      if (res.status() < 400 || this.isFootage(res.url())) return;
       this.failedUrls.add(res.url());
       const file = this.name(res.url());
       const refusal = res.status() === 403 ? this.o.server.refusalFor(res.url()) : null;
@@ -323,8 +482,11 @@ export class RenderSession {
       await this.cdp.send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
     }
     try {
+      if (this.footage) await this.standDown();
+      else if (this.o.videosIn) await this.standDownOutside(this.o.videosIn);
       this.info = await this.pw.evaluate(`window.__openedit.ready(${this.o.budgetMs})`) as ReadyInfo;
       this.report(this.info.problems);
+      if (this.shrunk.length) await this.pw.evaluate(`window.__openedit.shrunk(${JSON.stringify(this.shrunk)})`);
     } catch (e) {
       this.check();
       throw new Error(`the page never became ready: ${firstLines((e as Error).message, 2)}`);
@@ -332,16 +494,21 @@ export class RenderSession {
     this.check();
   }
 
-  /** Loads the page again from the start, for when what the server answers with has changed. */
+  /**
+   * Loads the page again from the start, for when what the server answers with has changed. What failed to load
+   * before is forgotten, as the load lists again whatever still fails: a video swapped for a copy that plays does not.
+   */
   async reload(): Promise<void> {
     this.next = 0;
-    await this.load();
+    this.o.failedLoads.clear();
+    this.failedUrls.clear();
+    await timed(this.o.timings, 'load', () => this.load());
   }
 
   private async idle(i: number): Promise<void> {
     if (!this.inflight.size) return;
     try {
-      await deadline(new Promise<void>((ok) => this.idleWaiters.push(ok)), this.o.budgetMs, 'the page\'s requests');
+      await timed(this.o.timings, 'loads', () => deadline(new Promise<void>((ok) => this.idleWaiters.push(ok)), this.o.budgetMs, 'the page\'s requests'));
     } catch {
       const stuck = [...this.inflight].map((r) => this.name(r.url()));
       const shown = stuck.slice(0, 3).join(', ') + (stuck.length > 3 ? `, and ${stuck.length - 3} more` : '');
@@ -349,32 +516,50 @@ export class RenderSession {
     }
   }
 
+  /**
+   * `work`, a step of the page, with Chrome made to draw while it lasts by a capture thrown away; each is counted on
+   * `stage`. The capture takes no clip: Chrome restores the page's emulated screen inexactly after a clipped capture,
+   * so a clipped draw would change what the page reads as its screen (`screen.width`, `device-width`).
+   */
+  private drawn<T>(stage: 'draw' | 'prerollDraw', work: Promise<T>): Promise<T> {
+    const t = this.o.timings;
+    const draw = async () => {
+      await this.cdp.send('Page.captureScreenshot', { format: 'png', optimizeForSpeed: true });
+      if (t) t[stage].n++;
+    };
+    return drawWhile(work, draw, DRAW_EVERY_MS, this.o.budgetMs);
+  }
+
   private async advance(i: number): Promise<void> {
     const at = `frame ${i} (${frameTime(i, this.o.fps).toFixed(3)} s)`;
     try {
-      // Every page is stepped through the frames a worker skips, __seek or not: pages carry state from
-      // frame to frame (a scene set up on first entry, a counter, a simulation) even when they declare
-      // themselves a function of time, and a jump past that state renders a different picture than a
-      // one-worker render would.
+      // A page is stepped through the frames a worker skips, __seek or not: pages carry state from
+      // frame to frame (a scene set up on first entry, a counter, a simulation), and a jump past that
+      // state renders a different picture than a one-worker render would. Only a page that declares
+      // itself stateless (data-stateless) is jumped into, and the declaration is trusted: the page
+      // cannot be inspected for state, so one marked wrongly renders differently per worker count.
       const problems: string[] = [];
       const budget = this.o.budgetMs;
-      if (i > this.next) {
+      if (i > this.next && !this.info.stateless) {
         const steps = i - this.next;
-        problems.push(...await deadline(this.pw.evaluate(`window.__openedit.preroll(${this.next}, ${i}, ${budget})`) as Promise<string[]>,
-          2 * budget + steps * 1000, `stepping through frames ${this.next}-${i - 1}`));
+        problems.push(...await timed(this.o.timings, 'preroll', () => this.drawn('prerollDraw', deadline(this.pw.evaluate(`window.__openedit.preroll(${this.next}, ${i}, ${budget})`) as Promise<string[]>,
+          2 * budget + steps * 1000, `stepping through frames ${this.next}-${i - 1}`)), steps));
       }
-      problems.push(...await deadline(this.pw.evaluate(`window.__openedit.frame(${i}, ${budget})`) as Promise<string[]>, 2 * budget, 'the page'));
+      problems.push(...await timed(this.o.timings, 'page', () => this.drawn('draw', deadline(this.pw.evaluate(`window.__openedit.frame(${i}, ${budget})`) as Promise<string[]>, 2 * budget, 'the page'))));
       this.report(problems);
     } catch (e) {
       this.check();
-      throw new Error(`${at}: ${firstLines((e as Error).message, 3)}`);
+      const message = (e as Error).message;
+      const grown = new RegExp(`video (\\S+) ${DRAWN_LARGER}`).exec(message);
+      if (grown) throw new DrawnLarger(`${at}: video ${this.name(grown[1])} ${DRAWN_LARGER}`);
+      throw new Error(`${at}: ${firstLines(message, 3)}`);
     }
     this.next = i + 1;
     await this.idle(i);
     this.check();
   }
 
-  /** The PNG of frame i; a session only steps forward. */
+  /** Frame i in the session's capture format; a session only steps forward. */
   async capture(i: number): Promise<Buffer> {
     await this.seek(i);
     return this.shoot(`frame ${i}`);
@@ -386,19 +571,76 @@ export class RenderSession {
     await this.advance(i);
   }
 
-  /** The PNG of what the page shows now. */
-  async shoot(what: string): Promise<Buffer> {
-    const clip = this.clip ? { ...this.clip, scale: 1 } : undefined;
-    const shot = await deadline(this.cdp.send('Page.captureScreenshot', { format: 'png', optimizeForSpeed: true, ...(clip ? { clip } : {}) }),
-      2 * this.o.budgetMs, `the capture of ${what}`);
+  /** What the page shows now, in the session's capture format unless one is given. */
+  async shoot(what: string, format: Capture = this.o.capture ?? 'png'): Promise<Buffer> {
+    const scale = this.o.scale ?? 1;
+    // A scaled capture needs a box to scale: with no stage clip, the viewport where the page has scrolled
+    // it, since a clip is placed on the document, not the view. (The device scale factor would do the
+    // same, but the headless shell draws at 1 whatever it is set to.)
+    let box = this.clip;
+    if (!box && scale !== 1) {
+      const { cssVisualViewport: v } = await this.cdp.send('Page.getLayoutMetrics');
+      box = { x: v.pageX, y: v.pageY, ...this.o.viewport };
+    }
+    const clip = box ? { ...box, scale } : undefined;
+    // optimizeForSpeed trades PNG compression for time; Chrome's JPEG encoder ignores it, and even at
+    // quality 100 it stores the chroma at half resolution.
+    const image = format === 'jpeg' ? { format: 'jpeg' as const, quality: this.o.quality ?? 100 } : { format: 'png' as const, optimizeForSpeed: true };
+    const shot = await timed(this.o.timings, 'capture', () => deadline(this.cdp.send('Page.captureScreenshot', { ...image, ...(clip ? { clip } : {}) }),
+      2 * this.o.budgetMs, `the capture of ${what}`));
     this.check();
-    return Buffer.from(shot.data, 'base64');
+    const frame = Buffer.from(shot.data, 'base64');
+    // The encoder and the footage under the page are sized from drawnSize before the first frame; one
+    // Chrome draws otherwise would leave an edge of bare footage or a picture the encoder misreads.
+    if (box && scale !== 1) {
+      const want = drawnSize(box, scale);
+      const got = imageSize(frame);
+      if (!got || got.width !== want.width || got.height !== want.height) {
+        throw new Error(`the capture of ${what} came out ${got ? `${got.width}x${got.height}` : 'unreadable'}, not the ${want.width}x${want.height} that ${box.width}x${box.height} at ${scale} was sized for`);
+      }
+    }
+    return frame;
   }
 
   /** Draws only layer k of the session's `layers` from now on; -1 draws the whole page again. */
   async showLayer(k: number): Promise<void> {
     this.needLayers(k);
     await this.pw.evaluate(`window.__oeLayer(${k})`);
+    // The speaker's box pins its own visibility, so the layer switch cannot hide it: it is hidden here for every layer
+    // but its own.
+    if (this.info.cutout) await this.showCutout(k < 0 || this.o.layers![k] === SPEAKER_BOX);
+  }
+
+  /**
+   * Shows or hides the speaker layer's cut-out. Through the debugging protocol, as the cut-out lies in a closed shadow
+   * root, where it is found by the key the session gave it.
+   */
+  private async showCutout(on: boolean): Promise<void> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      this.cutout ??= await this.findCutout();
+      try {
+        if (on) await this.cdp.send('DOM.removeAttribute', { nodeId: this.cutout, name: 'style' });
+        else await this.cdp.send('DOM.setAttributeValue', { nodeId: this.cutout, name: 'style', value: 'visibility:hidden!important' });
+        return;
+      } catch (e) {
+        // A box a script dropped and the speaker put back is a node the protocol no longer knows: found again, once.
+        this.cutout = null;
+        if (attempt) throw new Error(`the speaker layer's cut-out could not be ${on ? 'shown' : 'hidden'}: ${firstLines((e as Error).message, 1)}`);
+      }
+    }
+  }
+
+  private async findCutout(): Promise<number> {
+    type Node = { nodeId: number; attributes?: string[]; children?: Node[]; shadowRoots?: Node[] };
+    const { root } = await this.cdp.send('DOM.getDocument', { depth: -1, pierce: true }) as { root: Node };
+    const stack = [root];
+    while (stack.length) {
+      const n = stack.pop()!;
+      const a = n.attributes ?? [];
+      for (let k = 0; k < a.length; k += 2) if (a[k] === 'data-oe-key' && a[k + 1] === this.speakerKey) return n.nodeId;
+      stack.push(...(n.children ?? []), ...(n.shadowRoots ?? []));
+    }
+    throw new Error('the speaker layer\'s cut-out is not on the page');
   }
 
   /** Leaves the page's blended elements out of every layer, and names them with their blend mode. */
@@ -421,6 +663,42 @@ export class RenderSession {
   async visibleLayers(): Promise<{ visible: boolean[]; matches: number[] }> {
     this.needLayers();
     return this.pw.evaluate('window.__oeVisible()') as Promise<{ visible: boolean[]; matches: number[] }>;
+  }
+
+  /**
+   * Runs `expression` in the page as it stands and returns its value, for `what`. Fails as a frame does when the
+   * page has thrown, now or earlier, or the server refused a file it needs.
+   */
+  async evaluate<T>(expression: string, what: string): Promise<T> {
+    const named = (e: unknown, lines?: number) => {
+      const message = lines ? firstLines((e as Error).message, lines) : (e as Error).message;
+      return new Error(message.startsWith(what) ? message : `${what}: ${message}`);
+    };
+    let value: T;
+    try {
+      value = await deadline(this.pw.evaluate(expression) as Promise<T>, 2 * this.o.budgetMs, what);
+    } catch (e) {
+      try {
+        this.check();
+      } catch (page) {
+        throw named(page);
+      }
+      throw named(e, 3);
+    }
+    try {
+      this.check();
+    } catch (page) {
+      throw named(page);
+    }
+    return value;
+  }
+
+  /** Stands down every <video> outside the elements `keep` matches, as footage is stood down, so no frame seeks it. */
+  private async standDownOutside(keep: string): Promise<void> {
+    await this.pw.evaluate(`(() => {
+      window.__openedit.videoSources();
+      window.__openedit.standDown([...document.querySelectorAll('video')].map((v) => !v.closest(${JSON.stringify(keep)})));
+    })()`);
   }
 
   private needLayers(k = 0): void {

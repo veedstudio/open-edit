@@ -16,28 +16,31 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { parseUsage, usageLine, numberFlag, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
+import { assertConvertible, describeHdr, hdrKind, toSdr } from '../hdr.ts';
 import { FFMPEG_PROBE, probeVersion } from '../platform.ts';
+import { codecOf, colourTagsOf, NoVideoStream, type ColourReport } from '../probe.ts';
 import { tilePath, tileSheet, withTileDir } from '../sheet.ts';
 import { parseTimeSpec } from './frames.ts';
+import { cropFor } from './reframe.ts';
 import { CHROME, mb, resolveChrome } from '../render/browser.ts';
-import { countFrames, encoderArgs, joinSegments, killEncoders, startSegmentEncoder } from '../render/encode.ts';
-import { longestGop, MAX_GOP, seekableCopy } from '../render/media.ts';
+import { countFrames, encoderArgs, FULL_ENCODE, joinSegments, killEncoders, startSegmentEncoder, X264_PRESETS, type Encode } from '../render/encode.ts';
+import { composeStill, gcd, overlayFor, probeFootage, sameRate, seekArgs, type Footage } from '../render/footage.ts';
+import { alphaInputOf, longestGop, MAX_GOP, perVersion, seekableCopy, shownSize } from '../render/media.ts';
 import { inspectPng, showsSomething } from '../render/png.ts';
 import { onDisk, startPageServer, tooBroad, type PageServer } from '../render/server.ts';
-import { RenderSession, type SessionOptions } from '../render/session.ts';
+import { BUDGET_MS, EPOCH, openLead, SEED, sessionOptions, UsageError, type Canvas, type SessionBase } from '../render/lead.ts';
+import { CAPTURES, DRAW_EVERY_MS, DrawnLarger, drawnSize, newTimings, RenderSession, timed, type Capture, type Timings } from '../render/session.ts';
 import {
   fpsLabel, frameAtTime, frameSpan, frameTime, framesForDuration, parseFps, planSegments, segmentFramesFor,
   segmentsTouching, splitContiguous, splitFrames, workersFor, type Fps, type Segment,
 } from '../render/timing.ts';
 
-// Fixed, so two renders of one page agree to the pixel: Math.random() draws the same sequence and
-// Date.now() reads the same instant at frame 0 on every machine.
-export const SEED = 0x5eed;
-export const EPOCH = Date.UTC(2025, 0, 1);
-export const BUDGET_MS = 60_000;
-// A worker costs a Chrome launch, a page load and a preroll through every frame before its first: worth
-// it for a dozen frames of a heavy page, where a patch is waiting on every one of them, but not for fewer.
-const MIN_FRAMES_PER_WORKER = 12;
+// A worker costs a Chrome launch, a page load and, unless the page is stateless, a preroll through every
+// frame before its first: worth it for a dozen frames of a heavy page, where a patch is waiting on every
+// one of them, but not for fewer.
+export const MIN_FRAMES_PER_WORKER = 12;
+// What --draft sets unless the flag is given: a quarter of the pixels, a lossy capture, the fastest encode.
+const DRAFT = { scale: 0.5, capture: 'jpeg' as Capture, quality: 80, preset: 'ultrafast', crf: 28 };
 
 export const usage = {
   summary: 'Render an HTML page to video in headless Chrome, frame-exact; re-render only a changed range',
@@ -54,6 +57,13 @@ export const usage = {
     from: { type: 'string', value: '<sec>', help: 'Patch: re-render only the segments overlapping --from..--to, reuse the rest, rejoin (default 0)' },
     to: { type: 'string', value: '<sec>', help: 'End of the patch range, exclusive: a segment that starts exactly here is not re-rendered (default: the end)' },
     transparent: { type: 'boolean', help: 'No page background: a ProRes 4444 .mov with alpha (PNGs with alpha under --stills)' },
+    capture: { type: 'string', value: 'png|jpeg', help: 'What each frame leaves Chrome as (default png, the exact picture). jpeg is about half the capture time on a busy frame, at a small loss: Chrome stores its colour at half resolution (4:2:0) even at the quality 100 used. Opaque video only: not with --transparent, --footage or --stills' },
+    draft: { type: 'boolean', help: `A quick look rather than the deliverable: --scale ${DRAFT.scale}, --capture ${DRAFT.capture} --quality ${DRAFT.quality}, --preset ${DRAFT.preset} --crf ${DRAFT.crf}, each unless given; --out must end in .draft.mp4 or .draft.mov (see Draft below)` },
+    scale: { type: 'string', value: '<0.1-1>', help: 'Draw the frames at this fraction of the canvas, an odd side cropped to even for H.264 (default 1; 0.5 under --draft)' },
+    quality: { type: 'string', value: '<1-100>', help: `With --capture jpeg: the JPEG's quality (default 100; ${DRAFT.quality} under --draft)` },
+    preset: { type: 'string', value: '<x264 preset>', help: `x264's speed, ${X264_PRESETS[0]} to ${X264_PRESETS[X264_PRESETS.length - 1]} (default ${FULL_ENCODE.preset}; ${DRAFT.preset} under --draft); not with --transparent` },
+    crf: { type: 'string', value: '<0-51>', help: `x264's quality, lower is better and larger (default ${FULL_ENCODE.crf}; ${DRAFT.crf} under --draft); not with --transparent` },
+    footage: { type: 'string', value: '<file>', help: 'Lay the page, captured with alpha, over this clip in ffmpeg: full-stage footage from the first frame, with captions or graphics over it (see Footage below)' },
     stills: { type: 'string', multiple: true, value: '<sec,...>', help: 'Render only these moments as PNGs, no video; repeatable or comma-separated' },
     sheet: { type: 'string', value: '<file.jpg>', help: 'With --stills: also tile them on one contact sheet' },
     chrome: { type: 'string', value: '<path>', help: 'Drive this Chrome/Chromium binary instead of the pinned headless shell' },
@@ -67,20 +77,66 @@ export const usage = {
     'requestAnimationFrame or a timer); <video> elements show the picture at t (from 0 unless __seek sets their',
     'time). Timers and requestAnimationFrame run before that seek, so a video drawn into a canvas from either shows',
     'the previous frame\'s picture; draw it from window.__seek(t) once the video\'s own seek has settled (while',
-    'video.seeking, await its seeked event). Fonts, images and videos are loaded before frame 0. A local video with',
-    'keyframes far apart is served from an all-intra copy, so every seek decodes a single frame; the copy is kept in',
-    '<out>.render/media for later renders and patches, and a copy the page no longer plays is removed by the next',
-    'video render to that --out. Stills keep theirs in <stills-dir>.render/media, which nothing prunes.',
+    'video.seeking, await its seeked event). Fonts, images and videos are loaded before the first frame. A local video with',
+    'keyframes far apart is served from an all-intra copy, so every seek decodes a single frame. A copy of a video',
+    'with alpha, such as a cut-out, is a VP9 WebM that keeps it, so what lies under it still shows (an HDR one,',
+    'converted to SDR, does not); one with alpha Chrome cannot play (ProRes 4444, PNG or QTRLE in a .mov) is copied',
+    'whatever its keyframes. A stage that names a cut-out (data-cutout="<file>") is drawn in layers: the page\'s',
+    'footage, behind and front layers ([data-layer]) stacked in that order, and the cut-out in a layer of its own between',
+    'behind and front, filling the stage on the page\'s clock from time 0 (see behind --help); a cut-out that cannot be',
+    'played, or a layer or a data-behind graphic out of place, fails the render. A video the page shows',
+    'smaller than its frame (its box and object-fit, as the page has loaded, put the picture at no more than two',
+    'thirds of its width and height) is served from a copy at the shown size, keyframes far apart or not, so a seek',
+    'decodes no more than is shown. A page that draws it larger, or a hidden one (no box, visibility hidden, opacity',
+    '0), which may be drawn into a canvas at full size, gets a full-size copy, or none; a visible video drawn into a',
+    'canvas larger than its own box shows the copy\'s picture scaled up, so give such a video its full box or hide',
+    'it. One the page later draws larger than it showed it on load fails the frame it grows in, and the render is',
+    'made again from full-size copies, at the cost of the time already spent. A copy is kept in <out>.render/media',
+    'for later renders and patches, and a copy the page no longer plays or plays at another size is removed by the',
+    'next video render to that --out. Stills keep theirs in <stills-dir>.render/media, which nothing prunes.',
     'Each worker steps the page through every earlier frame (without capturing them) before its own, so state a page',
-    'builds as time passes matches a one-worker render, and the output is the same whatever --workers is.',
+    'builds as time passes matches a one-worker render, and the output is the same whatever --workers is; with a',
+    '<video> on the page every one of those frames seeks it. A page that draws frame t from t alone (CSS and Web',
+    'Animations running from load, GSAP, a window.__seek(t) that places everything from t) may say so with a',
+    'data-stateless attribute on any element (the stage, say): its workers and stills then jump straight to their',
+    'frames, and timers still fire in order at their virtual times. A counter, a rAF loop with state of its own, a',
+    'simulation, or an animation the page starts partway through (it is dated from the frame it first appeared in)',
+    'is state carried between frames; a page with any of those marked stateless renders differently per worker',
+    'count, and nothing checks the mark.',
+    'Footage: --footage <file> lays the page\'s frames over the clip in ffmpeg, from its first frame and unscaled in',
+    'time, scaled to fill the canvas, whose shape it must have as shown: footage of another shape is refused with the',
+    'reframe command that cuts it, so the page previews and places text over the picture the render shows. The page',
+    'must not paint an opaque background (on html, body or the stage) over it. A <video> on the page that plays that',
+    'file is stood down before the first frame (hidden, its source removed), so the same page previews in an ordinary',
+    'browser and Chrome never decodes or seeks the footage here; the page may also leave the <video> out. The clip\'s',
+    'frame rate must be --fps and it must run to the render\'s last frame; both are checked before anything starts.',
+    'This is for footage that fills the stage from the first frame: a page that moves, times, crops or transforms its',
+    'footage keeps its <video> and renders without --footage, which draws it as the page does. HDR (PQ/HLG) footage,',
+    'under --footage or in a <video>, is converted to SDR BT.709, and a line says so.',
     'Cache: segments and a manifest live in <out>.render/. --from/--to re-renders the segments that overlap the range',
-    '(plus any missing from the cache) with the same fps, size, length, segment length, browser and ffmpeg, and rejoins',
+    '(plus any missing from the cache) with the same page, fps, size, length, segment length, transparency, capture,',
+    'footage (its path, size and date), conversion of HDR videos, encoder settings, browser and ffmpeg, and rejoins',
     'by stream copy.',
+    'Capture: each frame leaves Chrome as a PNG, the exact picture, and on a page full of gradients, shadows and large',
+    'text that capture is most of what a frame costs. --capture jpeg has Chrome write a JPEG instead, at quality 100,',
+    'which is about half the capture time on such a frame. It is a loss, a small one: Chrome stores the JPEG\'s colour',
+    'at half resolution (4:2:0), so the colour is resampled twice between the page and the H.264, which is 4:2:0',
+    'anyway, and the picture is rounded once more on its way in. The JPEG\'s own colour space (BT.601, full range) is',
+    'converted to the same BT.709 as the PNG path, so the two match to within a level. Not with --transparent or',
+    '--footage, since a JPEG carries no alpha, and not with --stills, which are PNG files.',
+    'Draft: --draft renders a quick look at the piece, not the deliverable: the frames are drawn at half the canvas',
+    '(Chrome rasterises the page at that size, so the layout is the same and a quarter of the pixels are drawn), leave',
+    'Chrome as JPEGs at quality 80, and are encoded with x264 ultrafast at CRF 28. Under --transparent or --footage the',
+    'capture stays PNG, since those need the alpha. Each setting can be given on its own instead, with or without',
+    '--draft: --scale, --capture, --quality, --preset, --crf; a lower --fps also cuts the frames to draw, at the cost',
+    'of the page\'s motion. A draft\'s --out must end in .draft.mp4 or .draft.mov, so it never takes the place, or the',
+    'cache, of the full render beside it. The cache records every one of these settings, so a patch keeps them.',
     'Fails, naming the cause, when Chrome does not start, the page server refuses a file the page needs (see Files),',
     'the page throws or rejects unhandled, a video never shows the picture a seek asked for, or every rendered frame',
-    'is one flat colour (fully transparent with --transparent), a patch\'s range included where the render it patches',
-    'drew; the output is then left as it was. Loads that fail, and videos that will not play, are listed as warnings,',
-    'before the error when the render fails.',
+    'is one flat colour (fully transparent with --transparent or --footage), a patch\'s range included where the render',
+    'it patches drew, or under --footage every frame of a whole render is opaque, so the footage would never show; the',
+    'output is then left as it was. Loads that fail, and videos that will not play, are listed as warnings, before the',
+    'error when the render fails.',
     'Files: the page is served over loopback HTTP and reads files beneath its own directory, the working directory and',
     'each --root. The home directory, an ancestor of it and the filesystem root are served only when a --root names',
     'one: a working directory there is left out, and a page kept there is refused.',
@@ -89,7 +145,7 @@ export const usage = {
     'or a hidden one, saying it sits in a folder render does not serve. A refused fetch() or XMLHttpRequest is only a',
     'failed load, since the page sees the refusal and can handle it, as is a missing file beneath the roots; a path',
     'outside them is refused without being looked up, so a missing one is refused too.',
-    'Output: H.264 yuv420p (CRF 15, BT.709, +faststart), or ProRes 4444 with alpha under --transparent; silent.',
+    `Output: H.264 yuv420p (CRF ${FULL_ENCODE.crf} unless --crf or --draft, BT.709, +faststart), or ProRes 4444 with alpha under --transparent; silent.`,
     '`mux-audio --video <out> --audio <track> --out <file>` adds a soundtrack (mix-audio builds one from several pieces).',
     'The browser is Chrome Headless Shell at a pinned version, downloaded on first use (see install-browser). It',
     'runs in its own sandbox, and without it wherever Chrome refuses it (inside another macOS sandbox, as root in a',
@@ -109,6 +165,18 @@ interface Params {
   frames: number;
   segmentFrames: number;
   transparent: boolean;
+  /** A segment captured as JPEG is never spliced in beside ones captured as PNG, or the reverse. */
+  capture: Capture;
+  /** The size frames were drawn at, as a fraction of the canvas. */
+  scale: number;
+  /** A JPEG capture's quality; absent at 100, which every JPEG capture was before it was a choice. */
+  quality?: number;
+  /** The footage the segments were laid over, by path, size and mtime; absent when the page drew it all. */
+  footage?: string;
+  /** How the page's HDR videos were converted to SDR; absent when it plays none. */
+  sdr?: string;
+  /** How the page's videos with alpha were served; absent when it plays none, so an older cache is never spliced in. */
+  alpha?: string;
   encoder: string;
   /** The browser and ffmpeg builds: a segment made by another is not spliced in beside this render's. */
   browser: string;
@@ -122,23 +190,30 @@ interface Manifest {
   segments: { index: number; start: number; frames: number; file: string; bytes: number; drawn?: boolean }[];
 }
 
-interface Canvas {
-  width: number;
-  height: number;
-  /** The viewport the stage was measured in, and so the only one its clip is valid in. */
-  viewport: { width: number; height: number };
-  clip: SessionOptions['clip'];
-}
-
-type SessionBase = Omit<SessionOptions, 'viewport' | 'clip'>;
-type Stage = NonNullable<RenderSession['info']['stage']>;
-
-const PROBE = { width: 1920, height: 1080 };
 
 const say = (line: string) => console.error(`render: ${line}`);
 const pad = (n: number, w: number) => String(n).padStart(w, '0');
 
-class UsageError extends Error {}
+/**
+ * Where the time went, as lines for the summary. Per-frame figures are what a frame cost on the worker
+ * that drew it, summed over the stages a worker waits through in turn, so they add up to the pace of
+ * one worker and not to the wall clock.
+ */
+export function breakdown(t: Timings, frames: number): string[] {
+  if (!frames) return [];
+  const per = (stage: keyof Timings) => `${Math.round(t[stage].ms / frames)} ms`;
+  const sec = (stage: keyof Timings) => `${(t[stage].ms / 1000).toFixed(1)} s`;
+  const lines = [`per frame on its worker: page ${per('page')}, capture ${per('capture')}, loads ${per('loads')}, encode wait ${per('encode')}`];
+  const rest = [`Chrome: ${t.launch.n} launched in ${sec('launch')}, pages ready in ${sec('load')}`];
+  if (t.preroll.n) rest.unshift(`preroll: ${t.preroll.n} earlier frame(s) stepped through in ${sec('preroll')} (${Math.round(t.preroll.ms / t.preroll.n)} ms/frame)`);
+  if (t.copy.n) rest.push(`all-intra copies ${sec('copy')}`);
+  if (t.join.n) rest.push(`join ${sec('join')}`);
+  // A frame's step ran past DRAW_EVERY_MS, slow or left undrawn; on every frame of a fast page, that would be Chrome
+  // no longer drawing on its own.
+  if (t.draw.n) rest.push(`${t.draw.n} draw(s) forced on frames slower than ${DRAW_EVERY_MS / 1000} s`);
+  lines.push(rest.join('; '));
+  return lines;
+}
 
 /** `f()`, with any error it throws turned into a usage error: it read a flag the user got wrong. */
 function asUsage<T>(f: () => T): T {
@@ -149,90 +224,135 @@ function asUsage<T>(f: () => T): T {
   }
 }
 
-function sessionOptions(base: SessionBase, canvas: Canvas): SessionOptions {
-  return { ...base, viewport: canvas.viewport, clip: canvas.clip };
-}
-
-const fitsIn = (s: Stage, v: { width: number; height: number }): boolean =>
-  s.left >= 0 && s.top >= 0 && s.left + s.width <= v.width && s.top + s.height <= v.height;
-
-function stageCanvas(s: Stage, viewport: { width: number; height: number }): Canvas {
-  const whole = s.left === 0 && s.top === 0 && s.width === viewport.width && s.height === viewport.height;
-  return { width: s.width, height: s.height, viewport, clip: whole ? null : { x: s.left, y: s.top, width: s.width, height: s.height } };
-}
-
-function led(canvas: Canvas, lead: RenderSession): { canvas: Canvas; lead: RenderSession } {
-  lead.setClip(canvas.clip);
-  return { canvas, lead };
-}
-
-const where = (s: Stage | null): string => (s ? `${s.width}x${s.height} at ${s.left},${s.top}` : 'gone');
-
-/**
- * The first worker, opened before the others: it settles the canvas (the flags when given, else the
- * page's stage element) and reports the page's videos. The stage is captured from the viewport it was
- * measured in: a centred or viewport-sized stage moves when the viewport changes size.
- */
-async function openLead(base: SessionBase, width?: number, height?: number): Promise<{ canvas: Canvas; lead: RenderSession }> {
-  if (width && height) {
-    const canvas = { width, height, viewport: { width, height }, clip: null };
-    return { canvas, lead: await RenderSession.open(sessionOptions(base, canvas)) };
-  }
-  const probe = await RenderSession.open({ ...base, viewport: PROBE, clip: null });
-  const first = probe.info.stage;
-  if (!first) return { canvas: { ...PROBE, viewport: PROBE, clip: null }, lead: probe };
-  const inProbe = fitsIn(first, PROBE);
-  if (inProbe && stageCanvas(first, PROBE).clip === null) return led(stageCanvas(first, PROBE), probe);
-  // The smallest viewport that holds the stage where it sat, measured again there. The probe stays open
-  // meanwhile: when the stage fits it, its own measurement is the fallback.
-  const viewport = { width: Math.max(first.left, 0) + first.width, height: Math.max(first.top, 0) + first.height };
-  let lead: RenderSession;
-  try {
-    lead = await RenderSession.open({ ...base, viewport, clip: null });
-  } catch (e) {
-    await probe.close();
-    throw e;
-  }
-  const again = lead.info.stage;
-  if (again && again.width === first.width && again.height === first.height && fitsIn(again, viewport)) {
-    await probe.close();
-    return led(stageCanvas(again, viewport), lead);
-  }
-  await lead.close();
-  if (inProbe) return led(stageCanvas(first, PROBE), probe);
-  await probe.close();
-  throw new UsageError(`the page's stage is ${where(first)} in a ${PROBE.width}x${PROBE.height} viewport but ${where(again)} in ${viewport.width}x${viewport.height}: `
-    + 'its size or place follows the viewport, so give it a fixed size, or pass --width/--height');
+/** The video's size: the frames as drawn, an odd side cropped to even for H.264 (ProRes keeps it). */
+function videoSize(c: { width: number; height: number }, scale: number, transparent: boolean): { width: number; height: number } {
+  const d = drawnSize(c, scale);
+  return transparent ? d : { width: d.width - (d.width % 2), height: d.height - (d.height % 2) };
 }
 
 const firstLine = (e: unknown): string =>
   ((e as { stderr?: Buffer }).stderr?.toString().trim() || (e as Error).message).split('\n')[0];
 
 /**
- * Serves an all-intra copy in place of every long-GOP video the page plays, and reloads the lead when
- * any was swapped in, since the page read the originals as it loaded. Returns the copies in use.
+ * Serves an all-intra copy in place of every video the page plays that is long-GOP, or, when `shrink`,
+ * drawn well below its own size (then at the drawn size, so a seek decodes no more than is shown), and
+ * reloads the lead when what it loaded has changed: a copy swapped in, or, on the full-size attempt, the
+ * smaller copies the first attempt served. Returns the copies in use and the URLs served from smaller ones.
  */
-async function seekableVideos(lead: RenderSession, server: PageServer, dir: string): Promise<string[]> {
+async function seekableVideos(lead: RenderSession, server: PageServer, dir: string, shrink: boolean): Promise<{ copies: string[]; shrunk: string[] }> {
   const copies: string[] = [];
-  for (const url of new Set(lead.info.videos)) {
-    const file = server.fileFor(url);
+  const shrunk: string[] = [];
+  // The server swaps a file whatever URL names it (a fragment, a query), so the copy is sized for the
+  // largest of a file's URLs, and one whose drawn size is unknown under any of them keeps it full size.
+  const byFile = new Map<string, { video: RenderSession['info']['videos'][number]; urls: string[] }>();
+  for (const video of lead.info.videos) {
+    const file = server.fileFor(video.url);
     if (!file || !existsSync(file)) continue;
-    let gop: number;
+    const seen = byFile.get(file);
+    if (!seen) {
+      byFile.set(file, { video: { ...video }, urls: [video.url] });
+      continue;
+    }
+    seen.urls.push(video.url);
+    seen.video.scale = seen.video.scale === null || video.scale === null ? null : Math.max(seen.video.scale, video.scale);
+  }
+  // A picture with alpha Chrome has no decoder for (ProRes 4444, PNG or QTRLE in a .mov) plays from its copy.
+  for (const url of lead.info.unplayable) {
+    const file = server.fileFor(url);
+    if (!file || byFile.has(file) || !existsSync(file) || !pictureColour(file) || alphaInputOf(file)?.webm !== false) continue;
+    byFile.set(file, { video: { url, width: 0, height: 0, scale: null }, urls: [url] });
+  }
+  for (const [file, { video, urls }] of byFile) {
+    // A copy an earlier attempt served is dropped unless this one makes it again.
+    server.substitute(file, file);
+    const name = basename(file);
+    // An HDR video is always copied, whatever its keyframes: the copy is where it is converted, so Chrome
+    // never tone-maps it its own way.
+    const colour = pictureColour(file);
+    const kind = colour && hdrKind(colour);
+    const sdr = kind ? toSdr(colour!, name) : undefined;
+    if (kind) say(describeHdr(name, colour!));
+    let gop: number | null = null;
     try {
       gop = longestGop(file);
     } catch (e) {
-      say(`could not read the keyframes of ${basename(file)} (${firstLine(e)}); serving it as it is, so its seeks may be slow`);
-      continue;
+      if (!kind) {
+        say(`could not read the keyframes of ${name} (${firstLine(e)}); serving it as it is, so its seeks may be slow`);
+        continue;
+      }
     }
-    if (gop <= MAX_GOP) continue;
+    const size = shrink ? shownSize(video, video.scale) : null;
+    // Copied whatever its keyframes when Chrome cannot play its alpha as it is.
+    const recoded = !kind && colour !== null && alphaInputOf(file)?.webm === false;
+    if (!kind && !recoded && gop! <= MAX_GOP && !size) continue;
     const started = Date.now();
-    const copy = seekableCopy(file, dir);
-    if (copy.made) say(`made an all-intra copy of ${basename(file)} (keyframes up to ${gop} frames apart) for frame-exact seeks in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    const copy = await timed(lead.timings, 'copy', async () => seekableCopy(file, dir, size, sdr));
+    if (copy.made) {
+      const secs = `${((Date.now() - started) / 1000).toFixed(1)} s`;
+      if (kind) say(`made an SDR copy of ${name}${size ? ` at ${size.width}x${size.height}` : ''} (it is HDR), all-intra for frame-exact seeks, in ${secs}`);
+      else if (recoded) say(`made a VP9 copy of ${name} that keeps its alpha, since Chrome cannot play it as it is, in ${secs}`);
+      else {
+        const why = size
+          ? `at ${size.width}x${size.height} (shown at that size; the source is ${video.width}x${video.height}${gop! > MAX_GOP ? `, with keyframes up to ${gop} frames apart` : ''})`
+          : `(keyframes up to ${gop} frames apart)`;
+        say(`made an all-intra copy of ${name} ${why} for frame-exact seeks in ${secs}`);
+      }
+    }
     server.substitute(file, copy.path);
     copies.push(copy.path);
+    if (size) shrunk.push(...urls);
   }
-  if (copies.length) await lead.reload();
-  return copies;
+  lead.serveShrunk(shrunk);
+  if (copies.length || !shrink) await lead.reload();
+  const cutout = lead.info.cutout;
+  if (cutout && !cutout.playable) {
+    const file = server.fileFor(cutout.url);
+    let codec = '';
+    try {
+      if (file) codec = codecOf(file);
+    } catch {
+      // Not a video ffprobe can read: the refusal stands without naming a codec.
+    }
+    const hevc = codec === 'hevc' ? ': it is HEVC, whose alpha Chrome cannot draw here, so convert it to VP9 WebM or ProRes 4444' : '';
+    throw new Error(`the speaker layer's cut-out ${file ?? cutout.url} could not be played, so it would not cover the graphics behind it${hevc}`);
+  }
+  return { copies, shrunk };
+}
+
+/** How the page's videos with alpha are served, as the cache records it; absent when it plays none. */
+function pageAlpha(lead: RenderSession, server: PageServer): string | undefined {
+  const files = [...lead.info.videos.map((v) => v.url), ...lead.info.unplayable].map((u) => server.fileFor(u)).filter((f): f is string => !!f && existsSync(f));
+  return files.some((f) => pictureColour(f) !== null && alphaInputOf(f) !== null) ? 'alpha kept, in VP9 WebM copies where copied' : undefined;
+}
+
+/**
+ * A page video's colour, or null for a file ffprobe finds no picture in, such as a sound played by a <video>,
+ * or cannot read at all, which is served unconverted and said so.
+ */
+const pictureColour = perVersion((file): ColourReport | null => {
+  try {
+    return colourTagsOf(file);
+  } catch (e) {
+    if (!(e instanceof NoVideoStream)) say(`could not read the colour of ${basename(file)} (${(e as Error).message}); serving it unconverted`);
+    return null;
+  }
+});
+
+/** How the page's HDR videos are converted, as the cache records it; absent when the page plays none. */
+function pageConversion(lead: RenderSession, server: PageServer): string | undefined {
+  const chains = new Set<string>();
+  for (const video of lead.info.videos) {
+    const file = server.fileFor(video.url);
+    if (!file || !existsSync(file)) continue;
+    let colour: ColourReport;
+    try {
+      colour = colourTagsOf(file);
+    } catch {
+      continue; // seekableVideos says why, when it serves the file
+    }
+    if (hdrKind(colour)) chains.add(toSdr(colour, basename(file)));
+  }
+  return chains.size ? [...chains].sort().join('; ') : undefined;
 }
 
 function processAlive(pid: number): boolean {
@@ -305,7 +425,12 @@ function holderOf(file: string): { text: string; mtimeMs: number } | null {
 function readManifest(dir: string): Manifest | null {
   try {
     const m = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as Manifest;
-    return m.version === 1 && m.params && Array.isArray(m.segments) ? m : null;
+    if (m.version !== 1 || !m.params || !Array.isArray(m.segments)) return null;
+    // A manifest from before the capture was a choice was made when every capture was a PNG.
+    m.params.capture ??= 'png';
+    // And before the scale was, when every frame was drawn at the canvas's size.
+    m.params.scale ??= 1;
+    return m;
   } catch {
     return null;
   }
@@ -318,7 +443,9 @@ function writeManifest(dir: string, m: Manifest): void {
 }
 
 function paramsDiffer(a: Params, b: Params): string[] {
-  return (Object.keys(b) as (keyof Params)[]).filter((k) => a[k] !== b[k]).map((k) => `${k} ${JSON.stringify(a[k])} → ${JSON.stringify(b[k])}`);
+  // Both key sets: a setting the cached render had and this one lacks (its footage) is a difference too.
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])] as (keyof Params)[];
+  return keys.filter((k) => a[k] !== b[k]).map((k) => `${k} ${JSON.stringify(a[k])} → ${JSON.stringify(b[k])}`);
 }
 
 interface WorkerPlan<T> {
@@ -331,7 +458,7 @@ interface WorkerPlan<T> {
  * capture (a page load or a preroll already under way runs to its end) and is the one reported; all
  * browsers are closed whatever happens.
  */
-async function runWorkers<T>(base: SessionBase, canvas: Canvas, lead: RenderSession, plan: WorkerPlan<T>): Promise<void> {
+export async function runWorkers<T>(base: SessionBase, canvas: Canvas, lead: RenderSession, plan: WorkerPlan<T>): Promise<void> {
   const sessions: RenderSession[] = [];
   let failure: unknown = null;
   const stop = () => failure !== null;
@@ -367,28 +494,30 @@ function warnLoads(loads: Set<string>, delivered: boolean): void {
 }
 
 async function renderStills(o: {
-  base: SessionBase; canvas: Canvas; lead: RenderSession; fps: Fps;
-  frames: number[]; outDir: string; sheet?: string; workers: number;
+  base: SessionBase; canvas: Canvas; lead: RenderSession; fps: Fps; footage: Footage | null;
+  frames: number[]; outDir: string; sheet?: string; workers: number; shrink: boolean;
 }): Promise<{ paths: string[]; workers: number }> {
   mkdirSync(o.outDir, { recursive: true });
-  // Every worker steps through the frames before its first still, so a long-GOP video pays one slow
-  // seek per earlier frame unless it is swapped for its all-intra copy here too.
-  await seekableVideos(o.lead, o.base.server, `${o.outDir}.render/media`);
+  // Every worker steps through the frames before its first still (unless the page is stateless), so a
+  // long-GOP video pays one slow seek per earlier frame unless it is swapped for its all-intra copy
+  // here too; a stateless page's one seek per still is fast only from the copy.
+  const { shrunk } = await seekableVideos(o.lead, o.base.server, `${o.outDir}.render/media`, o.shrink);
   const groups = splitContiguous(o.frames, o.workers);
   const paths = new Map<number, string>();
   let drawn = false;
-  await runWorkers(o.base, o.canvas, o.lead, {
+  await runWorkers({ ...o.base, shrunk }, o.canvas, o.lead, {
     groups,
     run: async (session, frame) => {
       const png = await session.capture(frame);
       if (!drawn && showsSomething(inspectPng(png))) drawn = true;
       const path = join(o.outDir, `f${pad(frame, 6)}-${frameTime(frame, o.fps).toFixed(3)}s.png`);
-      writeFileSync(path, png);
+      writeFileSync(path, o.footage ? composeStill(o.footage, frame, o.fps, o.canvas, png) : png);
       paths.set(frame, path);
     },
   });
   const ordered = o.frames.map((f) => paths.get(f)!);
-  if (!drawn) throw new Error(`every still is ${o.base.transparent ? 'fully transparent or ' : ''}one flat colour: the page drew nothing (stills kept in ${o.outDir})`);
+  // Over footage a moment with no caption is still footage: whether the page draws at all is the video render's to judge.
+  if (!drawn && !o.footage) throw new Error(`every still is ${o.base.transparent ? 'fully transparent or ' : ''}one flat colour: the page drew nothing (stills kept in ${o.outDir})`);
   if (o.sheet) {
     const sheet = resolve(o.sheet);
     mkdirSync(dirname(sheet), { recursive: true });
@@ -410,18 +539,30 @@ interface VideoResult {
 }
 
 async function renderVideo(o: {
-  base: SessionBase; canvas: Canvas; lead: RenderSession; fps: Fps; page: string; browser: string;
-  total: number; segmentFrames: number; out: string; workers: number; patch: { from: number; to: number } | null;
+  base: SessionBase; canvas: Canvas; lead: RenderSession; fps: Fps; page: string; browser: string; transparent: boolean;
+  footage: Footage | null; total: number; segmentFrames: number; out: string; workers: number; patch: { from: number; to: number } | null;
+  shrink: boolean; x264: Encode;
 }): Promise<VideoResult> {
-  const transparent = o.base.transparent;
+  const { transparent, footage } = o;
+  const capture = o.base.capture ?? 'png';
+  const scale = o.base.scale ?? 1;
+  // A scaled capture can leave an odd side, which is cropped off; an unscaled one is refused before.
+  const x264: Encode = { ...o.x264, even: scale !== 1 };
   const ext = transparent ? 'mov' : 'mp4';
+  // The footage is scaled to the frames as Chrome draws them, before an odd side is cropped off both.
+  const overlay = footage ? overlayFor(footage, drawnSize(o.canvas, scale), o.fps) : null;
+  const sdr = pageConversion(o.lead, o.base.server);
+  const alpha = pageAlpha(o.lead, o.base.server);
   const cache = `${o.out}.render`;
   mkdirSync(cache, { recursive: true });
   const release = acquireLock(cache);
   try {
     const params: Params = {
       page: o.page, fps: fpsLabel(o.fps), width: o.canvas.width, height: o.canvas.height, frames: o.total,
-      segmentFrames: o.segmentFrames, transparent, encoder: encoderArgs(transparent).join(' '),
+      segmentFrames: o.segmentFrames, transparent, capture, scale, ...(capture === 'jpeg' && (o.base.quality ?? 100) !== 100 ? { quality: o.base.quality } : {}), ...(footage ? { footage: footage.identity } : {}),
+      ...(sdr ? { sdr } : {}),
+      ...(alpha ? { alpha } : {}),
+      encoder: encoderArgs(transparent, capture, overlay, x264).join(' '),
       browser: o.browser, ffmpeg: probeVersion(FFMPEG, FFMPEG_PROBE).banner.replace(/\s+Copyright.*$/, ''),
     };
     const segments = planSegments(o.total, o.segmentFrames);
@@ -455,7 +596,7 @@ async function renderVideo(o: {
     }
 
     const media = join(cache, 'media');
-    const copies = await seekableVideos(o.lead, o.base.server, media);
+    const { copies, shrunk } = await seekableVideos(o.lead, o.base.server, media, o.shrink);
     // A copy is keyed by its source's path, size and mtime, so one not in use now belongs to a source
     // that changed or left the page and would never be read again. The lock makes this render the
     // cache's only writer.
@@ -466,13 +607,16 @@ async function renderVideo(o: {
     const renderedFrames = toRender.reduce((n, s) => n + s.frames, 0);
     const runs = splitFrames(toRender, workersFor(renderedFrames, o.workers, MIN_FRAMES_PER_WORKER));
     const attempt = `${process.pid}-${randomBytes(3).toString('hex')}`;
-    // A segment split between workers is kept as PNGs, one per frame, and encoded in order once every
-    // worker has finished.
+    // A segment split between workers is kept as captured files, one per frame, and encoded in order
+    // once every worker has finished.
     const spill = join(cache, `spill.${attempt}`);
     const spillDir = (seg: Segment) => join(spill, pad(seg.index, 5));
-    const spillFrame = (dir: string, i: number) => join(dir, `f-${pad(i, 7)}.png`);
+    const spillFrame = (dir: string, i: number) => join(dir, `f-${pad(i, 7)}.${capture}`);
     const shared = new Map<number, Segment>();
     const drew = new Set<number>();
+    // Whether any frame let the footage through: a page that paints a background over it everywhere
+    // would render captions over that background, and never the footage, with nothing else to say so.
+    let letsThrough = !footage;
     let doneFrames = 0;
     let nextReport = 0.1;
     const progress = (frames: number) => {
@@ -484,10 +628,11 @@ async function renderVideo(o: {
     };
     const encode = async (seg: Segment, frames: AsyncIterable<Buffer> | Iterable<Buffer>) => {
       const tmp = join(cache, `seg-${pad(seg.index, 5)}.${attempt}.tmp`);
-      const enc = startSegmentEncoder(tmp, o.fps, transparent);
+      const under = footage && overlay ? { file: footage.file, seek: seekArgs(seg.start, o.fps, footage.offset), overlay, frames: seg.frames } : null;
+      const enc = startSegmentEncoder(tmp, o.fps, transparent, capture, under, x264);
       try {
-        for await (const png of frames) await enc.write(png);
-        await enc.finish();
+        for await (const frame of frames) await timed(o.base.timings, 'encode', () => enc.write(frame));
+        await timed(o.base.timings, 'encode', () => enc.finish(), 0);
         renameSync(tmp, fileOf(seg));
         sizes.set(seg.index, statSync(fileOf(seg)).size);
       } catch (e) {
@@ -497,17 +642,28 @@ async function renderVideo(o: {
       }
     };
 
+    // Whether a frame draws, and whether it lets footage through, is read off its PNG. A JPEG would have
+    // to be decoded to tell, so under --capture jpeg each frame is also captured as a PNG until its
+    // segment is known to draw: a frame that draws ends that for its segment, and a flat one is the cheap
+    // kind of PNG to capture.
+    const look = async (session: RenderSession, shot: Buffer, i: number) =>
+      inspectPng(capture === 'jpeg' ? await session.shoot(`frame ${i}`, 'png') : shot);
+
     try {
-      await runWorkers(o.base, o.canvas, o.lead, {
+      await runWorkers({ ...o.base, shrunk }, o.canvas, o.lead, {
         groups: runs,
         run: async (session, piece, stop) => {
           const seg = piece.segment;
           async function* captured() {
             for (let i = piece.from; i < piece.to; i++) {
               if (stop()) throw new Error('stopped');
-              const png = await session.capture(i);
-              if (!drew.has(seg.index) && showsSomething(inspectPng(png))) drew.add(seg.index);
-              yield png;
+              const shot = await session.capture(i);
+              if (!drew.has(seg.index) || !letsThrough) {
+                const seen = await look(session, shot, i);
+                if (showsSomething(seen)) drew.add(seg.index);
+                if (!seen.opaque) letsThrough = true;
+              }
+              yield shot;
             }
           }
           if (piece.from === seg.start && piece.to === seg.start + seg.frames) {
@@ -516,7 +672,7 @@ async function renderVideo(o: {
             const dir = spillDir(seg);
             mkdirSync(dir, { recursive: true });
             let i = piece.from;
-            for await (const png of captured()) writeFileSync(spillFrame(dir, i++), png);
+            for await (const shot of captured()) writeFileSync(spillFrame(dir, i++), shot);
             shared.set(seg.index, seg);
           }
           progress(piece.to - piece.from);
@@ -537,13 +693,18 @@ async function renderVideo(o: {
     if (blank && (!o.patch || toRender.some((s) => drewBefore.get(s.index) !== false))) {
       // The manifest still records the segments these replaced, so they must not stay in the cache.
       if (o.patch) for (const s of toRender) rmSync(fileOf(s), { force: true });
-      const flat = `${transparent ? 'fully transparent or ' : ''}one flat colour`;
+      const flat = `${o.base.transparent ? 'fully transparent or ' : ''}one flat colour`;
       throw new Error(o.patch
         ? `every re-rendered frame is ${flat} where the render it patches drew: the page drew nothing in the patched range; ${o.out} was left as it was. `
           + 'If the range is meant to be empty, render without --from/--to, which checks the whole video'
         : `every rendered frame is ${flat}: the page drew nothing; ${o.out} was left as it was`);
     }
-    joinSegments(segments.map(fileOf), o.out);
+    // Only a whole render is judged: a patched range may well be a card that covers the footage.
+    if (!o.patch && renderedFrames > 0 && !letsThrough) {
+      throw new Error(`every rendered frame is opaque, so the footage never shows: the page paints a background over it (on html, body or the stage); `
+        + `make that transparent, or render without --footage if the page is meant to cover the footage; ${o.out} was left as it was`);
+    }
+    await timed(o.base.timings, 'join', async () => joinSegments(segments.map(fileOf), o.out));
     const counted = countFrames(o.out);
     if (counted !== o.total) throw new Error(`${o.out} holds ${counted} frames, expected ${o.total}; the segments in ${cache} do not add up`);
     writeManifest(cache, {
@@ -658,8 +819,51 @@ async function run(values: Values, positionals: string[]): Promise<number> {
   if (frames !== undefined && duration !== undefined) throw new UsageError('give --duration or --frames, not both');
   const total = frames ?? (duration !== undefined ? framesForDuration(duration, fps) : undefined);
   const transparent = values.transparent === true;
+  const draft = values.draft === true;
+  // A JPEG carries no alpha, so a draft that needs it keeps the PNG capture; stills are PNG files.
+  const pngOnly = transparent || values.footage !== undefined || values.stills !== undefined;
+  const scale = asUsage(() => numberFlag('scale', values.scale, draft ? DRAFT.scale : 1, (n) => n >= 0.1 && n <= 1, 'a fraction from 0.1 to 1'));
+  const capture = (values.capture ?? (draft && !pngOnly ? DRAFT.capture : 'png')) as Capture;
+  const quality = asUsage(() => numberFlag('quality', values.quality, draft ? DRAFT.quality : 100, (n) => Number.isInteger(n) && n >= 1 && n <= 100, 'an integer from 1 to 100'));
+  const crf = asUsage(() => numberFlag('crf', values.crf, draft ? DRAFT.crf : FULL_ENCODE.crf, (n) => Number.isInteger(n) && n >= 0 && n <= 51, 'an integer from 0 to 51'));
+  const preset = values.preset ?? (draft ? DRAFT.preset : FULL_ENCODE.preset);
+  if (!(X264_PRESETS as readonly string[]).includes(preset)) throw new UsageError(`--preset must be one of ${X264_PRESETS.join(', ')}, not ${JSON.stringify(preset)}`);
+  const x264: Encode = { preset, crf };
+  if (!CAPTURES.includes(capture)) throw new UsageError(`--capture must be ${CAPTURES.join(' or ')}, not ${JSON.stringify(values.capture)}`);
   const stillSpecs = (values.stills ?? []).flatMap((v) => v.split(',')).map((s) => s.trim()).filter(Boolean);
+  let footage: Footage | null = null;
+  if (values.footage !== undefined) {
+    if (transparent) throw new UsageError('--footage lays the page over a clip, which has no alpha to keep; give --footage or --transparent, not both');
+    const file = resolve(values.footage);
+    if (!existsSync(file) || !statSync(file).isFile()) throw new UsageError(`--footage ${values.footage} is not a file`);
+    footage = asUsage(() => probeFootage(file));
+    if (!sameRate(footage.fps, fps)) {
+      throw new UsageError(`the footage runs at ${fpsLabel(footage.fps)} fps and --fps is ${fpsLabel(fps)}: pass --fps ${fpsLabel(footage.fps)}, the footage's own rate, so its frames and the page's line up`);
+    }
+    if (hdrKind(footage.colour)) {
+      assertConvertible(footage.colour, `the footage ${basename(file)}`);
+      say(describeHdr(`the footage ${basename(file)}`, footage.colour));
+    }
+  }
 
+  if (capture === 'jpeg' && transparent) throw new UsageError('--transparent keeps the page\'s alpha, which a JPEG cannot carry; leave --capture at png');
+  if (capture === 'jpeg' && stillSpecs.length) throw new UsageError('--stills writes PNG files; --capture jpeg applies to a video');
+  if (capture === 'jpeg' && footage) throw new UsageError('--footage lays the page over the clip by its alpha, which a JPEG cannot carry; leave --capture at png');
+  if (stillSpecs.length) {
+    const video = (['draft', 'scale', 'quality', 'crf', 'preset'] as const).filter((f) => values[f] !== undefined);
+    if (video.length) throw new UsageError(`${video.map((f) => `--${f}`).join(', ')} shape${video.length === 1 ? 's' : ''} a video; --stills writes full-size PNGs`);
+  }
+  if (values.quality !== undefined && capture !== 'jpeg') {
+    const alpha = transparent ? '--transparent' : footage ? '--footage' : null;
+    throw new UsageError(alpha ? `--quality is a JPEG's quality, and ${alpha} captures PNG for the page's alpha; leave --quality out` : '--quality is a JPEG\'s quality; give --capture jpeg too');
+  }
+  if (transparent && (values.crf !== undefined || values.preset !== undefined)) throw new UsageError('--crf and --preset set the H.264 encode; --transparent writes ProRes 4444, which has neither');
+  if (draft && stillSpecs.length === 0 && !/\.draft\.(mp4|mov)$/i.test(out)) {
+    // The extension the render would take: .mov under --transparent, else the one given when it is one.
+    const ext = transparent || extname(out).toLowerCase() === '.mov' ? '.mov' : '.mp4';
+    throw new UsageError(`--draft writes a quick look, not the deliverable, so its --out must end in .draft${ext}, apart from the full render and its cache: `
+      + `pass --out ${join(dirname(values.out), `${basename(out, extname(out))}.draft${ext}`)}`);
+  }
   if (stillSpecs.length === 0 && values.sheet) throw new UsageError('--sheet tiles the --stills; give --stills too');
   if (stillSpecs.length && (from !== undefined || to !== undefined)) throw new UsageError('--from/--to patch a video; --stills renders no video');
   if (stillSpecs.length === 0) {
@@ -672,8 +876,13 @@ async function run(values: Values, positionals: string[]): Promise<number> {
     const end = frameTime(total, fps);
     if (from !== undefined && from >= end) throw new UsageError(`--from ${from} is at or past the end (${end.toFixed(3)} s)`);
     if (from !== undefined && to !== undefined && to <= from) throw new UsageError('--to must be after --from');
+    if (footage && footage.frames < total) {
+      throw new UsageError(`the footage holds ${footage.frames} frames (${frameTime(footage.frames, fps).toFixed(3)} s at ${fpsLabel(fps)} fps) and the render is ${total} (${end.toFixed(3)} s): `
+        + 'footage runs from the first frame to the last, so give a clip at least as long, or a shorter --duration/--frames');
+    }
   }
-  if (width !== undefined && height !== undefined && !transparent && stillSpecs.length === 0 && (width % 2 || height % 2)) {
+  // A scaled capture is cropped to even sides after it is drawn, so only an unscaled one must be even.
+  if (width !== undefined && height !== undefined && !transparent && stillSpecs.length === 0 && scale === 1 && (width % 2 || height % 2)) {
     throw new UsageError(`H.264 needs an even width and height; got ${width}x${height}`);
   }
 
@@ -686,39 +895,78 @@ async function run(values: Values, positionals: string[]): Promise<number> {
   const failedLoads = new Set<string>();
   let delivered = false;
   try {
-    const base = { chrome, server, page, transparent, fps, seed: SEED, epoch: EPOCH, budgetMs: BUDGET_MS, failedLoads, refused: new Set<string>() };
+    const timings = newTimings();
+    // Over footage the page is captured with alpha, like a transparent render, and composited by ffmpeg.
+    const base = {
+      chrome, server, page, transparent: transparent || footage !== null, capture, quality, scale, footage: footage?.file ?? null, fps, seed: SEED,
+      epoch: EPOCH, budgetMs: BUDGET_MS, failedLoads, refused: new Set<string>(), timings,
+    };
     const opened = await openLead(base, width, height);
     lead = opened.lead;
     const canvas = opened.canvas;
-    if (!transparent && stillSpecs.length === 0 && (canvas.width % 2 || canvas.height % 2)) {
+    if (!transparent && stillSpecs.length === 0 && scale === 1 && (canvas.width % 2 || canvas.height % 2)) {
       throw new UsageError(`the page's stage is ${canvas.width}x${canvas.height}; H.264 needs even sides: make them even, or pass --width/--height, which capture that much of the page from its top-left corner instead of the stage`);
     }
+    const shrunkTo = videoSize(canvas, scale, transparent);
+    if (stillSpecs.length === 0 && (shrunkTo.width < 2 || shrunkTo.height < 2)) {
+      throw new UsageError(`--scale ${scale} leaves the ${canvas.width}x${canvas.height} canvas ${shrunkTo.width}x${shrunkTo.height}, and a video needs at least 2x2: give a larger --scale`);
+    }
+    // Cut here, the footage would show otherwise than in the page's preview and in faces.js, which place text
+    // against the picture the page draws: the page's footage has to be the cut clip.
+    if (footage && cropFor(footage.width, footage.height, canvas.width / canvas.height).travel > 0) {
+      const g = gcd(canvas.width, canvas.height);
+      throw new UsageError(`the footage ${basename(footage.file)} is ${footage.width}x${footage.height} as shown and the stage ${canvas.width}x${canvas.height}, another shape: `
+        + `cut it to the stage's shape first with npx @veedstudio/openedit-cli reframe "${footage.file}" --aspect ${canvas.width / g}:${canvas.height / g} --out <file>, `
+        + 'run faces on that file, and make it the page\'s footage (its <video> and --footage), so the preview, faces.js and the render show the same picture');
+    }
+
+    // A video the page shows smaller on load is served from a copy at that size. A page that later draws
+    // it larger fails that frame, and the render is made once more from full-size copies.
+    const sized = async <R>(go: (lead: RenderSession, shrink: boolean) => Promise<R>): Promise<R> => {
+      try {
+        return await go(lead!, true);
+      } catch (e) {
+        if (!(e instanceof DrawnLarger)) throw e;
+        say(`${e.message}; rendering again from full-size copies`);
+        lead = await RenderSession.open(sessionOptions(base, canvas));
+        return go(lead, false);
+      }
+    };
 
     if (stillSpecs.length) {
       const times = asUsage(() => stillSpecs.map(parseTimeSpec));
       const wanted = [...new Set(times.map((t) => frameAtTime(t, fps)))].sort((a, b) => a - b);
       const past = total === undefined ? [] : wanted.filter((f) => f >= total);
       if (past.length) throw new UsageError(`${past.length} still(s) lie past the end (${frameTime(total!, fps).toFixed(3)} s)`);
-      const r = await renderStills({ base, canvas, lead, fps, frames: wanted, outDir: out, sheet: values.sheet, workers });
+      const beyond = footage ? wanted.filter((f) => f >= footage.frames) : [];
+      if (beyond.length) {
+        throw new UsageError(`${beyond.length} still(s) lie past the footage, which holds ${footage!.frames} frames (${frameTime(footage!.frames, fps).toFixed(3)} s at ${fpsLabel(fps)} fps)`);
+      }
+      const r = await sized((l, shrink) => renderStills({ base, canvas, lead: l, fps, footage, frames: wanted, outDir: out, sheet: values.sheet, workers, shrink }));
       const wall = (Date.now() - started) / 1000;
       console.log(`render: ${r.paths.length} still(s), ${canvas.width}x${canvas.height} at ${fpsLabel(fps)} fps → ${out}`);
       for (const p of r.paths) console.log(`  ${p}`);
       if (values.sheet) console.log(`  sheet: ${resolve(values.sheet)}`);
       console.log(`  wall ${wall.toFixed(1)} s, ${Math.round((wall * 1000) / r.paths.length)} ms/still, ${r.workers} worker(s)`);
+      for (const line of breakdown(timings, r.paths.length)) console.log(`  ${line}`);
       delivered = true;
       return 0;
     }
 
     const patch = from !== undefined || to !== undefined ? { from: from ?? 0, to: to ?? frameTime(total!, fps) } : null;
     const browser = values.chrome ? browserBuild(chrome) : `Chrome Headless Shell ${CHROME.version}`;
-    const r = await renderVideo({
-      base, canvas, lead, fps, page, browser, total: total!, segmentFrames: segmentFramesFor(segmentSec, fps), out, workers, patch,
-    });
+    const r = await sized((l, shrink) => renderVideo({
+      base, canvas, lead: l, fps, page, browser, transparent, footage, total: total!, segmentFrames: segmentFramesFor(segmentSec, fps), out, workers, patch, shrink, x264,
+    }));
     const wall = (Date.now() - started) / 1000;
     const perFrame = r.rendered ? Math.round((wall * 1000) / r.rendered) : 0;
     console.log(`render: ${out}`);
-    console.log(`  ${r.frames} frames at ${fpsLabel(fps)} fps = ${frameTime(r.frames, fps).toFixed(3)} s, ${canvas.width}x${canvas.height}, ${mb(r.bytes)}`);
+    const size = videoSize(canvas, scale, transparent);
+    const drawn = scale === 1 ? `${canvas.width}x${canvas.height}` : `${size.width}x${size.height} (the ${canvas.width}x${canvas.height} canvas at ${scale})`;
+    console.log(`  ${r.frames} frames at ${fpsLabel(fps)} fps = ${frameTime(r.frames, fps).toFixed(3)} s, ${drawn}, ${mb(r.bytes)}`);
+    if (draft) console.log(`  draft: ${capture}${capture === 'jpeg' ? ` q${quality}` : ''} capture, ${transparent ? 'ProRes' : `x264 ${preset} CRF ${crf}`}; render without --draft for the deliverable`);
     console.log(`  wall ${wall.toFixed(1)} s, ${perFrame} ms/frame over ${r.rendered} rendered frame(s), ${r.workers} worker(s), segments: ${r.renderedSegments} rendered, ${r.reusedSegments} reused`);
+    for (const line of breakdown(timings, r.rendered)) console.log(`  ${line}`);
     delivered = true;
     return 0;
   } finally {

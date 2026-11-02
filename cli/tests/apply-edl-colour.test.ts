@@ -13,11 +13,13 @@ import { SINE, TESTSRC, captureConsole, probeStream, scratchDir, synthClip } fro
 const dir = scratchDir('colour');
 const HLG = 'color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc';
 const SDR = 'color_primaries=bt709:color_trc=bt709:colorspace=bt709';
+const SD = 'color_primaries=smpte170m:color_trc=smpte170m:colorspace=smpte170m';
 const synth = (name: string, params: string | null) =>
   synthClip(dir, name, { video: TESTSRC, audio: SINE, seconds: 1, ...(params ? { vf: `setparams=${params}` } : {}) });
 
 const hlg = synth('hlg.mp4', HLG);
 const sdr = synth('sdr.mp4', SDR);
+const sd = synth('sd.mp4', SD);
 const untagged = synth('untagged.mp4', null);
 const partial = synth('partial.mp4', 'color_primaries=bt2020');
 const hdrPartial = synth('hdr-partial.mp4', 'color_trc=arib-std-b67');
@@ -45,8 +47,8 @@ await test('a declared axis the assumption would contradict is refused rather th
 
 await test('sources that disagree on colour are refused, naming both', () => {
   assert.throws(
-    () => decideColour([{ id: 'a', colour: colourTagsOf(sdr) }, { id: 'b', colour: colourTagsOf(hlg) }]),
-    /"a" is bt709\/bt709\/bt709 and "b" is bt2020\/arib-std-b67\/bt2020nc/,
+    () => decideColour([{ id: 'a', colour: colourTagsOf(sdr) }, { id: 'b', colour: colourTagsOf(sd) }]),
+    /"a" is bt709\/bt709\/bt709 and "b" is smpte170m\/smpte170m\/smpte170m/,
   );
 });
 
@@ -60,7 +62,11 @@ const assemble = (sources: Record<string, string>, ids: string[]) => {
 };
 
 await test('the assembled file carries the sources\' declared tags', () => {
-  assert.deepEqual(assemble({ a: 'hlg.mp4' }, ['a', 'a']), { color_primaries: 'bt2020', color_transfer: 'arib-std-b67', color_space: 'bt2020nc' });
+  assert.deepEqual(assemble({ a: 'sd.mp4' }, ['a', 'a']), { color_primaries: 'smpte170m', color_transfer: 'smpte170m', color_space: 'smpte170m' });
+});
+
+await test('an HDR source is assembled as SDR bt709, not under its own tags (hdr.test.ts checks the picture)', () => {
+  assert.deepEqual(assemble({ a: 'hlg.mp4' }, ['a', 'a']), { color_primaries: 'bt709', color_transfer: 'bt709', color_space: 'bt709' });
 });
 
 await test('an untagged source is assembled as bt709, tagged rather than left unknown', () => {
@@ -68,5 +74,5 @@ await test('an untagged source is assembled as bt709, tagged rather than left un
 });
 
 await test('a mixed EDL is refused by the command, not encoded under the first source\'s tags', () => {
-  assert.throws(() => assemble({ a: 'sdr.mp4', b: 'hlg.mp4' }, ['a', 'b']), /sources disagree on colour/);
+  assert.throws(() => assemble({ a: 'sdr.mp4', b: 'sd.mp4' }, ['a', 'b']), /sources disagree on colour/);
 });

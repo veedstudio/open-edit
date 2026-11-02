@@ -31,6 +31,8 @@ import {
   FAL_BG_REMOVAL_FAST_MODEL, FAL_BG_REMOVAL_MODEL, usage,
 } from '../src/commands/background-removal.ts';
 import { rememberedWorkspace } from '../src/veed/workspace-store.ts';
+import { assertConverted, hdrClip, lumaOf } from './helpers/hdr.ts';
+import { TESTSRC, probeStream, scratchDir, synthClip } from './helpers/synth.ts';
 
 const readVideoBytes = async () => ({ bytes: new Uint8Array([1, 2, 3]), mimeType: 'video/mp4', extension: 'mp4' });
 
@@ -629,4 +631,61 @@ await test('--fal says when its rate could not be checked against the list fal p
     { videoPath: 'v.mp4', outPath: join(runDir, 'out.mp4'), fal: true, falKey: 'test-key' });
   assert.ok(logs.some((l) => l.startsWith("[fal] note: the rate above could not be checked against fal's list (the pricing API answered 503")), logs.join('\n'));
   assert.ok(!logs.some((l) => l.includes('pricing API now lists')));
+});
+
+// What the services are sent, read off the fakes: an HDR clip goes as its SDR copy, the picture a render
+// over it gets, so a cut-out laid back over the converted plate matches it.
+await test('an HDR video is sent as its SDR copy on the free route, to fal and on --fast, and the run says so', async () => {
+  const dir = scratchDir('bg-hdr');
+  const hlg = hdrClip(dir, 'hlg.mp4', { transfer: 'arib-std-b67' });
+  const read: string[] = [];
+  const capture = async (path: string) => { read.push(path); return readVideoBytes(); };
+  const LIVE = 'https://fal-cdn.example/live-result.mp4';
+
+  const logs: string[] = [];
+  await removeBackground(
+    { http: makeVeedFake().http, readVideoBytes: capture, sleep: async () => {}, log: (m) => logs.push(m), falHttp: makeFalFake({ resultUrl: LIVE }).http, runDir: dir },
+    { videoPath: hlg, outPath: join(dir, 'out.mp4') },
+  );
+  assert.equal(read.length, 1);
+  assert.notEqual(read[0], hlg);
+  assert.deepEqual(probeStream(read[0], 'v:0', 'color_primaries,color_transfer,color_space'), { color_primaries: 'bt709', color_transfer: 'bt709', color_space: 'bt709' });
+  assertConverted(hlg, 5, lumaOf(read[0], 5, 'video'), { transfer: 'arib-std-b67', width: 320, tolerance: 1.5, what: 'the copy sent' });
+  assert.ok(logs.some((l) => /^hlg\.mp4 is HDR \(HLG, bt2020\/arib-std-b67\/bt2020nc\): converted to SDR BT\.709/.test(l)), logs.join('\n'));
+
+  const events: string[] = [];
+  await removeBackground({ ...fallbackDeps(events, [], makeFullFalFake(events), dir), readVideoBytes: capture },
+    { videoPath: hlg, outPath: join(dir, 'fal.mp4'), fal: true, falKey: 'test-key' });
+  assert.ok(events.includes(`fal upload ${read[0]}`), 'fal is handed the same copy, made once');
+  assert.equal(read[1], read[0]);
+
+  await removeBackground({ http: makeVeedFake().http, readVideoBytes: capture, sleep: async () => {}, falHttp: makeFalFake().http, runDir: dir },
+    { videoPath: hlg, outPath: join(dir, 'fast.mp4'), fast: true, falKey: 'test-key' });
+  assert.equal(read[2], read[0], '--fast hosts the same copy');
+
+  // An SDR clip goes as it is; a file ffprobe cannot read goes as it is too, and the run says so.
+  read.length = 0;
+  const sdr = synthClip(dir, 'sdr.mp4', { video: TESTSRC, seconds: 1 });
+  await removeBackground({ http: makeVeedFake().http, readVideoBytes: capture, sleep: async () => {}, falHttp: makeFalFake({ resultUrl: LIVE }).http, runDir: dir },
+    { videoPath: sdr, outPath: join(dir, 'sdr-out.mp4') });
+  assert.deepEqual(read, [sdr]);
+  const unread: string[] = [];
+  await removeBackground({ http: makeVeedFake().http, readVideoBytes, sleep: async () => {}, log: (m) => unread.push(m), falHttp: makeFalFake({ resultUrl: LIVE }).http, runDir: dir },
+    { videoPath: join(dir, 'not-a-video.mp4'), outPath: join(dir, 'unread-out.mp4') });
+  assert.ok(unread.some((l) => /^could not read the colour of not-a-video\.mp4 \(.+\); sending it unconverted$/.test(l)), unread.join('\n'));
+});
+
+await test('an HDR clip with Opus sound, as a WebM download carries it, is sent as an SDR MP4 with AAC', async () => {
+  const dir = scratchDir('bg-hdr-opus');
+  const clip = hdrClip(dir, 'hlg.mkv', { transfer: 'arib-std-b67', audioArgs: ['-c:a', 'opus', '-strict', '-2', '-ac', '2'] });
+  assert.equal(probeStream(clip, 'a:0', 'codec_name').codec_name, 'opus');
+  const read: string[] = [];
+  await removeBackground(
+    { http: makeVeedFake().http, readVideoBytes: async (path: string) => { read.push(path); return readVideoBytes(); }, sleep: async () => {},
+      falHttp: makeFalFake({ resultUrl: 'https://fal-cdn.example/live-result.mp4' }).http, runDir: dir },
+    { videoPath: clip, outPath: join(dir, 'out.mp4') },
+  );
+  assert.match(read[0], /\.mp4$/);
+  assert.equal(probeStream(read[0], 'a:0', 'codec_name').codec_name, 'aac');
+  assert.equal(probeStream(read[0], 'v:0', 'color_transfer').color_transfer, 'bt709');
 });

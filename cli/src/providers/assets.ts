@@ -18,7 +18,7 @@
 import { readFileSync, existsSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { createExclusive, writeAtomic } from './exclusive-files.ts';
+import { createExclusive, sleepSync, writeAtomic } from './exclusive-files.ts';
 
 /** `audio` and `other` are for a generic call (fal run) that cannot tell voice from music, or has no file. */
 export type AssetKind = 'image' | 'video' | 'speech' | 'sfx' | 'music' | 'upscale' | 'audio' | 'other';
@@ -87,8 +87,6 @@ let written = 0;
 const newStamp = () => `${String(Date.now()).padStart(15, '0')}-${String(written++).padStart(6, '0')}-${process.pid}-${randomBytes(3).toString('hex')}`;
 
 const requestKey = (requestId: string) => (/^[\w-]{1,128}$/.test(requestId) ? requestId : `h${createHash('sha256').update(requestId).digest('hex').slice(0, 32)}`);
-
-const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 function readRow(path: string): RowFile | 'unread' | 'damaged' {
   try {

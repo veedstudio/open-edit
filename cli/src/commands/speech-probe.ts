@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
 
-const SAMPLE_RATE = 16_000;
+export const SAMPLE_RATE = 16_000;
 
 export interface Gap {
   start: number;

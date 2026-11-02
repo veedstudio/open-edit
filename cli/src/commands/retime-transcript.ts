@@ -126,20 +126,20 @@ export function retime(ranges: SnappedRange[], loadTranscript: (id: string) => T
 }
 
 /**
- * A transcript.json read back for retiming: the shape the arithmetic touches, checked so a malformed
- * file is named rather than crashing mid-word. Only the shape: a hosted transcript can carry
- * overlapping items that the local providers' validator refuses, and retiming must not be stricter
- * than what it was given.
+ * A transcript.json read back for arithmetic on its word times: the shape that arithmetic touches, checked
+ * so a malformed file is named rather than crashing mid-word. Only the shape: a hosted transcript can
+ * carry overlapping items that the local providers' validator refuses, and a reader must not be
+ * stricter than the provider that wrote it.
  */
-function readTranscript(path: string): Transcript {
-  const raw = readJsonFile(path) as { chunks?: unknown };
+export function readTranscript(path: string): Transcript {
+  const raw = readJsonFile(path) as { chunks?: unknown } | null;
   const isWord = (w: unknown) => {
-    const word = w as { text?: unknown; timestamp?: unknown };
-    return typeof word.text === 'string' && Array.isArray(word.timestamp) && word.timestamp.length === 2
+    const word = w as { text?: unknown; timestamp?: unknown } | null;
+    return typeof word?.text === 'string' && Array.isArray(word.timestamp) && word.timestamp.length === 2
       && word.timestamp.every((t) => typeof t === 'number' && Number.isFinite(t));
   };
-  const chunks = raw.chunks;
-  if (!Array.isArray(chunks) || chunks.some((c) => !Array.isArray((c as { words?: unknown }).words))) {
+  const chunks = raw?.chunks;
+  if (!Array.isArray(chunks) || chunks.some((c) => !Array.isArray((c as { words?: unknown } | null)?.words))) {
     throw new Error(`${path} is not a transcript.json: expected chunks[] with words[] in each`);
   }
   if (chunks.some((c) => !(c as { words: unknown[] }).words.every(isWord))) {

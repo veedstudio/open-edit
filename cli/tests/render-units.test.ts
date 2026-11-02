@@ -15,12 +15,15 @@ import {
   fpsLabel, frameAtTime, frameSpan, frameTime, framesForDuration, parseFps, planSegments, segmentFramesFor,
   segmentsTouching, splitContiguous, splitFrames, workersFor,
 } from '../src/render/timing.ts';
-import { inspectPng, showsSomething } from '../src/render/png.ts';
+import { shownSize } from '../src/render/media.ts';
+import { inspectPng, showsSomething, withAlpha } from '../src/render/png.ts';
+import { encoderArgs, FULL_ENCODE, startSegmentEncoder } from '../src/render/encode.ts';
+import { composeStill, parseRate, probeFootage, sameRate, seekArgs } from '../src/render/footage.ts';
 import { extractZip } from '../src/render/unzip.ts';
 import { CHROME, chromePlatform, installChrome } from '../src/render/browser.ts';
 import { hidden, hiddenOnDisk, requestedFile, startPageServer, unsafeRoot } from '../src/render/server.ts';
-import { launchProxy, sandboxRefused, withSandbox } from '../src/render/session.ts';
-import { acquireLock, defaultWorkers, pageRoots } from '../src/commands/render.ts';
+import { drawnSize, imageSize, launchProxy, newTimings, sandboxRefused, timed, withSandbox } from '../src/render/session.ts';
+import { acquireLock, breakdown, defaultWorkers, pageRoots } from '../src/commands/render.ts';
 import { scratchDir } from './helpers/synth.ts';
 
 const scratch = (prefix: string) => scratchDir(`render-${prefix}`);
@@ -105,6 +108,117 @@ test('render: the frame reader tells a flat frame from a drawn one, and reads al
   const dot = inspectPng(png("color=c=black@0:s=64x32,format=rgba,geq=r=255:g=255:b=255:a='if(gt(X\\,60)*gt(Y\\,28)\\,255\\,0)'", 'rgba'));
   assert.equal(dot.alphaMax, 255);
   assert.equal(showsSomething(dot), true);
+  // Opaque means every pixel: a frame without alpha is, a drawn one with a clear pixel is not.
+  assert.equal(drawn.opaque, true);
+  assert.equal(dot.opaque, false);
+  assert.equal(clear.opaque, false);
+  assert.equal(inspectPng(png('testsrc=s=64x32,format=rgba', 'rgba')).opaque, true);
+});
+
+test('render: an opaque RGB capture becomes the same picture as RGBA, and an RGBA one is left as it is', () => {
+  // Every row filter appears in -pred mixed output, so each is undone on the way.
+  const rgb = png('testsrc=s=64x32', 'rgb24');
+  assert.equal(rgb[25], 2, 'colour type RGB');
+  const rgba = withAlpha(rgb);
+  assert.equal(rgba[25], 6, 'colour type RGBA');
+  assert.equal(inspectPng(rgba).opaque, true);
+  const pixels = (image: Buffer) =>
+    execFileSync(FFMPEG, ['-v', 'error', '-f', 'png_pipe', '-i', '-', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'], { input: image });
+  assert.deepEqual(pixels(rgba), pixels(rgb));
+  const already = png('testsrc=s=64x32,format=rgba', 'rgba');
+  assert.equal(withAlpha(already), already);
+});
+
+test('render: a page that turns fully opaque over footage keeps covering it, frame after frame', async () => {
+  // Chrome writes an opaque capture as RGB; an ffmpeg that rebuilds its graph on the change (5.1) lost
+  // the page for the next frames and showed the footage, so the encoder must see one format throughout.
+  const dir = scratch('opaque-over-footage');
+  const footage = join(dir, 'green.mp4');
+  execFileSync(FFMPEG, ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=green:s=64x32:r=30', '-frames:v', '20', '-pix_fmt', 'yuv420p', footage]);
+  const out = join(dir, 'seg.mp4');
+  const enc = startSegmentEncoder(out, parseFps('30'), false, 'png', {
+    file: footage, seek: [], frames: 20, overlay: { width: 64, height: 32, fps: parseFps('30'), matrix: 'auto' },
+  });
+  for (let i = 0; i < 20; i++) await enc.write(i < 10 ? png('color=c=blue@0.99:s=64x32,format=rgba', 'rgba') : png('color=c=blue:s=64x32', 'rgb24'));
+  await enc.finish();
+  const green = execFileSync(FFMPEG, ['-v', 'error', '-i', out, '-vf', 'format=rgb24,extractplanes=g,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-', '-f', 'null', '-'])
+    .toString().match(/YAVG=[\d.]+/g)!.map((m) => Number(m.slice(5)));
+  assert.equal(green.length, 20);
+  assert.ok(green.every((g) => g < 20), `the footage showed through: green per frame ${green.map(Math.round).join(' ')}`);
+});
+
+test('render: a still past the last frame the footage decodes fails instead of writing an empty file', () => {
+  const dir = scratch('footage-short');
+  const clip = join(dir, 'clip.mp4');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=green:s=64x32:r=30', '-frames:v', '10', '-pix_fmt', 'yuv420p', clip]);
+  const page = png('color=c=black@0:s=64x32,format=rgba', 'rgba');
+  assert.throws(() => composeStill({ ...probeFootage(clip), frames: 99 }, 50, parseFps('30'), { width: 64, height: 32 }, page), /has no frame 50/);
+});
+
+test('render: footage is probed for its exact rate, its frames and the matrix it decodes with, and seeks land half a frame early', () => {
+  const dir = scratch('footage');
+  const clip = (name: string, src: string, ...args: string[]) => {
+    const file = join(dir, name);
+    execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', src, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', ...args, file]);
+    return file;
+  };
+  const ntsc = probeFootage(clip('ntsc.mp4', 'color=c=black:s=320x180:r=30000/1001:d=0.5'));
+  assert.deepEqual(ntsc.fps, { num: 30000, den: 1001 });
+  assert.equal(ntsc.frames, 15);
+  assert.equal(ntsc.matrix, 'bt601', 'untagged SD decodes as BT.601');
+  assert.match(ntsc.identity, /ntsc\.mp4 \(\d+ bytes, modified \d{4}-/);
+  const hd = probeFootage(clip('hd.mp4', 'color=c=black:s=1280x720:r=25:d=0.2'));
+  assert.deepEqual(hd.fps, { num: 25, den: 1 });
+  assert.equal(hd.matrix, 'bt709', 'untagged HD decodes as BT.709, as players assume');
+  const tagged = probeFootage(clip('tagged.mp4', 'color=c=black:s=320x180:r=25:d=0.2', '-colorspace', 'smpte170m'));
+  assert.equal(tagged.matrix, 'auto', 'a tag is read as it is');
+  assert.throws(() => probeFootage(join(dir, 'nope.mp4')), /ENOENT/);
+  writeFileSync(join(dir, 'text.mp4'), 'not a video');
+  assert.throws(() => probeFootage(join(dir, 'text.mp4')), /could not be read as video|holds no video stream/);
+
+  assert.deepEqual(parseRate('25/1'), { num: 25, den: 1 });
+  assert.deepEqual(parseRate('60000/2002'), { num: 30000, den: 1001 });
+  assert.throws(() => parseRate('29.97'), /not a rate/);
+  assert.equal(sameRate({ num: 30000, den: 1001 }, { num: 60000, den: 2002 }), true);
+  assert.equal(sameRate({ num: 30, den: 1 }, { num: 30000, den: 1001 }), false);
+
+  assert.deepEqual(seekArgs(0, { num: 30, den: 1 }), [], 'the first frame needs no seek');
+  assert.deepEqual(seekArgs(1, { num: 30, den: 1 }), ['-ss', '0.016667']);
+  assert.deepEqual(seekArgs(60, { num: 30000, den: 1001 }), ['-ss', '1.985317']);
+
+  const over = encoderArgs(false, 'png', { width: 320, height: 180, fps: { num: 30000, den: 1001 }, matrix: 'bt709' });
+  assert.equal(over[0], '-filter_complex');
+  assert.match(over[1], /^\[0:v:0\]settb=1001\/30000,setpts=N,scale=320:180:force_original_aspect_ratio=increase:in_color_matrix=bt709,crop=320:180,format=rgba\[bg\];\[1:v\]format=rgba\[fg\];\[bg\]\[fg\]overlay=format=auto:alpha=straight,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p\[out\]$/);
+  assert.deepEqual(over.slice(2, 4), ['-map', '[out]']);
+  assert.deepEqual(over.slice(4), encoderArgs(false).slice(2), 'the codec settings are the plain render\'s');
+  assert.throws(() => encoderArgs(true, 'png', { width: 320, height: 180, fps: { num: 30, den: 1 }, matrix: 'auto' }), /transparent/);
+  assert.throws(() => encoderArgs(false, 'jpeg', { width: 320, height: 180, fps: { num: 30, den: 1 }, matrix: 'auto' }), /JPEG/);
+
+  // HDR footage is converted to SDR first, and SDR footage's encode is as it was, so its cached segments stand.
+  const conversion = 'scale=in_color_matrix=bt2020,format=gbrpf32le';
+  const hdr = encoderArgs(false, 'png', { width: 320, height: 180, fps: { num: 30000, den: 1001 }, matrix: 'bt709', sdr: conversion });
+  assert.equal(hdr[1], over[1].replace('setpts=N,', `setpts=N,${conversion},`));
+  assert.deepEqual(encoderArgs(false, 'png', { width: 320, height: 180, fps: { num: 30000, den: 1001 }, matrix: 'bt709', sdr: undefined }), over);
+});
+
+test('render: a JPEG capture states its own colour (BT.601, full range) on the way to BT.709, and the PNG encode is as it was', () => {
+  const png = encoderArgs(false);
+  assert.equal(png.join(' '), '-vf scale=out_color_matrix=bt709:out_range=tv,format=yuv420p -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -profile:v high -threads 4 -color_primaries bt709 -color_trc bt709 -colorspace bt709');
+  assert.deepEqual(encoderArgs(false, 'png'), png);
+  const jpeg = encoderArgs(false, 'jpeg');
+  assert.equal(jpeg[1], 'sidedata=mode=delete:type=ICC_PROFILE,scale=in_color_matrix=bt601:in_range=pc:out_color_matrix=bt709:out_range=tv,format=yuv420p');
+  assert.deepEqual(jpeg.slice(2), png.slice(2), 'the same x264 encode, and the same tags');
+});
+
+test('render: the x264 speed and quality are the encode\'s own, and a scaled capture is cropped to even sides first for H.264 alone', () => {
+  assert.deepEqual(encoderArgs(false, 'png', null, FULL_ENCODE), encoderArgs(false), 'the full render\'s encode is the default');
+  const draft = encoderArgs(false, 'jpeg', null, { preset: 'ultrafast', crf: 28, even: true });
+  assert.ok(draft[1].startsWith('crop=trunc(iw/2)*2:trunc(ih/2)*2,sidedata=mode=delete'), draft[1]);
+  assert.deepEqual(draft.slice(draft.indexOf('-preset'), draft.indexOf('-preset') + 4), ['-preset', 'ultrafast', '-crf', '28']);
+  const over = encoderArgs(false, 'png', { width: 161, height: 91, fps: { num: 30, den: 1 }, matrix: 'auto' }, { preset: 'ultrafast', crf: 28, even: true });
+  assert.match(over[1], /overlay=format=auto:alpha=straight,crop=trunc\(iw\/2\)\*2:trunc\(ih\/2\)\*2,scale=out_color_matrix/, 'cropped after the footage is laid under');
+  const alpha = encoderArgs(true, 'png', null, { ...FULL_ENCODE, even: true });
+  assert.ok(alpha[1].startsWith('scale='), `ProRes 4444 keeps an odd side: ${alpha[1]}`);
 });
 
 /** A zip built by hand: stored and deflated entries, unix modes, a directory, an empty file. */
@@ -666,6 +780,8 @@ test('render: every flag refusal comes before Chrome is needed, with exit 2 and 
   const page = join(dir, 'page.html');
   writeFileSync(page, '<!doctype html><p>x</p>');
   const out = join(dir, 'out.mp4');
+  const clip = join(dir, 'clip.mp4');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=64x32:r=30:d=1', '-frames:v', '10', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', clip]);
   const cli = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
   const cases: [string[], RegExp][] = [
     [['--out', out, '--frames', '3'], /give exactly one page/],
@@ -683,6 +799,24 @@ test('render: every flag refusal comes before Chrome is needed, with exit 2 and 
     [[page, '--out', dir, '--sheet', join(dir, 's.jpg')], /--sheet tiles the --stills/],
     [[page, '--out', dir, '--stills', '1', '--from', '0'], /--stills renders no video/],
     [[page, '--out', out, '--frames', '3', '--root', join(dir, 'missing')], /--root .* is not a directory/],
+    [[page, '--out', out, '--frames', '3', '--footage', join(dir, 'missing.mp4')], /--footage .* is not a file/],
+    [[page, '--out', out, '--frames', '3', '--footage', page], /could not be read as video|holds no video stream/],
+    [[page, '--out', out, '--frames', '3', '--footage', clip, '--fps', '25'], /footage runs at 30 fps and --fps is 25: pass --fps 30/],
+    [[page, '--out', out, '--frames', '11', '--footage', clip], /footage holds 10 frames \(0\.333 s at 30 fps\) and the render is 11 \(0\.367 s\)/],
+    [[page, '--out', join(dir, 'out.mov'), '--frames', '3', '--footage', clip, '--transparent'], /--footage or --transparent, not both/],
+    [[page, '--out', out, '--frames', '3', '--footage', clip, '--capture', 'jpeg'], /--footage lays the page over the clip by its alpha, which a JPEG cannot carry/],
+    [[page, '--out', out, '--frames', '3', '--draft'], /--draft writes a quick look, not the deliverable, so its --out must end in \.draft\.mp4.*pass --out \S*out\.draft\.mp4/],
+    [[page, '--out', out, '--frames', '3', '--scale', '0'], /--scale wants a fraction from 0\.1 to 1/],
+    [[page, '--out', out, '--frames', '3', '--scale', '2'], /--scale wants a fraction from 0\.1 to 1/],
+    [[page, '--out', out, '--frames', '3', '--quality', '80'], /--quality is a JPEG's quality; give --capture jpeg too/],
+    [[page, '--out', out, '--frames', '3', '--capture', 'jpeg', '--quality', '101'], /--quality wants an integer from 1 to 100/],
+    [[page, '--out', out, '--frames', '3', '--crf', '52'], /--crf wants an integer from 0 to 51/],
+    [[page, '--out', out, '--frames', '3', '--preset', 'placebo'], /--preset must be one of ultrafast, .*veryslow, not "placebo"/],
+    [[page, '--out', join(dir, 'out.mov'), '--frames', '3', '--transparent', '--crf', '20'], /--transparent writes ProRes 4444, which has neither/],
+    [[page, '--out', dir, '--stills', '1', '--draft', '--scale', '0.5'], /--draft, --scale shape a video; --stills writes full-size PNGs/],
+    [[page, '--out', join(dir, 'out.draft.mp4'), '--frames', '3', '--draft', '--footage', clip, '--quality', '80'], /--quality is a JPEG's quality, and --footage captures PNG for the page's alpha; leave --quality out/],
+    [[page, '--out', join(dir, 'out.mov'), '--frames', '3', '--draft', '--transparent'], /pass --out \S*out\.draft\.mov$/m],
+    [[page, '--out', join(dir, 'out.mkv'), '--frames', '3', '--draft'], /pass --out \S*out\.draft\.mp4$/m],
   ];
   // A --chrome that is not there fails with exit 1 as soon as the browser is looked for, so a refusal
   // that came after that point would fail this test instead of downloading a browser.
@@ -695,4 +829,64 @@ test('render: every flag refusal comes before Chrome is needed, with exit 2 and 
     assert.match(r.err, cases[i][1]);
   });
   assert.equal(existsSync(out), false);
+});
+
+test('render: the timing breakdown reads per-frame costs off the summed stages, and omits stages that never ran', () => {
+  const t = newTimings();
+  t.page.ms = 4000; t.page.n = 100;
+  t.capture.ms = 6000; t.capture.n = 100;
+  t.encode.ms = 500; t.encode.n = 100;
+  t.launch.ms = 3200; t.launch.n = 2;
+  t.load.ms = 1000; t.load.n = 2;
+  const lines = breakdown(t, 100);
+  assert.deepEqual(lines, [
+    'per frame on its worker: page 40 ms, capture 60 ms, loads 0 ms, encode wait 5 ms',
+    'Chrome: 2 launched in 3.2 s, pages ready in 1.0 s',
+  ]);
+  t.preroll.ms = 1500; t.preroll.n = 50;
+  t.copy.ms = 700; t.copy.n = 1;
+  t.join.ms = 120; t.join.n = 1;
+  assert.equal(breakdown(t, 100)[1], 'preroll: 50 earlier frame(s) stepped through in 1.5 s (30 ms/frame); Chrome: 2 launched in 3.2 s, pages ready in 1.0 s; all-intra copies 0.7 s; join 0.1 s');
+  assert.deepEqual(breakdown(t, 0), [], 'nothing rendered, nothing to break down');
+});
+
+test('render: timed() adds the wait to its stage whether the work resolves or throws, and is a plain call without timings', async () => {
+  const t = newTimings();
+  assert.equal(await timed(t, 'page', async () => 7), 7);
+  await assert.rejects(timed(t, 'page', async () => { throw new Error('boom'); }), /boom/);
+  assert.equal(t.page.n, 2);
+  assert.ok(t.page.ms >= 0);
+  assert.equal(await timed(undefined, 'page', async () => 'untimed'), 'untimed');
+  await timed(t, 'preroll', async () => {}, 12);
+  assert.equal(t.preroll.n, 12);
+});
+
+test('render: a copy is sized to what the page shows, rounded to even, never larger, and only when it is at most two thirds of the source', () => {
+  const uhd = { width: 3840, height: 2160 };
+  assert.deepEqual(shownSize(uhd, 0.5), { width: 1920, height: 1080 });
+  assert.deepEqual(shownSize(uhd, 2 / 3), { width: 2560, height: 1440 }, 'exactly two thirds is still worth it');
+  assert.equal(shownSize(uhd, 0.7), null, 'a little larger is not');
+  assert.equal(shownSize(uhd, 1), null);
+  assert.equal(shownSize(uhd, 2), null, 'never scaled up');
+  assert.equal(shownSize(uhd, null), null, 'unknown keeps the source\'s size');
+  assert.equal(shownSize(uhd, 0), null);
+  assert.equal(shownSize({ width: 0, height: 0 }, 0.5), null, 'a picture with no size');
+  // 641 × 0.5 = 320.5 and 361 × 0.5 = 180.5: each side rounds to the nearest even on its own.
+  assert.deepEqual(shownSize({ width: 641, height: 361 }, 0.5), { width: 320, height: 180 });
+  assert.deepEqual(shownSize({ width: 1920, height: 1080 }, 0.001), { width: 2, height: 2 }, 'never below the smallest frame ffmpeg encodes');
+});
+
+test('render: a scaled capture\'s size is read from a PNG\'s or a JPEG\'s header, and rounds each side as Chrome does', () => {
+  const dir = scratchDir('render-image-size');
+  for (const [ext, codec] of [['png', 'png'], ['jpg', 'mjpeg']]) {
+    const file = join(dir, `f.${ext}`);
+    // Pinned to RGB: ffmpeg 6.1's colour source picks 4:2:0 and rounds odd sides down to it, to 160x90.
+    execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=red:s=161x91,format=rgb24', '-frames:v', '1', '-c:v', codec, file]);
+    assert.deepEqual(imageSize(readFileSync(file)), { width: 161, height: 91 }, ext);
+  }
+  assert.equal(imageSize(Buffer.from('not an image')), null);
+  // What Chrome 153 draws for each, read off its captures: the nearest pixel, .5 up.
+  assert.deepEqual(drawnSize({ width: 1080, height: 1350 }, 0.45), { width: 486, height: 608 });
+  assert.deepEqual(drawnSize({ width: 1920, height: 1080 }, 0.37), { width: 710, height: 400 });
+  assert.deepEqual(drawnSize({ width: 321, height: 181 }, 0.5), { width: 161, height: 91 });
 });

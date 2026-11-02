@@ -33,27 +33,77 @@ Keep everything a piece is made of under `runs/<key>/`: the page, its assets, re
 is the edit: that folder is how the user comes back later to change one scene or reuse the piece for
 another video, so nothing it needs lives anywhere else.
 
+## The footage's look
+
+HDR footage (HLG or PQ, as phones record it) is converted to SDR on the way in, keeping its look and
+rolling its highlights off: `apply-edl`, `render`, `frames` and `concat-videos` convert it where they read
+it, `background-removal`, `lipsync` and `veed-project` send a converted copy, and each prints a line when it
+does. Keep the source's look: no tone-map, grade or colour correction of your own unless the user asks for
+one. When HDR was converted, tell the user in one plain sentence.
+
 ## Tools
 
 | Need | Command |
 | --- | --- |
 | A transcript with real per-word times | `transcribe <video> [...]` runs the provider recorded in `$OPEN_EDIT_ROOT/.open-edit-prefs.json`. None recorded (the command refuses and says so), "No VEED login found", or a failed run: read `TRANSCRIPTION.md` first |
 | Remove, reorder or join takes | read `CUT.md` (`speech-probe`, `apply-edl`, `retime-transcript`) |
-| Join whole clips whose shapes disagree | `concat-videos` (re-encodes to one canvas at 30 fps) |
+| Join whole clips | `concat-videos --canvas WxH <out> <in...>` re-encodes them to one canvas at 30 fps (without `--canvas`, the largest clip as shown, the first of equals) and cuts each clip of another shape to it as `reframe` does: around its faces when `faces` has run on that clip, else from the middle, and a line per clip says which. `--fit letterbox` keeps each clip whole and pads it instead |
 | Look at a video, a page or a pile of images | `frames <video> --at <sec,...> --sheet` (one sheet of those moments; `--images` for a folder of references), `render --stills` |
+| Make it like a reference video | `shots <reference>`: every shot's start and length, what is said in it, its shot size, and storyboard sheets of a few labelled frames of every shot (its first, middle and last, or the middle of a shot under a second; a reference with too many shots for three frames each on four sheets shows every shot's middle alone). Look at the sheets with the list before planning from it. Its speech is the reference's transcript, so transcribe the reference first if it talks; on VEED that spends transcription credits on a video that is not the deliverable, so ask before. It finds hard cuts and fades through black: a dissolve reads as one longer shot, and so does about one jump cut in three. Effects that flicker can read as extra cuts; `--threshold 0.2` drops those, and most jump cuts with them. Each shot's size (close-up, medium, wide or no face) comes from the boxes `faces` wrote for the reference, so run that first; a face the frame cuts through, in shadow or very small often reads as no face, one in profile now and then a size off, and a title or an effect now and then as a face; a letterboxed reference is measured inside its black bars, where a wide shot can read medium, unless a full-frame title or text in the bars keeps them in, and then every size reads wider. So check the sizes the plan leans on against the sheets. On-screen text is not read; the sheets (paths printed, and in the JSON) show it at those frames |
+| Where the faces are, shot by shot | `faces <video>` writes `faces.json` and `faces.js` to `runs/<key>/faces-<hash>/`, a folder of that clip's own, and prints the path; load the `faces.js` it printed. It runs MediaPipe, which `install-mediapipe` puts in once (several hundred MB: ask the user first) |
+| How much of a graphic laid behind the speaker stays visible | `behind <page>` (see Faces) |
+| A clip's delivery shape, e.g. 16:9 to 9:16 | `reframe <video> --aspect 9:16 --out <file>`, and only `reframe`: never raw ffmpeg or a hand-made crop (`concat-videos` and `apply-edl` cut a clip of another shape with reframe's own code; `render --footage` refuses one and names the `reframe` command). With `faces` run on the clip first, each shot, which can be split again where a face seen alone for four samples jumps further than its own width and is seen alone there for four more (a dissolve or a cut the cut detection missed), is followed when it shows one face and held still where the most face is when it shows more; without, it is cut from the middle. Run `faces` on the result before laying text on it |
 | Cut the subject out of its background | `background-removal` (the free VEED route; when it cannot run, the command stops with fal's price, and only `--fal` buys) |
 | A presenter speaking a script | Fabric: read `FABRIC.md` first |
 | New audio on a face | `lipsync` |
 | Any fal model: images, video, music, voice, effects | `fal schema <model>`, then `fal run <model> --input <json or @file> --run runs/<key>` (`--batch <jobs.json>` for many); local files in the input are uploaded for you |
 | Web fonts as local files | `fonts <Family> [...] --out <dir>` |
 | Real, licensed pictures | `stills search`, `stills show`, `stills save` |
-| One soundtrack from several pieces | `mix-audio runs/<key>` (voice tracks duck the bed; `mix-audio --help` has the spec) |
+| One soundtrack from several pieces | `mix-audio runs/<key>` (voice tracks duck music and effects; `mix-audio --help` has the spec) |
 | Sound on a render, at delivery loudness | `mux-audio --video <render> --audio <source clip or built track> --out <file>` |
 | The piece in VEED's editor for the user to change, or a project they bring from it | read `VEED.md` (`veed-project`, `veed-pull`) |
 
 Fabric, background removal, lipsync and `veed-project` reuse the VEED transcription login: same veed.io
 account, same stored token, no second sign-in. The editor hand-off's bookmarks run in the user's own VEED
 session in the browser. `background-removal --fal` needs no VEED login at all.
+
+## Faces
+
+Never draw over a face unless the user asks for it (a face blur, a sticker): captions and small text go
+outside the face boxes. On footage with people in it, run `faces` on the clip the page shows, load the
+`faces.js` it writes with a `<script>` tag, and call `openeditFaces.place(el, from, to)` for each caption or
+small text element drawn over the footage, once it is laid out (in `__seek` when its text changes). `from`
+and `to` are seconds of the clip, not of the page: page time, less the time the clip starts at on the page,
+plus the point in the clip it starts playing from when it is trimmed. It moves the element the least
+distance that clears every face on screen over that span; pass `{ video }` when the footage is a `<video>`
+that does not fill the stage. `clear: false` comes with a console warning that says why: no place on the stage
+(or `within`) clears the faces for that whole span, so make the element smaller or shorten its span; or an
+animation or `!important` rule owns the element's translate, so move it in the page or place a wrapper; or a
+transform on the element or an ancestor (a rotation, say) turned the move, so place it without that
+transform. If `install-mediapipe` fails, read what it printed: when it names a way out (install uv, another
+`OPEN_EDIT_MEDIAPIPE_PYTHON`, an arm64 Node), offer that to the user. Only on an Intel Mac, where MediaPipe
+1.1.1 has no build, can faces not be found on this machine at all; say so. When the user declines MediaPipe
+or it cannot be installed, check the placement by eye on `frames --sheet` at the moments the text is on
+screen.
+
+A large graphic that would cover a face (a title, a plate, a big shape) is moved the same way, or put behind the
+speaker, who then covers part of it while nothing covers the face. Cut the speaker out with `background-removal`
+(its default route is free, on the VEED login transcription uses) from the clip as the page plays it, trimmed
+first when the page starts it partway; it writes `speaker.js` beside the cut-out. Name the cut-out on the stage
+(`<div id="stage" data-cutout="cutout.webm">`) and fill three layers, each a child of the stage:
+`<div data-layer="footage">` with the footage filling it cover-fit, `<div data-layer="behind">` with the graphics behind the speaker,
+each marked `data-behind="<name>"`, and `<div data-layer="front">` with the captions and small text (placed with
+`place()`). Load `speaker.js` with a `<script>` tag. The CLI fills the stage with each layer and stacks them in
+that order whatever their contents' z-index, and draws the cut-out in a layer of its own between behind and
+front, on the page's clock from time 0, in every render and in a browser preview. Style freely inside the
+layers; the layers themselves are the CLI's, except that a transform on the footage layer (a punch-in) moves the
+speaker with it. The cut-out is laid cover-fit over the whole stage, so footage letterboxed, placed in part of the
+stage or transformed on its own `<video>` leaves the speaker out of register with it: transform the footage layer
+instead. Then run `behind <page> --fps <render rate> --duration <render length>`: for each graphic it
+reports how much of it stays visible over the frames it is on (the worst frame and the mean) and its least
+visible word, measured on what Chrome draws. Keep a graphic behind the speaker only when it passes, with at
+least 75% of it and of each of its words visible on every frame; otherwise move, shift or shrink it and check
+again.
 
 ## Render
 
@@ -64,15 +114,52 @@ The canvas is the page's `#stage` (or `[data-stage]`) element, captured at its o
 1920x1080. `--width`/`--height` instead capture that much of the page from its top-left corner and
 ignore the stage. With footage, the canvas and frame rate are the source's own, and `frames` prints
 both. Pass its `frameRate` (such as `30000/1001`) to `--fps`, never the decimal beside it.
+- For a piece made for a platform, pick the platform first, before any layout: `safe-zone <format> --out
+  runs/<key>` (`9:16` for TikTok, Reels and Shorts, one zone for all three; `16:9` for YouTube; `4:3`;
+  `--canvas` for footage's own size) writes `safe-zone.css`; a shape with no format, such as 1:1 or 4:5,
+  skips this step. Link it and mark the stage with the format's own name (`data-safe-zone="9:16"`). All
+  text goes inside its `<div data-safe>`, sized on elements inside it, in container units no smaller than
+  the minimum (`font-size: max(var(--min-text), 6cqw)`), placed by layout (its
+  place in the flow, top, left, margins; a row of word spans with `flex-wrap: wrap`), with transform and
+  opacity left to animate entrances and exits freely, never to park text where it rests; footage and
+  full-bleed pictures go on `#stage`.
 - The renderer owns time. It drives a virtual clock (`performance.now`, `Date.now`,
   `requestAnimationFrame`, timers, a seeded `Math.random`), sets every CSS and Web Animations
   animation to the frame's time and seeks GSAP's global timeline. Anything else that moves with time
   goes in `window.__seek(t)` (it may be async).
 - It waits for fonts, images and videos before the first frame, and shows each `<video>` at the exact
   frame. Keep fonts and assets as files beside the page.
+- If the page draws frame t from t alone (CSS/Web Animations running from load, GSAP, a `__seek(t)` that
+  places everything from t) with no state carried between frames, mark the stage `data-stateless`:
+  workers and stills then jump straight to their frames instead of stepping through every earlier one
+  (with a `<video>` on the page, that stepping is where most of a multi-worker render's time goes).
+  Timers that accumulate, counters, rAF loops with their own state, simulations, and a CSS animation or
+  transition the page starts partway through (one on a class `__seek` toggles) are not stateless; leave
+  such a page unmarked and it renders the same whatever the worker count. A page marked wrongly renders
+  differently per worker count, and nothing checks the mark.
+- Footage that fills the stage from the first frame, with captions or graphics over it: pass the clip as
+  `--footage <file>` as well. ffmpeg lays the page over it, and the page's `<video>` of that file is stood
+  down (keep it, so the page previews in a browser), so Chrome never decodes or seeks the footage and the
+  render is many times faster. The page must not paint an opaque background over the footage: no opaque
+  `background` on `html`, `body` or the stage. Footage the page moves, times, crops or transforms stays a
+  `<video>` and renders without `--footage`: framing a clip inside a layout (split screen, picture in
+  picture) is design on the page, while changing the clip's own shape for delivery is `reframe`'s.
+  `--footage` must have the stage's shape as shown: footage of another shape is refused with the `reframe`
+  command that cuts it. Run `faces` on that cut and make it the page's footage, so the preview, `faces.js`
+  and the render show the same picture.
 - `--from <s> --to <s>` re-renders only that stretch and reuses the rest. After a change, re-render what
   changed, not the piece.
 - `--stills 0.5,2,4 --sheet <file>` shows moments without a full render. `--transparent` gives alpha.
+- To check motion and timing while the piece is still changing, render a draft: `--draft --out
+  runs/<key>/out.draft.mp4`. It draws the frames at half size with a cheap capture and encode, a quarter
+  of the pixels to draw, and keeps its own cache, so the full render beside it is untouched.
+  Patch it with `--from/--to` like any render. A draft is never the deliverable: render once without
+  `--draft` when the piece is settled. Each of its settings can be given alone (`--scale`, `--capture`,
+  `--quality`, `--preset`, `--crf`), with or without `--draft`.
+- When a render is slow and the output is opaque, `--capture jpeg` cuts the capture cost, about half
+  the capture time on a frame full of gradients, shadows and large text. The loss is small (the colour
+  is kept at half resolution before encoding) but it is a loss: say so to the user when a deliverable
+  was rendered with it. Not with `--transparent`, `--footage` or `--stills`.
 - It fails loudly on a page error, a blank render or a Chrome that did not start; read the reason it
   prints. A load it lists as failed (a video, an image, a font) is a wrong render: fix it and re-render
   before delivering.
@@ -99,6 +186,16 @@ If it is unclear which, ask.
   Before the first paid call, say in one line what you will make and what it costs, and let them
   answer. Background removal's default route is free.
 - Report what was spent, and on which account, when you deliver.
+
+## Before delivering
+
+Run `openedit review <video>` on a video you are about to deliver; an image or a sound file skips this
+step. It runs every delivery check and prints one report; it changes nothing. A finding is yours to judge,
+not an order to re-render: tell the user about one you leave in place. Checks that compare against speech
+read the `transcript.json` in the video's folder, or the one `--transcript` names; name one when the
+folder's is not on the video's timeline (for a cut, the retimed one). Without a transcript, the report says
+what it skipped. If the user asked for a length ("a 30-second video"), pass it in seconds as `--length 30`;
+without it, the length check is skipped.
 
 ## Talking to the user
 

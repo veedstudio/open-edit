@@ -1,6 +1,6 @@
 // Clips ffmpeg synthesises for the tests that cannot be asserted on a string, and the probes that
 // read the results back. One copy, so every ffmpeg-backed test builds its fixtures the same way.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +25,18 @@ export interface SynthSpec {
 
 export const TESTSRC = 'testsrc=size=320x240:rate=25';
 export const SINE = 'sine=frequency=440:sample_rate=48000';
+
+/** Frame `index` of `file` as raw pixels, after `vf` when given: what a comparison reads. */
+export function rawFrame(file: string, index: number, vf?: string, pixFmt = 'yuv420p'): Buffer {
+  return execFileSync(FFMPEG, ['-v', 'error', '-i', file, '-vf', `${vf ? `${vf},` : ''}select=eq(n\\,${index}),format=${pixFmt}`,
+    '-frames:v', '1', '-f', 'rawvideo', '-'], { maxBuffer: 1 << 26 });
+}
+
+/** The mean absolute difference of two equal-sized buffers, in levels. */
+export const meanAbsDiff = (a: Buffer, b: Buffer): number => {
+  if (a.length !== b.length) throw new Error(`frames differ in size: ${a.length} and ${b.length} bytes`);
+  return a.reduce((sum, x, i) => sum + Math.abs(x - b[i]), 0) / a.length;
+};
 
 export function synthClip(dir: string, name: string, spec: SynthSpec): string {
   const path = join(dir, name);
@@ -55,6 +67,19 @@ export function probeStream(file: string, selector: string, entries: string): Re
     '-v', 'error', '-select_streams', selector, '-show_entries', `stream=${entries}`, '-of', 'json', file,
   ], { encoding: 'utf8' });
   return ((JSON.parse(raw).streams ?? []) as Record<string, string>[])[0] ?? {};
+}
+
+/**
+ * Each channel's RMS level in one narrow band around `hz`, in dBFS, over the whole file or the `window` in
+ * seconds: one tone's level when each source is a tone of its own.
+ */
+export function bandLevels(file: string, hz: number, window?: [number, number]): number[] {
+  const trim = window ? `atrim=${window[0]}:${window[1]},` : '';
+  const { stderr } = spawnSync(FFMPEG, [
+    '-hide_banner', '-nostats', '-i', file, '-map', '0:a:0',
+    '-af', `${trim}bandpass=f=${hz}:width_type=q:w=8,astats=measure_overall=none:measure_perchannel=RMS_level`, '-f', 'null', '-',
+  ], { encoding: 'utf8' });
+  return [...(stderr ?? '').matchAll(/RMS level dB: (\S+)/g)].map(([, v]) => (v === '-inf' ? -Infinity : Number(v)));
 }
 
 /** Frames actually present in the first video stream, counted rather than read off the header. */

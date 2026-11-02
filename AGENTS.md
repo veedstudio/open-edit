@@ -21,6 +21,14 @@ A map for changing this repo. Making a video is the `open-edit` skill's job:
   record, and each fal purchase as a series of `request-<id>.<n>.json` versions of which only the highest `n`
   stands, all read together by `readManifest`) and the queue ledger (`queue-ledger.ts`) that keeps an
   identical request from being bought twice.
+- `cli/src/faces/`: face detection for `faces` (MediaPipe in a Python environment `install-mediapipe` makes
+  under the app-data dir) and `faces.js`, the page code that keeps text off the boxes it finds; `reframe`
+  and `shots` read the same boxes, from the clip's own folder that `folder.ts` names by its real path.
+  `concat-videos` and `apply-edl` cut a clip of another shape through reframe's `planShape` and
+  `shapeChain`, never a reshaping crop of their own; `render --footage` refuses footage of another shape.
+- `cli/src/verify/`: the delivery checks `openedit review` runs on a render. A check reports and never
+  changes the video; a new one is a module here, one entry in `CHECKS` in `checks.ts`, and its sentence
+  in the README's review section.
 
 ## Rules
 - Authored pages render in Chrome through `openedit render`.

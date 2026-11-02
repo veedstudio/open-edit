@@ -39,7 +39,8 @@ export function tileSheet(dir: string, count: number, cols: number, sheet: strin
   const c = Math.max(1, Math.min(cols, count));
   const rows = Math.ceil(count / c);
   for (let i = 0; i < count; i++) assertTile(tilePath(dir, i), `tile ${i + 1}`);
+  // -update 1 writes one picture, so a % in the sheet's path is a character, not image2's frame-number pattern.
   execFileSync(FFMPEG, ['-v', 'error', '-y', '-framerate', '1', '-start_number', '0', '-i', join(dir, 't-%04d.png'),
-    '-vf', `tile=${c}x${rows}:padding=${padding}:color=0x202020`, '-frames:v', '1', '-q:v', '3', sheet]);
+    '-vf', `tile=${c}x${rows}:padding=${padding}:color=0x202020`, '-frames:v', '1', '-q:v', '3', '-update', '1', sheet]);
   return { cols: c, rows };
 }

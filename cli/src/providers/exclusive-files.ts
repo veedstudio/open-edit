@@ -1,22 +1,43 @@
-// The file primitives shared state is built from when several processes write it at once: the job
-// ledger (queue-ledger.ts) and the asset manifest's records (assets.ts). Each state file is either owned by
-// one writer, created exclusively, or replaced whole, so no reader ever sees half of one.
+// The file primitives shared state is built from when several processes write it at once, such as the job
+// ledger (queue-ledger.ts), the asset manifest's records (assets.ts) and faces' boxes. Each state file is either
+// owned by one writer, created exclusively, or replaced whole, so no reader ever sees half of one.
 import { closeSync, linkSync, mkdirSync, openSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { dirname } from 'node:path';
 
 export const tmpName = (path: string) => `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
 
+export const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
 /** A reader sees the old bytes or the new ones, never a torn write. */
 export function writeAtomic(path: string, value: unknown): void {
+  writeTextAtomic(path, JSON.stringify(value, null, 2) + '\n');
+}
+
+/** writeAtomic for text that is not JSON. */
+export function writeTextAtomic(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = tmpName(path);
   try {
-    writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n');
-    renameSync(tmp, path);
+    writeFileSync(tmp, text);
+    renameInto(tmp, path);
   } catch (e) {
     try { unlinkSync(tmp); } catch { /* never written, or already renamed */ }
     throw e;
+  }
+}
+
+function renameInto(from: string, to: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (e) {
+      // Windows refuses to replace a file another process has open or is replacing at that instant; a moment later it is free.
+      const busy = process.platform === 'win32' && ['EPERM', 'EACCES', 'EBUSY'].includes((e as NodeJS.ErrnoException).code ?? '');
+      if (!busy || attempt === 40) throw e;
+      sleepSync(25);
+    }
   }
 }
 

@@ -172,7 +172,7 @@ npx @veedstudio/openedit-cli install-ffmpeg [--check|--force]
 npx @veedstudio/openedit-cli install-whisperx [<version>]
 ```
 
-### render / fonts / install-browser
+### render / fonts / safe-zone / install-browser
 
 Render an HTML page to video in headless Chrome, frame-exact. The page runs on a
 virtual clock (timers, `requestAnimationFrame`, `Date.now` and a seeded
@@ -192,10 +192,21 @@ re-renders only the segments it overlaps and rejoins the rest by stream copy.
 It fails naming the cause when Chrome does not start, the page throws, or every
 frame is one flat colour. `fonts` downloads Google Fonts as local woff2 files
 with a `fonts.css`; `install-browser` fetches the pinned Chrome Headless Shell,
-which `render` also does on first use:
+which `render` also does on first use. `safe-zone` writes the stylesheet for a
+platform format (9:16 for TikTok, Reels and Shorts; 16:9 for YouTube; 4:3): the
+stage at its size, and a `[data-safe]` container on the format's safe zone as the
+page's text layer, drawn from the platforms' published ad safe zones, with
+television title-safe sides on 4:3 (`safe-zone --help` says exactly what each keeps
+clear). The container is a size container, so `cqw` and `cqh` measure the zone
+for what is inside it. Its other defaults lose to any rule the page writes: text
+inside starts at the format's minimum (and so do `small`, `sub`, `sup`, `h5`, `h6`
+and form controls), a word too long for its line breaks, boxes inside keep within its
+width unless they set `max-width: none` (a ticker's track also sets `width:
+max-content`), and nothing is clipped:
 
 ```sh
 npx @veedstudio/openedit-cli fonts "Inter:wght@400;700" Anton --out fonts
+npx @veedstudio/openedit-cli safe-zone tiktok --out runs/<key>
 npx @veedstudio/openedit-cli install-browser [--check|--force]
 ```
 
@@ -206,11 +217,27 @@ soundtrack) onto a silent render, levelled to -14 LUFS / -1 dBTP
 (`--no-loudnorm` keeps the source level; the line it prints says which
 correction ran);
 `mix-audio` first builds one track from many pieces — narration, music,
-effects — per the run's mix spec, with music ducked under the voice:
+effects — per the run's mix spec, with music and effects ducked under the voice:
 
 ```sh
 npx @veedstudio/openedit-cli mix-audio runs/<key>            # → runs/<key>/audio/mix.m4a
 npx @veedstudio/openedit-cli mux-audio --video runs/<key>/out.mp4 --audio runs/<key>/audio/mix.m4a --out runs/<key>/final.mp4
+```
+
+### review
+
+Run every delivery check on the video about to be delivered and print one
+report. It changes nothing, and exits 0 whatever it finds. The dead-tail check
+reports a picture that runs on more than a second past its last sound or its
+last spoken word. The words come from the `transcript.json` in the video's
+folder, or the one `--transcript` names; the review never transcribes, and
+without a transcript it says what it skipped. The length check reports a picture
+that runs longer or shorter than the length `--length` names, in seconds, by
+more than a second or 5% of that length, whichever is more; without
+`--length` it is skipped:
+
+```sh
+npx @veedstudio/openedit-cli review runs/<key>/final.mp4 [--transcript <transcript.json>] [--length <sec>]
 ```
 
 ### Frames and joins
@@ -218,9 +245,10 @@ npx @veedstudio/openedit-cli mux-audio --video runs/<key>/out.mp4 --audio runs/<
 Tools for looking at and joining footage:
 
 ```sh
-npx @veedstudio/openedit-cli concat-videos [--canvas WxH] [--fit letterbox|crop|open] <out> <in1> <in2> [...]
+npx @veedstudio/openedit-cli concat-videos [--canvas WxH] [--fit crop|letterbox] <out> <in1> <in2> [...]
 npx @veedstudio/openedit-cli frames <video> --at 12.5,1:02 --frame 300-306 --every 0.5 --from 8 --to 11 [--sheet]  # stills at the moments you name
 npx @veedstudio/openedit-cli frames --images <image|dir> [...] [--width N] [--cols N]                                   # pictures that already exist, on one sheet
+npx @veedstudio/openedit-cli shots <video> [--threshold 0.1] [--min-shot 0.333] [--faces <faces.json>] [--json]          # a video as a shot list: cuts, lengths, speech from an existing transcript, shot size from existing face boxes, storyboard sheets
 ```
 
 The cut tools, for an edit made before captioning: measure where speech starts,
@@ -231,13 +259,65 @@ cut again. `--gap` and `--crossfade` are milliseconds; the EDL is seconds.
 
 ```sh
 npx @veedstudio/openedit-cli speech-probe <video> [--range a:b] [--gap 250] [--window 10] [--json]
-npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20]
+npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20] [--fit crop|letterbox]
 npx @veedstudio/openedit-cli retime-transcript --edl edl.json --out <OPEN_EDIT_ROOT>/runs/cut/transcript.json
 ```
+
+Both joins put every clip on one canvas, sized as the clips are shown (a phone
+clip stored sideways counts as upright). A clip of another shape is cut to the
+canvas's shape with `reframe`'s own code, around its faces when `faces` has run
+on it and from the middle otherwise, and a line says which; `--fit letterbox`
+keeps it whole and pads it instead. `render --footage` refuses footage of
+another shape than the stage and names the `reframe` command that cuts it.
 
 The retimed transcript goes where a transcription of the cut would land,
 `runs/<key>/transcript.json` under the workspace, so the transcription routes
 refuse to overwrite it and the cut is never transcribed.
+
+### faces / reframe / install-mediapipe
+
+Find the faces in each shot of a clip and write their boxes, for laying text
+out around them and for `reframe` (and the joins, which cut a clip of another
+shape as it does). They go to `runs/<key>/faces-<hash>/`, a folder of the clip's
+own named by its real path, so two clips of one name never share one; `faces`
+prints the path, and every reader looks there (and in a `runs/<key>/faces.json`
+an older `faces` wrote, when it names that same clip). One decode finds the cuts and samples four
+frames a second (`--every 0.25`), each labelled by its presentation time, so
+variable-frame-rate footage is sampled in time; a shot sampled fewer than four
+times also gets its first frame and the first at or past the middle of each
+quarter of it;
+MediaPipe's full-range BlazeFace model finds the faces on CPU. `faces.json`
+holds the boxes per sampled frame of each shot; `faces.js` holds them too, with
+`openeditFaces.place(el, from, to)`, which moves a laid-out element the least
+distance that clears every face on screen between those seconds of the clip.
+`install-mediapipe` puts MediaPipe, every package it runs on at the versions
+verified together (OpenCV's headless build) and the model into an environment
+of their own under the app-data directory, never the system Python: with uv
+when present, which fetches a Python it can use, else with `python3 -m venv`
+when that python3 is 3.12 or newer. MediaPipe 1.1.1 has no Intel Mac build; on
+an Apple Silicon Mac run an arm64 Node, and on Windows on ARM install uv and set
+`OPEN_EDIT_MEDIAPIPE_PYTHON=cpython-3.12-windows-x86_64-none`:
+
+```sh
+npx @veedstudio/openedit-cli install-mediapipe [<version>]
+npx @veedstudio/openedit-cli faces video.mp4 [--out <dir>] [--every 0.25] [--threshold 10] [--confidence 0.5] [--margin 0.25]
+```
+
+`reframe` cuts a clip to another shape (16:9 to 9:16, say). With those boxes,
+and without guessing who is who, each shot, which can be split again where a
+face seen alone for four samples jumps further than its own width and is seen
+alone there for four more (a dissolve or a cut the cut detection missed), is
+followed when it shows one face only (never two at once, each found
+overlapping the one before), the crop holding still while the face stays inside
+it and easing to a new place only when it must, and held at one place when it
+shows more, where the faces wholly inside add up to the most height; at a cut
+or a split it jumps. Without them it cuts the clip from the middle. It only
+crops, at the source's resolution, and always re-encodes: upright, in square
+pixels, H.264, a clip already in that shape included.
+
+```sh
+npx @veedstudio/openedit-cli reframe video.mp4 --aspect 9:16 --out tall.mp4 [--faces <faces.json>]
+```
 
 ### stills
 
@@ -293,6 +373,7 @@ npx @veedstudio/openedit-cli init --update <version> --workspace <dir>
 | `OPENEDIT_FFMPEG` / `OPENEDIT_FFPROBE` | ffmpeg/ffprobe binaries (default: the copy `install-ffmpeg` put in the app-data directory, else `PATH`; ffprobe defaults beside a configured ffmpeg; an empty value counts as unset). |
 | `WHISPERX_BIN` / `WHISPERX_MODEL` | WhisperX binary and fallback model tier (defaults: `whisperx` on `PATH`, `small.en`). |
 | `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE` | WhisperX device/compute (defaults: `cpu`/`int8`). |
+| `OPEN_EDIT_MEDIAPIPE_PYTHON` | The Python version `install-mediapipe` asks uv for (default: `3.12`; the pinned packages need 3.12 or newer). |
 
 Login state lives in the platform's per-user app-data directory:
 `~/Library/Application Support/veed-openedit` on macOS, `%APPDATA%\veed-openedit`
