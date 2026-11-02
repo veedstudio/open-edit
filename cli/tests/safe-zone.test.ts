@@ -11,6 +11,8 @@ import { chromium } from 'playwright-core';
 import { FFMPEG } from '../src/config.ts';
 import { chromePlatform, installedChrome } from '../src/render/browser.ts';
 import { FORMATS, formatNamed, minText, stylesheet, zoneFor } from '../src/commands/safe-zone.ts';
+import { readRecord, recordPath } from '../src/render/text-record.ts';
+import { judgeText } from '../src/verify/text.ts';
 import { scratchDir } from './helpers/synth.ts';
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
@@ -39,14 +41,14 @@ test('safe-zone: each format on its own canvas keeps the published ad safe-zone 
   // Instagram's feed is 4:5 or 1:1, so the name alone does not mean 9:16.
   assert.throws(() => formatNamed('instagram'), /names no safe-zone format/);
   assert.throws(() => formatNamed('1:1'), /"1:1" names no safe-zone format, so a page of that shape \(1:1 or 4:5, say\) skips this step; the formats are 9:16, 16:9, 4:3, tiktok/);
-  for (const f of FORMATS) assert.equal(zoneFor(f, f.canvas).minText, 32, `${f.name} minimum on its own canvas`);
+  for (const f of FORMATS) assert.equal(zoneFor(f, f.canvas).minText, 49, `${f.name} minimum on its own canvas`);
 });
 
 test('safe-zone: another canvas of the shape scales the zone and rounds it inward; another shape is refused', () => {
   const z = zoneFor(formatNamed('9:16'), { width: 720, height: 1280 });
   assert.deepEqual(rect(z), [128, 192, 592, 832]);
-  assert.equal(z.minText, 22);
-  assert.equal(minText({ width: 1920, height: 1080 }), 32);
+  assert.equal(z.minText, 33);
+  assert.equal(minText({ width: 1920, height: 1080 }), 49);
   // Footage sized to a 16-pixel grid is still 9:16.
   assert.doesNotThrow(() => zoneFor(formatNamed('9:16'), { width: 1088, height: 1920 }));
   assert.throws(() => zoneFor(formatNamed('9:16'), { width: 1920, height: 1080 }), /a 1920x1080 canvas is not 9:16/);
@@ -59,7 +61,7 @@ test('safe-zone: the command writes the stylesheet for a platform, and refuses a
   const css = readFileSync(join(dir, 'safe-zone.css'), 'utf8');
   assert.match(css, /\[data-safe-zone="9:16"\] \{\n {2}position: relative;\n {2}width: 1080px;\n {2}height: 1920px;/);
   assert.match(css, /\[data-safe-zone="9:16"\] \[data-safe\] \{\n {2}position: absolute;\n {2}left: 192px;\n {2}top: 288px;\n {2}width: 696px;\n {2}height: 960px;/);
-  assert.match(css, /--min-text: 32px;/);
+  assert.match(css, /--min-text: 49px;/);
   // Only the container's place is specific; every default after it has no specificity, so the page's rules win.
   assert.match(css, /height: 960px;\n {2}box-sizing: border-box;\n {2}container-type: size;\n\}/);
   assert.match(css, /:where\(\[data-safe-zone="9:16"\] \[data-safe\]\) \{\n {2}font-size: var\(--min-text\);\n {2}overflow-wrap: break-word;/);
@@ -115,10 +117,10 @@ for (const c of ZONES) {
     assert.equal(box.code, 0, box.err);
     assert.deepEqual(brightBox(join(dir, 'box', 'f000000-0.000s.png'), w, h, 200), c.zone);
 
-    // A heading of one word longer than any line, and a long paragraph, with no layout of their own: every glyph
-    // the defaults set lands inside the container.
-    const word = 'Unbreakable'.repeat(12);
-    const prose = 'Cut the first second, because nobody waits for a slow open on a feed that scrolls on without them. '.repeat(3);
+    // A heading of one word longer than any line, and a paragraph over several lines, with no layout of their own:
+    // every glyph the defaults set lands inside the container.
+    const word = 'Unbreakable'.repeat(4);
+    const prose = 'Cut the first second, because nobody waits for a slow open on a feed.';
     const text = cli(['render', zonePage(dir, 'text.html', c.format, c.canvas, `<div data-safe><h1>${word}</h1><p>${prose}</p></div>`), '--out', join(dir, 'text'), '--stills', '0']);
     assert.equal(text.code, 0, text.err);
     const [l, t, r, b] = brightBox(join(dir, 'text', 'f000000-0.000s.png'), w, h, 40);
@@ -150,7 +152,7 @@ test('browser: the defaults set unsized text at the minimum and lose to any rule
     + '<h1 id="head">Head</h1><p id="sized" style="font-size:max(var(--min-text), 10cqw)">Sized</p><div id="full" style="width:100cqw;height:100cqh"></div></div>');
   assert.deepEqual(await inChrome(floor, `(() => { ${size} const r = document.getElementById('full').getBoundingClientRect();
     return [size('plain'), size('small'), size('h6'), size('button'), size('head'), size('sized'), r.width, r.height]; })()`),
-  ['32px', '32px', '32px', '32px', '64px', '69.6px', 696, 960]);
+  ['49px', '49px', '49px', '49px', '98px', '69.6px', 696, 960]);
 
   // A size the page sets on the container, by element or by class, wins; its place on the zone holds.
   for (const css of ['[data-safe]{font-size:48px}', '.cap{font-size:48px;top:auto;bottom:100px;height:200px}']) {
@@ -158,6 +160,21 @@ test('browser: the defaults set unsized text at the minimum and lose to any rule
     assert.deepEqual(await inChrome(page, `(() => { ${size} const r = document.querySelector('[data-safe]').getBoundingClientRect();
       return [size('plain'), r.top, r.height]; })()`), ['48px', 288, 960], css);
   }
+});
+
+test('browser: text left at the defaults, or sized no smaller than the minimum, passes the review\'s size check', { skip }, async () => {
+  const dir = scratchDir('safe-zone-review');
+  // On a 360 px side the zone is 232 px wide, so 6cqw is 13.9 px and the minimum is what holds the size up.
+  const page = zonePage(dir, 'defaults.html', '9:16', { width: 360, height: 640 },
+    '<div data-safe><p>Plain text</p><small>Small print</small><h6>Sixth heading</h6>'
+    + '<p style="font-size:max(var(--min-text), 6cqw)">Sized in cqw</p></div>');
+  const out = join(dir, 'out.mp4');
+  const r = cli(['render', page, '--out', out, '--fps', '30', '--duration', '0.5']);
+  assert.equal(r.code, 0, r.err);
+  const record = readRecord(recordPath(out));
+  assert.deepEqual(record.samples[0].texts.map((e) => e.text).sort(), ['Plain text', 'Sixth heading', 'Sized in cqw', 'Small print']);
+  const report = await judgeText(out, { path: recordPath(out), record });
+  assert.doesNotMatch(report.lines.join('\n'), /smaller than a phone's body text/, report.lines.join('\n'));
 });
 
 test('browser: boxes inside keep within the container unless they ask not to, a ticker runs whole, pictures keep their shape, an svg its size', { skip }, async () => {

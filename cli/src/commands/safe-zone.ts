@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { parseCanvas } from './concat-videos.ts';
+import { SIZE_FLOOR } from '../verify/text.ts';
 
 export interface Size {
   width: number;
@@ -111,10 +112,10 @@ export function zoneFor(format: Format, canvas: Size): Zone {
   };
 }
 
-// Apple's smallest iOS text size, 11 pt, on the narrowest iPhone in wide use (375 pt), which every format
-// fills full screen with its short side: 32 px on a 1080 px side.
+// The review's size floor, so text left at the container's default, or sized no smaller than it, passes the text
+// check: 49 px on a 1080 px side.
 export function minText(canvas: Size): number {
-  return Math.ceil((Math.min(canvas.width, canvas.height) * 11) / 375);
+  return Math.ceil(Math.min(canvas.width, canvas.height) * SIZE_FLOOR);
 }
 
 /** The stylesheet `openedit safe-zone` writes: the stage at the canvas size, and `[data-safe]` on the zone with its defaults. */

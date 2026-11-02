@@ -10,8 +10,8 @@ import { fromTo, listed, quoted, skippedFor } from './report.ts';
 /**
  * The smallest font size, as a fraction of the frame's shorter side: 4.5% is about 49 px on a 1080-wide 9:16 or a
  * 1080-high 16:9 frame, which is a phone's 17 pt body text when the video fills a screen whose short side is 375 pt,
- * turned to the video's orientation (375 / 1080 × 49 ≈ 17). It is stricter than the safe zone's minimum, Apple's
- * smallest text size, because it is the size text is read at with ease, not the least it can be read at.
+ * turned to the video's orientation (375 / 1080 × 49 ≈ 17): the size text is read at with ease, not the least it can
+ * be read at. The safe zone's minimum text size is this floor, so its defaults pass the check.
  */
 export const SIZE_FLOOR = 0.045;
 
