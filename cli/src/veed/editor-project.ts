@@ -456,17 +456,19 @@ export function edlParts(p: EdlPart, ranges: SnappedRange[], source: (id: string
 /**
  * The tracks of a mix-audio spec as audio parts, as mix-audio plays them: gain as the editor's linear volume, each
  * track cut at the film's end, and its fade-out where the film's falls. `length` gives a track file's own length,
- * and `levels` its channel levels. The editor plays each file as it is, so a ducked track and a one-sided one that
+ * `levels` its channel levels, and `setDb` the gain mix-audio sets each effect given none to (see `effectLevels`),
+ * indexed like the spec's tracks. The editor plays each file as it is, so a ducked track and a one-sided one that
  * mix-audio would centre are named in `notes`.
  */
 export function mixParts(
   spec: MixSpec,
   length: (path: string) => number,
   levels: (path: string) => readonly number[],
+  setDb: readonly (number | undefined)[] = [],
 ): { parts: AudioPart[]; notes: string[] } {
   const notes: string[] = [];
   const hasVoice = spec.tracks.some((t) => t.role === 'voice');
-  const parts = spec.tracks.flatMap((t): AudioPart[] => {
+  const parts = spec.tracks.flatMap((t, i): AudioPart[] => {
     const end = Math.min(t.atSec + length(t.path), spec.durationSec);
     if (end <= t.atSec) return [];
     if (ducks(t, hasVoice)) notes.push(`${t.path}: ducking under the voice is not carried; it plays at its own gain`);
@@ -475,7 +477,7 @@ export function mixParts(
     const fadeOut = t.fadeOutSec ? Math.min(t.fadeOutSec, end - Math.max(t.atSec, spec.durationSec - t.fadeOutSec)) : 0;
     return [{
       type: 'audio', file: t.path, at: t.atSec, in: 0, out: end - t.atSec, name: `${t.role ?? 'audio'}: ${t.path.split('/').pop()}`,
-      volume: Math.round(10 ** ((t.gainDb ?? 0) / 20) * 1000) / 1000,
+      volume: Math.round(10 ** ((t.gainDb ?? setDb[i] ?? 0) / 20) * 1000) / 1000,
       ...(t.fadeInSec ? { fadeIn: t.fadeInSec } : {}), ...(end >= spec.durationSec && fadeOut > 0 ? { fadeOut } : {}),
     }];
   });

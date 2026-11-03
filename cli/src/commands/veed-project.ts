@@ -28,7 +28,7 @@ import { startPageServer } from '../render/server.ts';
 import { RenderSession } from '../render/session.ts';
 import { splitContiguous, workersFor } from '../render/timing.ts';
 import { channelLevels } from '../channels.ts';
-import { readSpec } from './mix-audio.ts';
+import { effectLevels, readSpec, trackLevels } from './mix-audio.ts';
 import { cropFor } from './reframe.ts';
 import { BUDGET_MS, EPOCH, SEED } from '../render/lead.ts';
 import { pageRoots } from './render.ts';
@@ -116,7 +116,11 @@ async function run(planPath: string, values: Values, made: { url?: string }): Pr
   // mix-audio's do against its run.
   const parts: Exclude<Part, { type: 'mix' | 'edl' }>[] = plan.parts.flatMap((p) => {
     if (p.type === 'mix') {
-      const mixed = mixParts(readSpec(at(p.file)), (track) => audioDurationOf(at(track)), (track) => channelLevels(at(track)));
+      const spec = readSpec(at(p.file));
+      const levels = trackLevels(from, spec);
+      const byPath = new Map(spec.tracks.map((t, i) => [t.path, levels[i]]));
+      const setDb = effectLevels(from, spec, levels).map((e) => e?.gainDb);
+      const mixed = mixParts(spec, (track) => audioDurationOf(at(track)), (track) => byPath.get(track) ?? channelLevels(at(track)), setDb);
       for (const note of mixed.notes) console.error(`veed-project: ${note}`);
       return mixed.parts;
     }

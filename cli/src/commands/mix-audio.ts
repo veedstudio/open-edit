@@ -7,7 +7,8 @@
 //
 // This takes a spec and produces the mixed track. Every piece states WHERE it starts and how loud it
 // sits; music and effects under narration are ducked by the narration itself rather than by a gain somebody
-// guessed at, and a mono or one-sided piece is centred in both channels.
+// guessed at, an effect given no gain is set under the narration by measuring both, and a mono or one-sided
+// piece is centred in both channels.
 //
 //   openedit mix-audio <run-dir> [--spec audio/mix.json] [--out audio/mix.m4a]
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -23,7 +24,7 @@ export interface Track {
   path: string;
   /** When it starts, in seconds on the film's timeline. */
   atSec: number;
-  /** Level in dB. 0 leaves it alone; negative is quieter. */
+  /** Level in dB. 0 leaves it alone; negative is quieter. Unset on an sfx track in a spec with a voice, it is set under the voice (see `effectLevels`). */
   gainDb?: number;
   fadeInSec?: number;
   fadeOutSec?: number;
@@ -73,14 +74,18 @@ function keyGainDb(lufs: number | undefined): number {
   return lufs === undefined || !Number.isFinite(lufs) ? 0 : KEY_LUFS - Math.max(lufs, QUIETEST_KEY_LUFS);
 }
 
-/** One track's chain from its input: made stereo, placed on the timeline, levelled and faded. */
-function chainOf(t: Track, input: number, levels: readonly number[] | undefined, durationSec: number): string {
+/**
+ * One track's chain from its input: made stereo, placed on the timeline, levelled and faded. `setDb` is the gain
+ * `effectLevels` measured for it, which its own gainDb overrides.
+ */
+function chainOf(t: Track, input: number, levels: readonly number[] | undefined, durationSec: number, setDb?: number): string {
   if (!Number.isFinite(t.atSec) || t.atSec < 0) {
     throw new Error(`mix-audio: "${t.path}" starts at ${t.atSec}s — a start must be a non-negative number`);
   }
   const ms = Math.round(t.atSec * 1000);
   const chain = [`[${input}:a]aresample=48000`, toStereo(t.keepPan ? undefined : levels), `adelay=${ms}|${ms}`];
   if (t.gainDb) chain.push(`volume=${t.gainDb}dB`);
+  else if (t.gainDb === undefined && setDb !== undefined) chain.push(`volume=${setDb.toFixed(2)}dB`);
   if (t.fadeInSec) chain.push(`afade=t=in:st=${t.atSec}:d=${t.fadeInSec}`);
   if (t.fadeOutSec) {
     // Measured from the END of the film, because a cue's own length is not knowable from the spec.
@@ -92,8 +97,9 @@ function chainOf(t: Track, input: number, levels: readonly number[] | undefined,
 
 /**
  * The filtergraph, built as a string so it can be read and tested without running ffmpeg. `levels` holds each
- * track's measured channel levels, and `voiceLufs` each voice track's loudness (see `voiceLoudness`); a track
- * without levels is still made stereo, and an unmeasured voice keys the duck at its own level.
+ * track's measured channel levels, `voiceLufs` each voice track's loudness (see `voiceLoudness`) and `setDb` the
+ * gain each effect is set to under the voice (see `effectLevels`); a track without levels is still made stereo, an
+ * unmeasured voice keys the duck at its own level, and an unmeasured effect plays as recorded.
  *
  * Every track is made stereo first: left to format negotiation, a mono narration listed first collapsed the
  * whole mix, music included, to mono. `adelay` needs a value per channel, `amix` with `normalize=0` keeps
@@ -105,6 +111,7 @@ export function filtergraph(
   spec: MixSpec,
   levels: (readonly number[] | undefined)[] = [],
   voiceLufs: (number | undefined)[] = [],
+  setDb: (number | undefined)[] = [],
 ): { graph: string; out: string } {
   if (!spec.tracks.length) throw new Error('mix-audio: the spec has no tracks');
   if (!Number.isFinite(spec.durationSec) || spec.durationSec <= 0) {
@@ -121,7 +128,7 @@ export function filtergraph(
 
   spec.tracks.forEach((t, i) => {
     const l = label(i);
-    parts.push(`${chainOf(t, i, levels[i], spec.durationSec)}[${l}]`);
+    parts.push(`${chainOf(t, i, levels[i], spec.durationSec, setDb[i])}[${l}]`);
     if (t.role === 'voice') voices.push({ l, i });
     else if (ducks(t, hasVoice)) ducked.push(l);
     else plain.push(l);
@@ -320,8 +327,10 @@ export function voiceLoudness(runDir: string, spec: MixSpec, levels: (readonly n
   const args = ['-hide_banner', '-nostats'];
   for (const i of voiced) args.push('-i', resolve(spec.tracks[i].path));
   const d = spec.durationSec;
+  // Per-frame lines go to the verbose level, which the default log level hides, so only the summary is printed;
+  // ffmpeg 5.1 has no framelog=quiet and refuses the graph.
   args.push('-filter_complex', voiced
-    .map((i, n) => `${chainOf(spec.tracks[i], n, levels[i], d)},atrim=0:${d},ebur128@v${i}=framelog=quiet[m${n}]`).join(';'));
+    .map((i, n) => `${chainOf(spec.tracks[i], n, levels[i], d)},atrim=0:${d},ebur128@v${i}=framelog=verbose[m${n}]`).join(';'));
   voiced.forEach((_, n) => args.push('-map', `[m${n}]`, '-f', 'null', '-'));
   const run = spawnSync(FFMPEG, args, { encoding: 'utf8' });
   // Each instance prints its own summary, named after the track it measured.
@@ -336,18 +345,113 @@ export function voiceLoudness(runDir: string, spec: MixSpec, levels: (readonly n
   return spec.tracks.map((_, i) => found.get(i));
 }
 
+/**
+ * How far under the voice an effect given no gain is set, in LU: the separation between dialogue and its
+ * background of music and effects that SVT's delivery spec recommends, the strict end of the 4 to 8 LU that
+ * broadcasters' delivery specs ask for.
+ */
+export const SFX_UNDER_VOICE_LU = 8;
+
+/** Momentary loudness this close to the voice's loudest moment is the voice speaking; pauses and breaths fall below it. */
+const SPEECH_GATE_LU = 20;
+
+/** BS.1770's absolute gate: a track that never rises above it is silent, and nothing can be set against silence. */
+const SILENT_LUFS = -70;
+
+/** Whether a track is set under the voice: a sound effect given no gain, in a spec with a voice track. */
+export function setUnderVoice(track: Track, hasVoice: boolean): boolean {
+  return track.role === 'sfx' && track.gainDb === undefined && hasVoice;
+}
+
+/**
+ * The voice's loudness while it speaks: the energy mean of its momentary loudness within SPEECH_GATE_LU of its
+ * loudest moment, so the pauses between lines do not pull it down. Undefined for a voice that never sounds.
+ */
+export function speakingLoudness(momentary: readonly number[]): number | undefined {
+  const loudest = momentary.reduce((a, b) => Math.max(a, b), -Infinity);
+  if (!(loudest > SILENT_LUFS)) return undefined;
+  const speaking = momentary.filter((m) => m >= loudest - SPEECH_GATE_LU);
+  return 10 * Math.log10(speaking.reduce((sum, m) => sum + 10 ** (m / 10), 0) / speaking.length);
+}
+
+/** Each named ebur128 instance's momentary loudness, one value per 100 ms, read from its `framelog=info` lines. */
+function momentaryOf(stderr: string): Map<string, number[]> {
+  const series = new Map<string, number[]>();
+  for (const [, name, m] of stderr.matchAll(/^\[ebur128@(\w+) @ [^\]]+\] t: *\S+ +TARGET:\S+ LUFS +M: *(\S+)/gm)) {
+    if (!series.has(name)) series.set(name, []);
+    series.get(name)!.push(Number.isFinite(Number(m)) ? Number(m) : -Infinity);
+  }
+  return series;
+}
+
+export interface EffectLevel {
+  /** The gain the effect is given. */
+  gainDb: number;
+  /** Its loudest momentary loudness as the mix plays it, before that gain. */
+  loudestLufs: number;
+  /** The voice's loudness while it speaks, as the mix plays it. */
+  voiceLufs: number;
+}
+
+/**
+ * The level of each sfx track given no gain, indexed like the spec's tracks: its loudest momentary (400 ms) loudness
+ * set SFX_UNDER_VOICE_LU under the voice's loudness while it speaks, both as the mix plays them. Effects mostly land
+ * between lines where nothing ducks them, so what is heard is an effect's peak against the voice a moment before;
+ * integrated or 3 s short-term loudness would average a short hit with its tail and read it several LU quieter than
+ * it sounds. A silent effect, and every effect under a silent voice, is left unmeasured.
+ */
+export function effectLevels(runDir: string, spec: MixSpec, levels: (readonly number[] | undefined)[] = []): (EffectLevel | undefined)[] {
+  const unmeasured = spec.tracks.map((): EffectLevel | undefined => undefined);
+  const hasVoice = spec.tracks.some((t) => t.role === 'voice');
+  const set = spec.tracks.flatMap((t, i) => (setUnderVoice(t, hasVoice) ? [i] : []));
+  if (!set.length) return unmeasured;
+  const resolve = resolver(runDir);
+  const voiced = spec.tracks.flatMap((t, i) => (t.role === 'voice' ? [i] : []));
+  // Nothing to measure: the mix names a missing file.
+  if ([...voiced, ...set].some((i) => !existsSync(resolve(spec.tracks[i].path)))) return unmeasured;
+  const args = ['-hide_banner', '-nostats'];
+  for (const i of [...voiced, ...set]) args.push('-i', resolve(spec.tracks[i].path));
+  const d = spec.durationSec;
+  const graph = voiced.map((i, n) => `${chainOf(spec.tracks[i], n, levels[i], d)}[v${n}]`);
+  // Padded as the mix pads it, so a voice that stops dead is read through its last word's release like any other pause.
+  graph.push(`${voiced.map((_, n) => `[v${n}]`).join('')}${voiced.length > 1 ? `amix=inputs=${voiced.length}:normalize=0,` : ''}`
+    + `apad=whole_dur=${d},atrim=0:${d},ebur128@voice=framelog=info[mvoice]`);
+  // Each effect is measured from its own start, so the silence before it on the timeline is not read.
+  set.forEach((i, k) => graph.push(`${chainOf(spec.tracks[i], voiced.length + k, levels[i], d)},`
+    + `atrim=start=${spec.tracks[i].atSec}:end=${d},ebur128@s${i}=framelog=info[ms${i}]`));
+  args.push('-filter_complex', graph.join(';'), '-map', '[mvoice]', '-f', 'null', '-');
+  for (const i of set) args.push('-map', `[ms${i}]`, '-f', 'null', '-');
+  // A line per instance every 100 ms: a long narration logs megabytes.
+  const run = spawnSync(FFMPEG, args, { encoding: 'utf8', maxBuffer: 1 << 28 });
+  if (run.error || run.status !== 0) {
+    const why = run.error?.message ?? (run.stderr ?? '').trim().split('\n').pop();
+    throw new Error(`mix-audio: could not measure the loudness of the voice and the sound effects${why ? `: ${why}` : ''}`);
+  }
+  const momentary = momentaryOf(run.stderr ?? '');
+  const unread = [...(momentary.has('voice') ? [] : voiced), ...set.filter((i) => !momentary.has(`s${i}`))];
+  if (unread.length) throw new Error(`mix-audio: could not measure the loudness of ${unread.map((i) => spec.tracks[i].path).join(', ')}`);
+  const voiceLufs = speakingLoudness(momentary.get('voice')!);
+  if (voiceLufs === undefined) return unmeasured;
+  return spec.tracks.map((_, i) => {
+    if (!set.includes(i)) return undefined;
+    const loudestLufs = momentary.get(`s${i}`)!.reduce((a, b) => Math.max(a, b), -Infinity);
+    return loudestLufs > SILENT_LUFS ? { gainDb: voiceLufs - SFX_UNDER_VOICE_LU - loudestLufs, loudestLufs, voiceLufs } : undefined;
+  });
+}
+
 export function mix(
   runDir: string,
   spec: MixSpec,
   outPath: string,
   levels = trackLevels(runDir, spec),
   voiceLufs = voiceLoudness(runDir, spec, levels),
+  effects = effectLevels(runDir, spec, levels),
 ): string {
   const resolve = resolver(runDir);
   for (const t of spec.tracks) {
     if (!existsSync(resolve(t.path))) throw new Error(`mix-audio: no such track — ${t.path}`);
   }
-  const { graph, out } = filtergraph(spec, levels, voiceLufs);
+  const { graph, out } = filtergraph(spec, levels, voiceLufs, effects.map((e) => e?.gainDb));
   const args = ['-y', '-hide_banner', '-loglevel', 'error'];
   for (const t of spec.tracks) args.push('-i', resolve(t.path));
   args.push('-filter_complex', graph, '-map', `[${out}]`, '-c:a', 'aac', '-b:a', '192k', outPath);
@@ -375,8 +479,12 @@ export const usage = {
     'seconds), and optionally gainDb (0 leaves it as recorded, negative is quieter), fadeInSec, fadeOutSec (ends at',
     'durationSec), role (voice, music, sfx or ambience), duck (whether it is lowered while the voice tracks',
     'speak) and keepPan (true: a two-channel track keeps its panning, for an effect meant to sit on one side).',
-    'Music and sfx tracks are ducked by default whenever a voice track exists, and "duck": false keeps one at its',
-    'own gain; any other non-voice track is ducked with "duck": true. Each voice track keys the duck at one loudness,',
+    `An sfx track given no gainDb, in a spec with a voice track, is set so its loudest moment sits ${SFX_UNDER_VOICE_LU} LU under`,
+    'the voice\'s loudness while it speaks, both measured as the mix plays them; the command prints the gain it set.',
+    'Give an sfx track its own gainDb for a deliberate loud hit: it keeps that gain. With no voice track, every',
+    'track plays at its own gain.',
+    'Music and sfx tracks are ducked by default whenever a voice track exists, and "duck": false keeps one from',
+    'dipping; any other non-voice track is ducked with "duck": true. Each voice track keys the duck at one loudness,',
     'so a ducked track dips as deep under a quiet narration as under a loud one; under one quieter than -50 LUFS the',
     'dip fades out with it. A mono file, or a two-channel one with its sound on one channel, is centred in both channels',
     'unless it sets keepPan; one leaning 12 dB or more to a side is named and left as it is. Files with more',
@@ -407,15 +515,17 @@ export function mixAudio(argv: string[]): number {
   }
   let levels: (number[] | undefined)[];
   let voiceLufs: (number | undefined)[];
+  let effects: (EffectLevel | undefined)[];
   try {
     levels = trackLevels(runDir, spec);
     voiceLufs = voiceLoudness(runDir, spec, levels);
+    effects = effectLevels(runDir, spec, levels);
   } catch (error) {
     console.error((error as Error).message);
     return 1;
   }
   if (values['print-graph']) {
-    console.log(filtergraph(spec, levels, voiceLufs).graph);
+    console.log(filtergraph(spec, levels, voiceLufs, effects.map((e) => e?.gainDb)).graph);
     return 0;
   }
   // A mono file is centred as a matter of course; a one-sided or leaning two-channel one is worth saying.
@@ -423,6 +533,14 @@ export function mixAudio(argv: string[]): number {
     const l = levels[i];
     const said = l && !t.keepPan ? describeBalance(l) : null;
     if (said) console.log(`mix-audio: ${t.path} ${said}`);
+  });
+  // The gain each effect was given, with both measurements it came from, so a level that sounds wrong can be traced.
+  const lufs = (v: number) => `${v.toFixed(1)} LUFS`;
+  spec.tracks.forEach((t, i) => {
+    const e = effects[i];
+    if (!e) return;
+    console.log(`mix-audio: ${t.path} at ${t.atSec}s set ${e.gainDb >= 0 ? '+' : ''}${e.gainDb.toFixed(1)} dB, its loudest moment from `
+      + `${lufs(e.loudestLufs)} to ${lufs(e.loudestLufs + e.gainDb)}, ${SFX_UNDER_VOICE_LU} LU under the voice speaking at ${lufs(e.voiceLufs)}`);
   });
   const lengths = trackLengths(runDir, spec);
   for (const unread of new Set(lengths.filter((l) => l instanceof Error))) {
@@ -434,7 +552,7 @@ export function mixAudio(argv: string[]): number {
     console.warn(`mix-audio: warning: every track has ended by ${s(tail.endSec)}, the last being ${tail.path}, so the mix is `
       + `silent from ${s(tail.endSec)} to ${s(spec.durationSec)}`);
   }
-  const out = mix(runDir, spec, join(runDir, values.out ?? 'audio/mix.m4a'), levels, voiceLufs);
+  const out = mix(runDir, spec, join(runDir, values.out ?? 'audio/mix.m4a'), levels, voiceLufs, effects);
   console.log(`mix-audio: ${out}`);
   return 0;
 }

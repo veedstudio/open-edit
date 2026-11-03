@@ -1,11 +1,15 @@
 // The dead-tail check: a video that runs on after its last line, such as a silent end card or a "thank
 // you" scene with nothing to hear. It measures how far the picture runs past the last spoken word and
-// past the last sound, and reports a tail longer than TAIL_SECONDS.
+// past the last sound, and reports a tail longer than TAIL_SECONDS. A tail past the last word with sound under it
+// and new text on screen from the last spoken phrase on is an end card instead, reported only when held longer than
+// its words take to read.
 import { decode, envelopeOf, SAMPLE_RATE } from '../commands/speech-probe.ts';
 import { hasAudioStream, streamStartOf } from '../probe.ts';
+import { sampleSeconds, timeOf, type TextEntry, type TextRecord } from '../render/text-record.ts';
 import type { Transcript } from '../transcript/transcript-types.ts';
-import type { CheckReport, ReviewContext, TranscriptInput } from './checks.ts';
-import { seconds as s } from './report.ts';
+import type { CheckReport, ReviewContext, TextRecordInput, TranscriptInput } from './checks.ts';
+import { quoted, seconds as s } from './report.ts';
+import { blocksOf } from './text-blocks.ts';
 
 /**
  * About a second is where a silence starts to read as something gone wrong (Jefferson 1989: a "standard
@@ -32,6 +36,40 @@ export const RELATIVE_GATE_DB = 20;
 // ASR word ends overshoot a little, so a last word may end this far after the sound, or the picture,
 // before its transcript is taken to belong to another timeline.
 const WORD_SLACK = 0.5;
+
+/**
+ * How long on-screen text takes to read: the least time UK broadcast advertising lets text over picture hold so that
+ * a viewer making some effort can read it, 0.2 s a word plus a recognition period of 2 s, or 3 s from ten words (CAP
+ * and BCAP, "On screen text and subtitling in TV ads", Duration of hold). A web address counts as one word, as there.
+ */
+export const READING = { perWord: 0.2, recognition: 2, longRecognition: 3, longFrom: 10 } as const;
+
+/**
+ * However few its words, an end card may hold this long: 2 to 4 s is the usual hold for one, so no hold in that range
+ * is reported.
+ */
+export const END_CARD_FLOOR = 4;
+
+/**
+ * However many its words, an end card held longer than this is reported: cards held 5 s to 8.5 s were judged too long
+ * in testing. It sits halfway between the shortest of those and the top of the usual hold, a judgement, as no sample
+ * falls between them.
+ */
+export const END_CARD_CAP = 4.5;
+
+/** Seconds `words` take to read, by READING. */
+export const readingSeconds = (words: number): number =>
+  words * READING.perWord + (words >= READING.longFrom ? READING.longRecognition : READING.recognition);
+
+/**
+ * The longest an end card of `words` may hold: its reading time and then the beat TAIL_SECONDS allows after the last
+ * thing to take in, as after a last line, kept between END_CARD_FLOOR and END_CARD_CAP.
+ */
+export const endCardLimit = (words: number): number =>
+  Math.min(END_CARD_CAP, Math.max(END_CARD_FLOOR, readingSeconds(words) + TAIL_SECONDS));
+
+/** Words to read: whitespace-separated pieces with a letter or a digit in them, so an icon or an arrow is none. */
+const wordsIn = (text: string): number => text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 
 export interface LastSound {
   /** Seconds to the end of the last window loud enough to count as sound; null when none is. */
@@ -74,15 +112,93 @@ export function lastWordOf(transcript: Transcript): LastWord | null {
   return last;
 }
 
+/**
+ * A silence between two words longer than this ends a phrase: 250 ms is the usual floor for a silent pause, under which
+ * a gap is taken for articulation rather than a break (Goldman-Eisler 1968).
+ */
+export const PHRASE_PAUSE = 0.25;
+
+/**
+ * Where the speech before the last spoken phrase ends: the end of the last word before the last pause longer than
+ * PHRASE_PAUSE, or, with no such pause, where the first word starts.
+ */
+export function beforeLastPhraseOf(transcript: Transcript): number {
+  const words = transcript.chunks.flatMap((chunk) => chunk.words).sort((a, b) => a.timestamp[0] - b.timestamp[0]);
+  if (words.length === 0) return 0;
+  let before = words[0].timestamp[0];
+  let heard = words[0].timestamp[1];
+  for (const word of words.slice(1)) {
+    if (word.timestamp[0] - heard > PHRASE_PAUSE) before = heard;
+    heard = Math.max(heard, word.timestamp[1]);
+  }
+  return before;
+}
+
+export interface EndCard {
+  /** Seconds of the tail with the card's words on screen. */
+  seconds: number;
+  /** The most of the card's words on screen at once, which is what it asks a viewer to read. */
+  words: number;
+  /** Those words as they read, block by block. */
+  text: string;
+  /** Seconds of the tail with no card on screen but other words: a caption, or text up from before the last phrase. */
+  leftUp: number;
+}
+
+/**
+ * The end card from `from`, where the last spoken word ends, to `to` on the picture's timeline: the text that came up
+ * for the ending, from `phrase`, where the pause before the last spoken phrase begins, so a card brought up with the
+ * spoken call to action counts. A sample's leeway is allowed, as the record places a text only to the sample. Text up
+ * since earlier, such as a title or a watermark, is left out, and so is text in an element that showed other words
+ * before then, as a caption track's elements do: a last caption left up into the music, or a word-by-word caption's
+ * last word, is not an end card.
+ */
+export function endCardOf(record: TextRecord, phrase: number, from: number, to: number): EndCard {
+  const step = sampleSeconds(record);
+  const since = phrase - step - 1e-9;
+  const card: EndCard = { seconds: 0, words: 0, text: '', leftUp: 0 };
+  const keyOf = (e: TextEntry) => `${e.selector}\u0000${e.text}`;
+  // When each text on screen came up, as the same element showing the same words in every sample since.
+  let upSince = new Map<string, number>();
+  // The words each element showed before the last phrase.
+  const earlier = new Map<string, Set<string>>();
+  const isCard = (e: TextEntry) =>
+    upSince.get(keyOf(e))! >= since && ![...(earlier.get(e.selector) ?? [])].some((said) => said !== e.text && wordsIn(said) > 0);
+  for (const sample of record.samples) {
+    const t = timeOf(record, sample.frame);
+    upSince = new Map(sample.texts.map((e) => [keyOf(e), upSince.get(keyOf(e)) ?? t]));
+    if (t < since) {
+      for (const e of sample.texts) earlier.set(e.selector, (earlier.get(e.selector) ?? new Set<string>()).add(e.text));
+      continue;
+    }
+    const span = Math.min(t + step, to) - Math.max(t, from);
+    if (span <= 0) continue;
+    const blocks = blocksOf(sample.texts.filter(isCard));
+    const words = blocks.reduce((n, b) => n + wordsIn(b.text), 0);
+    if (words === 0) {
+      if (sample.texts.some((e) => wordsIn(e.text) > 0)) card.leftUp += span;
+      continue;
+    }
+    card.seconds += span;
+    if (words > card.words) Object.assign(card, { words, text: blocks.map((b) => b.text).join(' / ') });
+  }
+  return card;
+}
+
 export interface DeadTailInput {
   /** Seconds of picture. */
   duration: number;
   /** The last sound, or null when the video has no audio track. */
   sound: LastSound | null;
   transcript: TranscriptInput;
+  /** What text the video shows, to tell an end card from background left running; without it, the two are reported alike. */
+  textRecord?: TextRecordInput;
 }
 
-export function judgeDeadTail({ duration, sound: measured, transcript }: DeadTailInput, threshold = TAIL_SECONDS): CheckReport {
+export function judgeDeadTail(
+  { duration, sound: measured, transcript, textRecord = { missing: 'no record of on-screen text was given' } }: DeadTailInput,
+  threshold = TAIL_SECONDS,
+): CheckReport {
   const lines: string[] = [];
   const skipped: string[] = [];
 
@@ -98,6 +214,7 @@ export function judgeDeadTail({ duration, sound: measured, transcript }: DeadTai
   // picture, leaves room for its last word: one from another timeline would otherwise hide a silence.
   let word: LastWord | null = null;
   let wordLine: string | null = null;
+  let phrase = 0;
   if ('missing' in transcript) {
     skipped.push(`the last spoken word: ${transcript.missing}`);
   } else {
@@ -120,6 +237,7 @@ export function judgeDeadTail({ duration, sound: measured, transcript }: DeadTai
       word = null;
     } else {
       wordLine = `the last spoken word, "${word.text}", ends at ${s(word.end)} (${transcript.path})`;
+      phrase = beforeLastPhraseOf(transcript.transcript);
     }
   }
 
@@ -137,12 +255,42 @@ export function judgeDeadTail({ duration, sound: measured, transcript }: DeadTai
     if (silentTail > threshold) {
       found = true;
       lines.push(`the last ${s(silentTail)} are silent: nothing is heard after ${s(heard)}, and the picture runs to ${s(duration)}`);
-    } else if (speechTail !== null && speechTail > threshold) {
-      found = true;
-      lines.push(
-        `the picture runs ${s(speechTail)} past the last spoken word, with sound under it to ${s(sound.end)}: ` +
-          'fine for a deliberate outro, a dead tail if that sound is background left running',
-      );
+    } else if (word && speechTail !== null && speechTail > threshold) {
+      // Sound runs to the end, so whether the tail is dead turns on what is on screen through it.
+      if ('missing' in textRecord) {
+        found = true;
+        lines.push(
+          `the picture runs ${s(speechTail)} past the last spoken word, with sound under it to ${s(sound.end)}: ` +
+            'fine for a deliberate outro, a dead tail if that sound is background left running',
+        );
+        skipped.push(`whether the tail is an end card: ${textRecord.missing}`);
+      } else {
+        const card = endCardOf(textRecord.record, phrase, word.end, duration);
+        // Up to a beat with nothing to read, before the card comes up or after it goes, is part of an ending.
+        const bare = speechTail - card.seconds;
+        if (bare > threshold + 1e-9) {
+          found = true;
+          const runOn = `the picture runs ${s(speechTail)} past the last spoken word, with sound under it to ${s(sound.end)}`;
+          const part = card.seconds > 0 ? ` for ${s(bare)} of it` : '';
+          lines.push(card.leftUp > 0
+            ? `${runOn} and no end card${part}: the only text on screen${card.seconds > 0 ? ' then' : ''} is a caption or text up from ` +
+              'before the last spoken phrase, and neither is an end card'
+            : `${runOn} and no text on screen${part}: background left running, not an end card`);
+        } else {
+          const limit = endCardLimit(card.words);
+          const words = `${card.words} word${card.words === 1 ? '' : 's'}`;
+          const soundTo = duration - sound.end <= WINDOW_MS / 1000 + 1e-9 ? 'to the last frame' : `to ${s(sound.end)}`;
+          found = card.seconds > limit + 1e-9;
+          lines.push(
+            `ends on a ${s(card.seconds)} end card with sound ${soundTo}, ` +
+              `${found ? 'held longer than' : 'within'} the ${s(limit)} allowed for its ${words}: ${quoted(card.text)}`,
+          );
+          const reading = readingSeconds(card.words);
+          if (found && reading > END_CARD_CAP) {
+            lines.push(`its ${words} take ${s(reading)} to read, and an end card holds ${s(END_CARD_CAP)} at most: it has too many words for one`);
+          }
+        }
+      }
     } else {
       lines.push(
         `ends on time: the picture ends ${s(silentTail)} after the last sound` +
@@ -171,6 +319,6 @@ export function lastSoundIn(video: string): LastSound | null {
   return lastSoundOf(envelopeOf(pcm, (SAMPLE_RATE * WINDOW_MS) / 1000), WINDOW_MS, start);
 }
 
-export function measureDeadTail({ video, duration, transcript }: ReviewContext): CheckReport {
-  return judgeDeadTail({ duration, sound: lastSoundIn(video), transcript });
+export function measureDeadTail({ video, duration, transcript, textRecord }: ReviewContext): CheckReport {
+  return judgeDeadTail({ duration, sound: lastSoundIn(video), transcript, textRecord });
 }

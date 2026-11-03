@@ -59,7 +59,7 @@ one. When HDR was converted, tell the user in one plain sentence.
 | Any fal model: images, video, music, voice, effects | `fal schema <model>`, then `fal run <model> --input <json or @file> --run runs/<key>` (`--batch <jobs.json>` for many); local files in the input are uploaded for you |
 | Web fonts as local files | `fonts <Family> [...] --out <dir>` |
 | Real, licensed pictures | `stills search`, `stills show`, `stills save` |
-| One soundtrack from several pieces | `mix-audio runs/<key>` (voice tracks duck music and effects; `mix-audio --help` has the spec) |
+| One soundtrack from several pieces | `mix-audio runs/<key>` (voice tracks duck music and effects, and an effect given no `gainDb` is set under the voice; give one a `gainDb` for a deliberate loud hit; `mix-audio --help` has the spec) |
 | Sound on a render, at delivery loudness | `mux-audio --video <render> --audio <source clip or built track> --out <file>` |
 | The piece in VEED's editor for the user to change, or a project they bring from it | read `VEED.md` (`veed-project`, `veed-pull`) |
 
@@ -114,12 +114,17 @@ The canvas is the page's `#stage` (or `[data-stage]`) element, captured at its o
 1920x1080. `--width`/`--height` instead capture that much of the page from its top-left corner and
 ignore the stage. With footage, the canvas and frame rate are the source's own, and `frames` prints
 both. Pass its `frameRate` (such as `30000/1001`) to `--fps`, never the decimal beside it.
-- For a piece made for a platform, pick the platform first, before any layout: `safe-zone <format> --out
-  runs/<key>` (`9:16` for TikTok, Reels and Shorts, one zone for all three; `16:9` for YouTube; `4:3`;
-  `--canvas` for footage's own size) writes `safe-zone.css`; a shape with no format, such as 1:1 or 4:5,
-  skips this step. Link it and mark the stage with the format's own name (`data-safe-zone="9:16"`). All
-  text goes inside its `<div data-safe>`, sized on elements inside it, in container units no smaller than
-  the minimum (`font-size: max(var(--min-text), 6cqw)`), placed by layout (its
+- For a piece made for a platform, pick the zone first, before any layout: `safe-zone <zone> --out
+  runs/<key>` (`--canvas` for footage's own size) writes `safe-zone.css`. Name the app the brief names
+  (`tiktok`, `reels`, `shorts`, `youtube`, `x`, `linkedin`, `facebook`). With none named, or several, name the
+  shape: `9:16`, `1:1` and `4:5` are each clear of every app `safe-zone --help` lists for them, while `16:9` is
+  YouTube's player, so a 16:9 piece for a feed names that feed's app; `4:3` has one zone. For Instagram, name
+  where it goes: `reels` for a 9:16 Reel, or the feed shape (`1:1` or `4:5`), or pass the canvas with
+  `--canvas`; LinkedIn and Facebook, posted in several shapes too, take `--canvas` the same way. Add `--ad`
+  when a 9:16 video is an ad; other shapes have no ad zone, so an ad in them takes the ordinary one. A shape
+  with no zone, such as 2:3, skips this step. Link it and mark the stage with its shape
+  (`data-safe-zone="9:16"`). All text goes inside its `<div data-safe>`, sized on elements inside it, in
+  container units no smaller than the minimum (`font-size: max(var(--min-text), 6cqw)`), placed by layout (its
   place in the flow, top, left, margins; a row of word spans with `flex-wrap: wrap`), with transform and
   opacity left to animate entrances and exits freely, never to park text where it rests; footage and
   full-bleed pictures go on `#stage`.
@@ -196,9 +201,9 @@ read the `transcript.json` in the video's folder, or the one `--transcript` name
 folder's is not on the video's timeline (for a cut, the retimed one). Without a transcript, the report says
 what it skipped. If the user asked for a length ("a 30-second video"), pass it in seconds as `--length 30`;
 without it, the length check is skipped. The checks of on-screen text (its size, its contrast, captions
-missing under speech) read the record `render` writes beside the video, `<video>.text.json`, which
-`mux-audio` carries to the file it writes; without a record that matches the video, the report says they
-were skipped.
+missing under speech, and whether a picture running on past the last word is an end card) read the record
+`render` writes beside the video, `<video>.text.json`, which `mux-audio` carries to the file it writes;
+without a record that matches the video, the report says they were skipped.
 
 ## Talking to the user
 

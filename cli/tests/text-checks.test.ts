@@ -14,8 +14,9 @@ import { FFMPEG } from '../src/config.ts';
 import { chromePlatform, installedChrome } from '../src/render/browser.ts';
 import { readRecord, recordPath, type TextEntry, type TextRecord } from '../src/render/text-record.ts';
 import type { Transcript } from '../src/transcript/transcript-types.ts';
-import { blocksOf, judgeCaptions, MIN_UNCAPTIONED } from '../src/verify/captions.ts';
+import { judgeCaptions, MIN_UNCAPTIONED } from '../src/verify/captions.ts';
 import { CHECKS } from '../src/verify/checks.ts';
+import { blocksOf } from '../src/verify/text-blocks.ts';
 import { contrastOf, judgeText, type RgbFrame } from '../src/verify/text.ts';
 import { TESTSRC, captureConsoleAsync, scratchDir, synthClip } from './helpers/synth.ts';
 

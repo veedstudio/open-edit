@@ -110,6 +110,18 @@ test('veed-project: music and effects that mix-audio ducks by default are named 
   assert.deepEqual(mixParts({ durationSec: 10, tracks: tracks(false) }, () => 10, () => [-20, -20]).notes, []);
 });
 
+test('veed-project: an effect mix-audio sets under the voice plays at that gain, and one with its own gain keeps it', () => {
+  const { parts } = mixParts({
+    durationSec: 10,
+    tracks: [
+      { path: 'voice.wav', atSec: 0, role: 'voice' },
+      { path: 'whoosh.wav', atSec: 2, role: 'sfx' },
+      { path: 'hit.wav', atSec: 4, role: 'sfx', gainDb: 6 },
+    ],
+  }, () => 1, () => [-20, -20], [undefined, -17.9, undefined]);
+  assert.deepEqual(parts.map((p) => p.volume), [1, 0.127, 1.995]);
+});
+
 test('veed-project: a track mix-audio would centre is named, since the editor plays it on one channel', () => {
   const levels: Record<string, number[]> = { 'vo.wav': [-84.3, -22.5], 'music.wav': [-17.1, -17.6], 'sting.wav': [-20], 'ping.wav': [-18, -90] };
   const { notes } = mixParts({
