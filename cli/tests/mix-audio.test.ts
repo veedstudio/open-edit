@@ -1,13 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TESTSRC, bandLevels, captureConsole, probeStream, scratchDir, synthClip } from './helpers/synth.ts';
 import { FFMPEG } from '../src/config.ts';
-import { ducks, filtergraph, KEY_LUFS, mixAudio, parseSpec, silentTail, SPEC_KEYS, TRACK_KEYS, usage, type MixSpec } from '../src/commands/mix-audio.ts';
+import {
+  ducks, effectLevels, filtergraph, KEY_LUFS, mixAudio, parseSpec, setUnderVoice, SFX_UNDER_VOICE_LU, silentTail, speakingLoudness, SPEC_KEYS,
+  TRACK_KEYS, usage, type MixSpec,
+} from '../src/commands/mix-audio.ts';
 
 const spec = (over: Partial<MixSpec> = {}): MixSpec => ({
   durationSec: 60,
@@ -205,6 +208,41 @@ test('mix: the padding is bounded, or ffmpeg never finishes', () => {
   assert.match(many.graph, /amix=inputs=50:normalize=0,apad=whole_dur=12/);
 });
 
+test('mix: an effect given no gain is set to the gain measured for it, and a gain of its own wins', () => {
+  const tracks: MixSpec['tracks'] = [
+    { path: 'vo.wav', atSec: 0, role: 'voice' },
+    { path: 'whoosh.wav', atSec: 2, role: 'sfx' },
+    { path: 'hit.wav', atSec: 4, role: 'sfx', gainDb: -3 },
+    { path: 'tap.wav', atSec: 6, role: 'sfx', gainDb: 0 },
+  ];
+  const { graph } = filtergraph(spec({ tracks }), [], [], [undefined, -17.914, -5, -5]);
+  assert.match(graph, /\[1:a\]aresample=48000,aformat=channel_layouts=stereo,adelay=2000\|2000,volume=-17\.91dB\[a1\]/);
+  assert.match(graph, /\[2:a\][^[]*adelay=4000\|4000,volume=-3dB\[a2\]/, 'its own gain, not the measured one');
+  assert.match(graph, /\[3:a\][^[]*adelay=6000\|6000\[a3\]/, 'and a gain of 0 leaves it as recorded');
+  assert.equal(filtergraph(spec({ tracks })).graph.includes('volume=-17'), false, 'unmeasured, it plays as recorded');
+});
+
+test('mix: only a sound effect given no gain, under a voice, is set from the voice', () => {
+  const sfx = { path: 's.wav', atSec: 0, role: 'sfx' as const };
+  assert.equal(setUnderVoice(sfx, true), true);
+  assert.equal(setUnderVoice({ ...sfx, duck: false }, true), true, 'whether or not it ducks');
+  assert.equal(setUnderVoice(sfx, false), false, 'with no voice to sit under, it plays at its own gain');
+  assert.equal(setUnderVoice({ ...sfx, gainDb: 6 }, true), false, 'a deliberate loud hit keeps its gain');
+  assert.equal(setUnderVoice({ ...sfx, gainDb: 0 }, true), false);
+  for (const role of ['music', 'ambience', 'voice', undefined] as const) {
+    assert.equal(setUnderVoice({ path: 'a.wav', atSec: 0, role }, true), false, `${role ?? 'no role'} keeps its gain`);
+  }
+});
+
+test('mix: the voice\'s loudness while it speaks leaves out its pauses', () => {
+  const speech = Array(20).fill(-20);
+  assert.equal(speakingLoudness([...speech, ...Array(20).fill(-120.7)]), -20, 'silence between lines');
+  assert.equal(speakingLoudness([...speech, ...Array(20).fill(-45)]), -20, 'a breath or room tone 25 LU down');
+  assert.ok(Math.abs(speakingLoudness([-20, -26])! - -22.04) < 0.01, 'what is left is averaged as energy, not as LU');
+  assert.equal(speakingLoudness([-120.7, -120.7]), undefined, 'a voice that never sounds has no loudness to sit under');
+  assert.equal(speakingLoudness([]), undefined);
+});
+
 // --- the spec as written by hand -------------------------------------------------
 // --help is the only place the spec is documented, so its example has to be one the command accepts.
 
@@ -353,9 +391,10 @@ test('mix: unmarked music is ducked under the voice, and music marked "duck": fa
   near(level.level, level.source, 'opted out, the music is as loud as its file');
 });
 
+// Each effect has a gain of its own, so the duck is the only thing between the two.
 test('mix: an unmarked effect is ducked under the voice, and one marked "duck": false plays at its own gain', () => {
-  const ducked = musicUnder('sfx-duck-default', {}, { role: 'sfx' });
-  const level = musicUnder('sfx-duck-opt-out', {}, { role: 'sfx', duck: false });
+  const ducked = musicUnder('sfx-duck-default', {}, { role: 'sfx', gainDb: 0 });
+  const level = musicUnder('sfx-duck-opt-out', {}, { role: 'sfx', gainDb: 0, duck: false });
   assert.ok(level.level - ducked.level > 8, `ducked ${ducked.level} dB against ${level.level} dB`);
   near(level.level, level.source, 'opted out, the effect is as loud as its file');
 });
@@ -393,6 +432,72 @@ test('mix: the music dips as deep under a quiet voice as under a loud one taking
   const dipQuiet = level.underQuiet - ducked.underQuiet;
   near(dipQuiet, dipLoud, 'the dip under the quiet voice');
   assert.ok(dipQuiet > 8, `and it is a real dip: ${dipQuiet.toFixed(1)} dB`);
+});
+
+// --- an effect set under the voice ---------------------------------------------------
+// The voice speaks for two seconds and the effect, a 5 kHz tone far hotter than the 1 kHz voice, lands a second after
+// it stops: on the beat between lines, where nothing ducks it. Both are read off the rendered mix.
+
+/** A file's momentary loudness every 100 ms, as [seconds, LUFS], read here rather than with the command's own reader. */
+function momentary(file: string): [number, number][] {
+  const { stderr } = spawnSync(FFMPEG, ['-hide_banner', '-nostats', '-i', file, '-af', 'ebur128=framelog=info', '-f', 'null', '-'], { encoding: 'utf8' });
+  // Digital silence reads "nan".
+  return [...(stderr ?? '').matchAll(/t: *(\S+) +TARGET:\S+ LUFS +M: *(\S+)/g)]
+    .map(([, t, m]) => [Number(t), Number.isFinite(Number(m)) ? Number(m) : -Infinity]);
+}
+const loudest = (series: [number, number][], from: number, to: number) =>
+  Math.max(...series.filter(([t]) => t >= from && t <= to).map(([, m]) => m));
+
+const EFFECT = 'aevalsrc=sin(2*PI*5000*t)/2*lt(t\\,0.6):s=48000';
+
+function effectAfterVoice(name: string, effect: Partial<MixSpec['tracks'][number]>) {
+  const { run, out, said } = mixRun(name, { 'vo.m4a': `aevalsrc=${VOICE}:s=48000`, 'fx.m4a': EFFECT }, [
+    { path: 'vo.m4a', atSec: 0, role: 'voice' },
+    { path: 'fx.m4a', atSec: 3, role: 'sfx', ...effect },
+  ], 4);
+  const mixed = momentary(out);
+  // Every window that ends before 2.9 s holds the voice alone; every one from 3 s on, the effect alone.
+  const voice = speakingLoudness(mixed.filter(([t]) => t < 2.9).map(([, m]) => m))!;
+  return { said, voice, steady: loudest(mixed, 0.5, 2), effect: loudest(mixed, 3, 4), source: loudest(momentary(join(run, 'fx.m4a')), 0, 1) };
+}
+
+test('mix: an effect louder than the voice, given no gain, comes out under it by the margin', () => {
+  const { said, voice, steady, effect, source } = effectAfterVoice('fx-set', {});
+  assert.ok(source - voice > 6, `the effect's file peaks ${(source - voice).toFixed(1)} LU over the voice`);
+  near(effect - voice, -SFX_UNDER_VOICE_LU, 'the effect at its loudest, against the voice speaking');
+  assert.ok(voice <= steady && steady - voice < 1, `the voice's onset and release barely move it: ${voice.toFixed(2)} against ${steady.toFixed(2)} LUFS`);
+  assert.match(said, new RegExp(`^mix-audio: fx\\.m4a at 3s set -\\d+\\.\\d dB, its loudest moment from -\\d+\\.\\d LUFS to -\\d+\\.\\d LUFS, `
+    + `${SFX_UNDER_VOICE_LU} LU under the voice speaking at -\\d+\\.\\d LUFS$`, 'm'), 'and the command says what it set, from what');
+});
+
+test('mix: an effect with a gain of its own keeps it, however loud that leaves it', () => {
+  const { said, voice, effect, source } = effectAfterVoice('fx-own-gain', { gainDb: 0 });
+  near(effect, source, 'the effect plays as loud as its file');
+  assert.ok(effect - voice > 6, `a deliberate hit stays over the voice: ${(effect - voice).toFixed(1)} LU`);
+  assert.doesNotMatch(said, /fx\.m4a at/);
+});
+
+// The graph the command made before effects were set under a voice: with no voice track, nothing in it moves.
+test('mix: with no voice track, every track plays at its own gain and the graph is unchanged', () => {
+  const run = join(heard, 'voiceless');
+  mkdirSync(join(run, 'audio'), { recursive: true });
+  synthClip(run, 'music.m4a', { audio: MUSIC, seconds: 2 });
+  synthClip(run, 'whoosh.m4a', { audio: EFFECT, seconds: 1 });
+  const voiceless: MixSpec = { durationSec: 3, tracks: [
+    { path: 'music.m4a', atSec: 0, gainDb: -14, fadeOutSec: 1, role: 'music' },
+    { path: 'whoosh.m4a', atSec: 1.5, role: 'sfx' },
+    { path: 'whoosh.m4a', atSec: 2, fadeInSec: 0.1, role: 'sfx', keepPan: true },
+    { path: 'music.m4a', atSec: 0.5, role: 'ambience' },
+  ] };
+  writeFileSync(join(run, 'audio', 'mix.json'), JSON.stringify(voiceless));
+  assert.deepEqual(effectLevels(run, voiceless), [undefined, undefined, undefined, undefined]);
+  const { result, out } = captureConsole(() => mixAudio([run, '--print-graph']));
+  assert.equal(result, 0);
+  assert.equal(out, '[0:a]aresample=48000,aformat=channel_layouts=stereo,adelay=0|0,volume=-14dB,afade=t=out:st=2:d=1[a0];'
+    + '[1:a]aresample=48000,pan=stereo|c0=0.7071*c0|c1=0.7071*c0,adelay=1500|1500[a1];'
+    + '[2:a]aresample=48000,aformat=channel_layouts=stereo,adelay=2000|2000,afade=t=in:st=2:d=0.1[a2];'
+    + '[3:a]aresample=48000,aformat=channel_layouts=stereo,adelay=500|500[a3];'
+    + '[a0][a1][a2][a3]amix=inputs=4:normalize=0,apad=whole_dur=3,atrim=0:3,asetpts=N/SR/TB[mix]');
 });
 
 // The padding keeps the film its length, so a soundtrack that runs out early ends the video on silence.

@@ -1,14 +1,25 @@
 // Tests src/commands/review.ts: the one report every delivery check prints into, where it finds the
-// transcript, and that it changes nothing. Each check's own measurements are tested beside its module.
+// transcript, and that it changes nothing. Each check's own measurements are tested beside its module; one
+// render in the pinned headless Chrome, skipped when it is not installed unless OPENEDIT_REQUIRE_BROWSER is
+// set, runs the dead-tail check's end card through render, mux-audio and review.
 //   Run:  node --import tsx --test cli/tests/review.test.ts
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, truncateSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { muxAudio } from '../src/commands/mux-audio.ts';
 import { review, reviewReport, transcriptFor } from '../src/commands/review.ts';
+import { chromePlatform, installedChrome } from '../src/render/browser.ts';
 import type { Transcript } from '../src/transcript/transcript-types.ts';
 import { CHECKS, type Check, type ReviewContext } from '../src/verify/checks.ts';
 import { SINE, TESTSRC, captureConsoleAsync, scratchDir, synthClip } from './helpers/synth.ts';
+
+const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
+const platform = chromePlatform();
+const noChrome = platform && existsSync(installedChrome(platform)) ? null : 'Chrome Headless Shell is not installed (openedit install-browser)';
+if (noChrome && process.env.OPENEDIT_REQUIRE_BROWSER) throw new Error(`${noChrome}, and OPENEDIT_REQUIRE_BROWSER is set`);
 
 const dir = scratchDir('review');
 // The workspace transcribe writes a file's transcript into, by file name: here, so a real one is never touched.
@@ -49,6 +60,43 @@ await test('a render with a dead tail gets a report that names it, and the revie
   assert.match(out, /^blank-frames {2}pass {5}opens on a picture, no flash/m);
   assert.equal(lines.at(-1), 'Checks: 1 found something, 1 passed, 3 skipped, 0 could not run. The video was not changed: each finding is '
     + 'yours to judge, and one you leave in place is worth a word to the user.');
+});
+
+await test('a render ending on a card over music passes as an end card; over a silent tail, or without its record, it is reported', { skip: noChrome ?? false }, async () => {
+  const folder = join(dir, 'end-card');
+  mkdirSync(folder, { recursive: true });
+  // Captions under three seconds of speech, then "Follow for more" to the end of six.
+  const page = join(folder, 'index.html');
+  writeFileSync(page, `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;background:#000}
+#stage{position:relative;width:180px;height:320px;overflow:hidden;background:#123;font:700 18px Helvetica,Arial,sans-serif;color:#fff}
+#cap{position:absolute;left:0;right:0;bottom:60px;text-align:center}
+#card{position:absolute;left:0;right:0;top:140px;text-align:center;font-size:22px}
+</style></head><body><div id="stage" data-stateless><div id="cap"></div><div id="card"></div></div>
+<script>const cues=[[0,1.5,'we made this'],[1.5,3,'in a single day']];
+window.__seek=(t)=>{const c=cues.find(([a,b])=>t>=a&&t<b);document.getElementById('cap').textContent=c?c[2]:'';
+document.getElementById('card').textContent=t>=3?'Follow for more':''}</script></body></html>`);
+  const silent = join(folder, 'out.mp4');
+  const rendered = spawnSync(process.execPath, ['--import', 'tsx', CLI, 'render', page, '--out', silent, '--fps', '10', '--duration', '6'], { encoding: 'utf8', timeout: 240_000 });
+  assert.equal(rendered.status, 0, rendered.stderr);
+  writeFileSync(join(folder, 'transcript.json'), JSON.stringify(transcriptEndingAt(3)));
+  const muxed = (name: string, until: number) => {
+    const music = synthClip(folder, `${name}.m4a`, { audio: toneUntil(until), seconds: 6 });
+    const out = join(folder, `${name}.mp4`);
+    assert.equal(muxAudio(['--video', silent, '--audio', music, '--out', out, '--no-loudnorm']), 0);
+    return out;
+  };
+
+  const { out: card } = await captureConsoleAsync(() => review([muxed('final', 6)]));
+  assert.match(card, /^dead-tail +pass +ends on a 3\.00s end card with sound to the last frame, within the 4\.00s allowed for its 3 words: "Follow for more"$/m);
+  const { out: quiet } = await captureConsoleAsync(() => review([muxed('quiet', 3)]));
+  assert.match(quiet, /^dead-tail +FOUND +the last 3\.00s are silent: nothing is heard after 3\.00s/m);
+  // A copy carries no record beside it, so its tail cannot be told from background left running.
+  const copied = join(folder, 'copied.mp4');
+  copyFileSync(join(folder, 'final.mp4'), copied);
+  const { out: bare } = await captureConsoleAsync(() => review([copied]));
+  assert.match(bare, /^dead-tail +FOUND +the picture runs 3\.00s past the last spoken word, with sound under it to 6\.\d\ds: fine for a deliberate outro/m);
+  assert.match(bare, /^ +skipped: whether the tail is an end card: no record of on-screen text at .*copied\.mp4\.text\.json: /m);
 });
 
 await test('a render that ends on its last line gets a report with nothing found', async () => {

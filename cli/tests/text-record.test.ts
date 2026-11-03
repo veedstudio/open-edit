@@ -14,7 +14,7 @@ import { EPOCH, SEED } from '../src/render/lead.ts';
 import { startPageServer } from '../src/render/server.ts';
 import { RenderSession } from '../src/render/session.ts';
 import { readRecord, recordPath, sampleEvery, type TextEntry, type TextRecord } from '../src/render/text-record.ts';
-import { blocksOf } from '../src/verify/captions.ts';
+import { blocksOf } from '../src/verify/text-blocks.ts';
 import { SINE, TESTSRC, scratchDir, synthClip } from './helpers/synth.ts';
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));

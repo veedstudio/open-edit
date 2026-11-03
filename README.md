@@ -192,21 +192,31 @@ re-renders only the segments it overlaps and rejoins the rest by stream copy.
 It fails naming the cause when Chrome does not start, the page throws, or every
 frame is one flat colour. `fonts` downloads Google Fonts as local woff2 files
 with a `fonts.css`; `install-browser` fetches the pinned Chrome Headless Shell,
-which `render` also does on first use. `safe-zone` writes the stylesheet for a
-platform format (9:16 for TikTok, Reels and Shorts; 16:9 for YouTube; 4:3): the
-stage at its size, and a `[data-safe]` container on the format's safe zone as the
-page's text layer, drawn from the platforms' published ad safe zones, with
-television title-safe sides on 4:3 (`safe-zone --help` says exactly what each keeps
-clear). The container is a size container, so `cqw` and `cqh` measure the zone
-for what is inside it. Its other defaults lose to any rule the page writes: text
-inside starts at the format's minimum (and so do `small`, `sub`, `sup`, `h5`, `h6`
-and form controls), a word too long for its line breaks, boxes inside keep within its
-width unless they set `max-width: none` (a ticker's track also sets `width:
+which `render` also does on first use. `safe-zone` writes the stylesheet for where
+a video will be posted: the stage at its shape's size, and a `[data-safe]`
+container on that platform's safe zone as the page's text layer. Name the app the
+brief names (`tiktok`, `reels`, `shorts`, `youtube`, `x`, `linkedin`, `facebook`).
+With none named, or several, name the shape: `9:16`, `1:1` and `4:5` are each clear
+of every app's UI listed for them, while `16:9` is YouTube's player, so a 16:9 piece
+for a feed names that feed's app (`4:3` has one zone). For Instagram, name where it
+goes: `reels` for a 9:16 Reel, or the feed shape (`1:1` or `4:5`), or pass the
+canvas with `--canvas`; LinkedIn and Facebook take `--canvas` the same way. Add
+`--ad` when a 9:16 video is an ad: ads reserve more of the frame than an ordinary
+post's UI takes. Ordinary posts and feeds are kept clear of the UI each app draws
+over them, ads of the platforms' published ad safe zones, and 4:3 has television
+title-safe sides (`safe-zone --help` says exactly what each zone keeps clear). The
+container is a size container, so `cqw` and `cqh` measure the zone for what is
+inside it. Its other defaults lose to any rule the page writes: text inside starts
+at the shape's minimum (and so do `small`, `sub`, `sup`, `h5`, `h6` and form
+controls), a word too long for its line breaks, boxes inside keep within its width
+unless they set `max-width: none` (a ticker's track also sets `width:
 max-content`), and nothing is clipped:
 
 ```sh
 npx @veedstudio/openedit-cli fonts "Inter:wght@400;700" Anton --out fonts
 npx @veedstudio/openedit-cli safe-zone tiktok --out runs/<key>
+npx @veedstudio/openedit-cli safe-zone 9:16 --ad --out runs/<key>
+npx @veedstudio/openedit-cli safe-zone instagram --canvas 1080x1350 --out runs/<key>
 npx @veedstudio/openedit-cli install-browser [--check|--force]
 ```
 
@@ -217,7 +227,9 @@ soundtrack) onto a silent render, levelled to -14 LUFS / -1 dBTP
 (`--no-loudnorm` keeps the source level; the line it prints says which
 correction ran);
 `mix-audio` first builds one track from many pieces — narration, music,
-effects — per the run's mix spec, with music and effects ducked under the voice:
+effects — per the run's mix spec, with music and effects ducked under the voice,
+and effects given no gain set under it by measured loudness (give an effect a
+gain for a deliberate loud hit):
 
 ```sh
 npx @veedstudio/openedit-cli mix-audio runs/<key>            # → runs/<key>/audio/mix.m4a
@@ -235,29 +247,39 @@ near-black or partway into a fade-in, since platforms show it as the cover.
 The dead-tail check reports a picture that runs on more than a second past its
 last sound or its last spoken word. The words come from the `transcript.json`
 in the video's folder, or the one `--transcript` names; the review never
-transcribes, and without a transcript it says what it skipped. The length check
-reports a picture that runs longer or shorter than the length `--length` names,
-in seconds, by more than a second or 5% of that length, whichever is more;
-without `--length` it is skipped.
+transcribes, and without a transcript it says what it skipped. A picture that
+runs on past the last word with sound under it to the end is an end card when
+new text is on screen through it: text that came up from the pause before the
+last spoken phrase on, in an element that showed no other words before then.
+It passes unless it is held longer than its words take to read: 0.2 seconds a
+word, plus 2 seconds to find the text (3 from ten words) and a one-second beat,
+never less than 4 seconds and never more than 4.5. So a card brought up with
+the spoken call to action counts, while a caption left on into the music, a
+title up since earlier or a watermark does not. A run-on with more than a
+second of no end card is reported as background left running; without the
+record of on-screen text (below) it is reported, and the report says the end
+card could not be judged. The length check reports a picture that runs longer
+or shorter than the length `--length` names, in seconds, by more than a second
+or 5% of that length, whichever is more; without `--length` it is skipped.
 
-Two checks read the record of on-screen text that `render` writes beside each
-video, `<video>.text.json`: the text the page draws in its HTML and SVG (not
-text inside an image, a canvas or the footage), read about every 100 ms of the
-page's time, with its words, its box and font size in the video's pixels, its
-colour and its opacity. `mux-audio` carries the record to the file it writes,
-and a patch with `--from/--to` keeps it whole. The text check reports text
-smaller than a phone's body text, measured against the frame's shorter side,
-and text under WCAG's 3:1 contrast for large text against what is really behind
-it, measured on the video's pixels around the glyphs, so a backing, a stroke or
-a shadow counts; it skips the contrast of a transparent render, and of text
-that is translucent or has no solid fill of its own. The captions check reports
-a second or more of speech with no caption on screen. A caption is a text that
-shows the words being spoken, or, in another language than the voice, one of a
-run of texts in one place that change with the spoken phrases; a title is not
-one. It is skipped when the page captions too little of the speech to be
-captioning it, or there is no transcript. A video without a record, or with one
-for a picture of another size or length or older than the video, skips both
-checks:
+The text and captions checks read the record of on-screen text that `render`
+writes beside each video, `<video>.text.json`: the text the page draws in its
+HTML and SVG (not text inside an image, a canvas or the footage), read about
+every 100 ms of the page's time, with its words, its box and font size in the
+video's pixels, its colour and its opacity. `mux-audio` carries the record to
+the file it writes, and a patch with `--from/--to` keeps it whole. The text
+check reports text smaller than a phone's body text, measured against the
+frame's shorter side, and text under WCAG's 3:1 contrast for large text against
+what is really behind it, measured on the video's pixels around the glyphs, so a
+backing, a stroke or a shadow counts; it skips the contrast of a transparent
+render, and of text that is translucent or has no solid fill of its own. The
+captions check reports a second or more of speech with no caption on screen. A
+caption is a text that shows the words being spoken, or, in another language
+than the voice, one of a run of texts in one place that change with the spoken
+phrases; a title is not one. It is skipped when the page captions too little of
+the speech to be captioning it, or there is no transcript. A video without a
+record, or with one for a picture of another size or length or older than the
+video, skips both checks:
 
 ```sh
 npx @veedstudio/openedit-cli review runs/<key>/final.mp4 [--transcript <transcript.json>] [--length <sec>]
