@@ -160,6 +160,55 @@ test('render: text past the stage, its own overflow or a wipe is recorded where 
   assert.ok(by('#calc').box.every(Number.isFinite));
 });
 
+// Lines one element holds, broken by a <br>, by a block in its flow and by a block set in CSS, beside pieces that run
+// on in one line: a word split across spans, own text split by a comment, and breaks that are hidden or out of the flow.
+const LINES = `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;background:#000}
+#stage{position:relative;width:640px;height:360px;overflow:hidden;background:#123;font:700 20px/1 Helvetica,Arial,sans-serif;color:#fff}
+#stage>*{position:absolute;left:10px;margin:0}
+#cap{top:10px;text-transform:uppercase}
+#card{top:60px}
+#para{top:150px}
+#para span{display:block}
+#nested{top:230px}
+#split{top:290px}
+#split span{display:inline-block}
+#glued{top:290px;left:200px}
+#hidden{top:290px;left:400px}
+#hidden br{display:none}
+#over{top:330px}
+#over i{position:absolute;display:block;width:4px;height:4px;background:#f00}
+</style></head><body><div id="stage">
+<div id="cap">Killing<br>creativity?</div>
+<div id="card">READY IN<div>with</div><div>love</div>15 MIN</div>
+<p id="para">FIRST LINE<span>MIDDLE</span>LAST LINE</p>
+<div id="nested">STOP <b>WORRYING<br></b>ABOUT IT</div>
+<div id="split"><span>KILL</span><span>ING</span></div>
+<div id="glued">KILL<!-- -->ING</div>
+<div id="hidden">WORD<br>PLAY</div>
+<div id="over">OUT<i></i>LINE</div>
+</div></body></html>`;
+
+test('render: text either side of a line break is recorded a word apart, and a word split across spans stays whole', { skip }, () => {
+  const dir = scratchDir('text-record-lines');
+  const page = join(dir, 'lines.html');
+  writeFileSync(page, LINES);
+  const out = join(dir, 'out.mp4');
+  const r = render([page, '--out', out, '--fps', '30', '--duration', '0.2']);
+  assert.equal(r.code, 0, r.err);
+  const texts = readRecord(recordPath(out)).samples[0].texts;
+  const by = (selector: string) => texts.find((e) => e.selector === selector)?.text;
+  assert.equal(by('#cap'), 'KILLING CREATIVITY?', 'a <br>, with the text-transform applied');
+  assert.deepEqual([by('#card'), by('#card>div:nth-child(1)'), by('#card>div:nth-child(2)')], ['READY IN 15 MIN', 'with', 'love'], 'two block lines inside a block');
+  assert.deepEqual([by('#para'), by('#para>span:nth-child(1)')], ['FIRST LINE LAST LINE', 'MIDDLE'], 'a span CSS sets as a block, inside a <p>');
+  assert.equal(by('#nested'), 'STOP ABOUT IT', 'a <br> inside an inline child');
+  assert.deepEqual([by('#split>span:nth-child(1)'), by('#split>span:nth-child(2)')], ['KILL', 'ING']);
+  assert.deepEqual(blocksOf(texts.filter((e) => e.selector.startsWith('#split'))).map((b) => b.text), ['KILLING'], 'a word set one span per piece reads whole');
+  assert.equal(by('#glued'), 'KILLING', 'own text split by a comment');
+  assert.equal(by('#hidden'), 'WORDPLAY', 'a <br> the page hides');
+  assert.equal(by('#over'), 'OUTLINE', 'a block taken out of the flow');
+});
+
 test('render: a patch keeps the record whole, reading again only the segments it renders again', { skip }, () => {
   const dir = scratchDir('text-record-patch');
   const page = join(dir, 'caption.html');
@@ -220,7 +269,7 @@ test('render: reading the text between frames leaves every captured frame as it 
     for (let i = 0; i < 18; i++) {
       const a = await plain.capture(i);
       const b = await reading.capture(i);
-      read += (await reading.readText()).length;
+      read += (await reading.readText()).texts.length;
       assert.ok(a.equals(b), `frame ${i} differs once the text is read between frames`);
     }
     assert.ok(read > 0, 'the text was read');

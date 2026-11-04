@@ -1,34 +1,68 @@
-// Assemble an EDL's kept ranges into one file in a single encode.
-// An EDL (edit decision list) is the list of source intervals to keep, in order.
+// Assemble an EDL's kept ranges into one file. An EDL (edit decision list) is the list of source intervals to
+// keep, in order, each at its own speed and grade.
 //
 //   openedit apply-edl --edl <edl.json> --out <cut.mp4> [--crossfade 40] [--crf 20] [--fit crop|letterbox]
 //
-// Joins are crossfaded, not butt-joined: a butt join clicks at the seam, and a crossfade needs one
-// encode over both sides of it. That is why this re-encodes instead of stream-copying.
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+// Each range's picture is encoded on its own into `<cut>.ranges/`, under a name made of everything that went into
+// it, so a run that changes one range encodes that range alone and stream-copies the rest into the join. The sound
+// is cut afresh on every run in the join's one pass: decoding sound is cheap, and every join is crossfaded over
+// sound from beyond its out-point, since a butt join clicks.
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { availableParallelism, tmpdir } from 'node:os';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
+import { joinColour } from '../colour.ts';
 import { FFMPEG } from '../config.ts';
-import { loadEdl, snapRanges, sourceOrder, sourcePath, type SnappedRange } from '../edl.ts';
-import { converted, describeHdr, hdrKind, hdrTags, toSdr } from '../hdr.ts';
 import {
-  ASSUMED_COLOUR, audioDurationOf, colourTagsOf, pixelFormatOf, probeFrameRate, probeSquareSize, videoDurationOf,
+  STRETCHED_SPEEDS, framesOf, loadEdl, locate, playedLength, relocated, snapRanges, soundOf, sourceOrder, sourcePath, stretchOf,
+  type LoadedEdl, type SnappedRange,
+} from '../edl.ts';
+import { boxesOwner, facesFolder, ownFaces, sameFile } from '../faces/folder.ts';
+import { facesOnCut, type CutPicture, type RangeOnCut } from '../faces/onto-cut.ts';
+import { facesScript, type FacesClip } from '../faces/page-script.ts';
+import { describeGrade, gradeFilters, mergeGrade, type Grade } from '../grade.ts';
+import { describeHdr, filterPath, hdrKind, toSdr, yuvMatrix } from '../hdr.ts';
+import { FFMPEG_PROBE, probeVersion } from '../platform.ts';
+import {
+  audioDurationOf, decodedColourOf, hasAudioStream, probeFrameRate, probeSquareSize, probeVideoSpan, videoDurationOf,
   type ColourReport, type ColourTags, type Display,
 } from '../probe.ts';
+import { writeAtomic, writeTextAtomic } from '../providers/exclusive-files.ts';
+import { countFrames } from '../render/encode.ts';
 import { asShown } from '../shown.ts';
-import { cropFor, describeShape, parseFit, planShape, shapeChain, type Fit, type Shaping } from './reframe.ts';
+import { ChangeReader, changesIn, quietStillsOf, scanFilter, scanSize, STILL_SECONDS, type Span } from '../stillness.ts';
+import { mappedNote, readTranscriptFile } from '../transcript/read-transcript.ts';
+import { transcriptPathFor, wordCount } from '../transcript/transcript-cache.ts';
+import type { Transcript } from '../transcript/transcript-types.ts';
+import { soundGateOf, soundIn, TAIL_SECONDS, WINDOW_MS, type Sound } from '../verify/dead-tail.ts';
+import { lengthAgainstBrief } from '../verify/length.ts';
+import { seconds as inSeconds } from '../verify/report.ts';
+import { notFacesOf, readFaces } from './faces.ts';
+import { cropFor, describeShape, parseFit, placeAt, planShape, shapeChain, type Fit, type Shaping } from './reframe.ts';
+import { droppedNote, relocatedTranscripts, retime, transcriptPathsOf } from './retime-transcript.ts';
 
 const seconds = (t: number) => t.toFixed(6);
 const AUDIO_RATE = 48000;
 /** One AAC block at the lowest common source rate: the most a file's audio ends short of its picture by design. */
 const AAC_BLOCK_SEC = 1024 / 44100;
+/**
+ * x264's settings for every range, which its cache name carries. The profile is left to x264: the same settings
+ * pick the same one for every range, and --crf 0 needs one that a pinned High would refuse.
+ */
+const encodeArgs = (crf: number) => ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf), '-pix_fmt', 'yuv420p'];
+/** minterpolate as a slow-motion pass: motion-compensated, both directions searched, block edges smoothed. */
+const INTERPOLATE = 'mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1';
+/**
+ * Ranges encoded at once, one per CPU up to four: minterpolate and much of a decode run on one thread, so even at 4K
+ * one range leaves CPUs idle, and four 4K ranges hold about 5 GB.
+ */
+const encodeWorkers = (cpus = availableParallelism()): number => Math.max(1, Math.min(4, cpus));
 
 /**
  * Where each range's input is opened: every range is its OWN input, seeked to a whole second at least
- * one second before it starts. One input shared by every range made the graph buffer whatever a
- * reordered edit needed later. The seek is coarse on purpose: the graph's trim defines the edge, and
+ * one second before it starts. The seek is coarse on purpose: the graph's trim defines the edge, and
  * the second of margin keeps that edge inside what was decoded.
  */
 export function inputSeeks(ranges: SnappedRange[]): number[] {
@@ -36,135 +70,403 @@ export function inputSeeks(ranges: SnappedRange[]): number[] {
 }
 
 /**
- * One filter graph: trim every range out of its own input, put each on the same canvas, concat the
- * video, and crossfade the audio by mixing fades rather than with `acrossfade`.
+ * One range's picture, from its own input opened at `seek`, onto the canvas, graded and at its speed.
  *
- * The ranges arrive snapped to their source's frame grid, so each keeps a whole number of frames. The
- * VIDEO trim edges sit half a frame before those instants: a frame's timestamp can land a few
- * microseconds either side of k/fps once rounded to the container's timebase, and a boundary exactly on
- * it would keep or drop that frame by luck. The AUDIO is cut on the instants themselves.
+ * The range arrives snapped to its source's frame grid, so it keeps a whole number of frames. The trim edges
+ * sit half a frame before those instants: a frame's timestamp can land a few microseconds either side of k/fps
+ * once rounded to the container's timebase, and a boundary exactly on it would keep or drop that frame by luck.
  *
- * Every segment but the last takes `crossfadeSec` of EXTRA audio from beyond its out-point, fades out
- * over that tail, and is delayed to its place on the output timeline; the next segment fades in over
- * the same window, and `amix` sums them without renormalising. Two linear fades sum to unity, so the
- * sound that bleeds across a join is the room tone that genuinely followed the last kept frame. The
- * last segment is padded to its snapped length, so the mix is exactly as long as the concatenated
- * video even when the source's audio ends a few milliseconds before its last frame does.
- *
- * The ranges of an HDR source (`hdr` maps its id to its conversion) are converted to SDR before they are
- * scaled, so every range is scaled as the same SDR BT.709 picture; every other range is left as it is. When
- * the ranges share one conversion and reach the join untouched (sharedConversion), as in a cut of one clip,
- * `after` converts the joined picture once instead, since each conversion sets up its own curves and a long
- * cut has hundreds of ranges.
- *
- * `shapes[i]` cuts range i to the canvas's shape after its conversion, on the range's own clock. What even pixels
- * leave, `fit` crop covers and letterbox pads.
+ * An HDR source's range (`hdr`) is converted to SDR before it is scaled, so it is scaled as the SDR BT.709
+ * picture it joins. `shape` cuts the range to the canvas's shape after its conversion, on the range's own clock;
+ * what even pixels leave, `fit` crop covers and letterbox pads. The grade's tone runs before the speed change,
+ * on the frames the source has, and its grain after, on the frames the cut plays. At another speed the frames
+ * are stretched by played/kept and laid on the output's grid, by repeating or dropping frames or, interpolated,
+ * by drawing new ones, and the encode stops at the count the range plays. `stamp` (joinColour's for the range's
+ * source) comes last: it brings the picture to the cut's colour and labels every axis on its frames.
  */
-export function buildGraph(
-  ranges: SnappedRange[],
-  seeks: number[],
+export function rangeGraph(
+  range: SnappedRange,
+  seek: number,
   canvas: Display,
-  colour: ColourTags,
-  crossfadeSec: number,
-  o: { hdr?: ReadonlyMap<string, string>; after?: string; shapes?: string[][]; fit?: Fit } = {},
-): { filter: string; videoLabel: string; audioLabel: string } {
-  const parts: string[] = [];
+  stamp: string[],
+  rate: string,
+  o: { hdr?: string; shape?: string[]; fit?: Fit; grade?: { tone: string[]; grain: string[] } } = {},
+): string {
   const { width: W, height: H } = canvas;
-  const fitTo = o.fit === 'letterbox'
-    ? `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
+  const boxed = o.fit === 'letterbox';
+  const fitTo = boxed
+    ? `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos`
     : `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`;
-  // Every range is stamped with the output's colour before the concat: newer libavfilter converts between
-  // concat inputs that are labelled differently, which would shift an untagged clip beside a converted one.
-  const scale = `${fitTo},setsar=1,setparams=color_primaries=${colour.primaries}:color_trc=${colour.transfer}:colorspace=${colour.space}`;
+  // Padded last, so the grade and its grain never reach the bars.
+  const pad = boxed ? [`pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`] : [];
+  const halfFrame = 0.5 / range.fps;
+  const start = range.start - seek;
+  const end = range.end - seek;
+  const { kept, played } = framesOf(range);
+  const sped = played !== kept;
+  // The last frame cloned for a few output frames past the range, so fps and minterpolate, which drop the last
+  // frames they hold at the end of a stream, drop only clones; the encode's frame count ends the range. Padded
+  // straight after the trim: some builds drop the clones of a pad placed after a scale.
+  const clones = [`tpad=stop_mode=clone:stop=${Math.ceil((4 * kept) / played) + 1}`];
+  const speed = sped ? [
+    // In microseconds, so the stretched instants are not rounded to a coarse container timebase first.
+    'settb=AVTB', `setpts=PTS*${played}/${kept}`,
+    range.interpolate ? `minterpolate=fps=${rate}:${INTERPOLATE}` : `fps=${rate}`,
+    // At its own speed too: a frame a variable-rate source skipped is filled with the one before it, so the range
+    // holds every frame of its grid and its picture stays over its sound.
+  ] : [`fps=${rate}`];
+  const chain = [
+    `trim=start=${seconds(Math.max(0, start - halfFrame))}:end=${seconds(end - halfFrame)}`, 'setpts=PTS-STARTPTS', ...clones,
+    o.hdr, ...(o.shape ?? []), fitTo, 'setsar=1', ...(o.grade?.tone ?? []), ...speed, ...(o.grade?.grain ?? []), ...pad,
+    // Stamped as frame properties, last: the encoder takes its tags from the frames, and the -color_* output
+    // options are ignored on the ffmpeg builds this runs against.
+    ...stamp,
+  ].filter(Boolean);
+  return `[0:v]${chain.join(',')}[v]`;
+}
 
+/**
+ * The cut's sound in one graph: every range's own, from its own input, crossfaded into the next by mixing fades
+ * rather than with `acrossfade`. `heard[i]` says whether range i's sound comes from its source; any other range
+ * is silence of its length. Input 0 is the joined picture, so range i's sound is the next input after the
+ * previous heard range's.
+ *
+ * Every heard range but the last takes `crossfadeSec` of EXTRA sound from beyond its out-point, fades out over
+ * that tail, and is delayed to its place on the output timeline; the next range fades in over the same window,
+ * and `amix` sums them without renormalising. Two linear fades sum to unity, so the sound that bleeds across a
+ * join is the room tone that genuinely followed the last kept frame. At another speed the sound, tail included,
+ * is time-stretched by atempo to exactly the range's played length. The last range is padded to its length, so
+ * the mix is exactly as long as the joined picture even when a source's audio ends a few milliseconds before
+ * its last frame does.
+ */
+export function audioGraph(ranges: SnappedRange[], seeks: number[], crossfadeSec: number, heard: boolean[]): string {
+  const parts: string[] = [];
   let offset = 0;
+  let input = 1;
   ranges.forEach((range, i) => {
     const isLast = i === ranges.length - 1;
-    const start = range.start - seeks[i];
-    const end = range.end - seeks[i];
-    const length = range.end - range.start;
-    const halfFrame = 0.5 / range.fps;
-    const video = [o.hdr?.get(range.source), ...(o.shapes?.[i] ?? []), scale].filter(Boolean).join(',');
-    parts.push(
-      `[${i}:v]trim=start=${seconds(Math.max(0, start - halfFrame))}:end=${seconds(end - halfFrame)},setpts=PTS-STARTPTS,${video}[v${i}]`,
-    );
-    const audio = [
-      `atrim=start=${seconds(start)}:end=${seconds(isLast ? end : end + crossfadeSec)}`,
-      'asetpts=PTS-STARTPTS',
-      `aformat=sample_rates=${AUDIO_RATE}:channel_layouts=stereo`,
-    ];
-    if (i > 0) audio.push(`afade=t=in:st=0:d=${seconds(crossfadeSec)}`);
-    if (isLast) audio.push(`apad=whole_len=${Math.round(length * AUDIO_RATE)}`);
-    else audio.push(`afade=t=out:st=${seconds(length)}:d=${seconds(crossfadeSec)}`);
+    const length = playedLength(range);
+    const stretch = stretchOf(range);
+    let chain: string[];
+    if (!heard[i]) {
+      chain = [`anullsrc=r=${AUDIO_RATE}:cl=stereo`, `atrim=end_sample=${Math.round(length * AUDIO_RATE)}`];
+    } else {
+      const tail = isLast ? 0 : crossfadeSec;
+      chain = [
+        `atrim=start=${seconds(range.start - seeks[i])}:end=${seconds(range.end - seeks[i] + tail / stretch)}`,
+        'asetpts=PTS-STARTPTS',
+        `aformat=sample_rates=${AUDIO_RATE}:channel_layouts=stereo`,
+      ];
+      if (stretch !== 1) {
+        const whole = Math.round((length + tail) * AUDIO_RATE);
+        chain.push(`atempo=${(1 / stretch).toFixed(6)}`, `apad=whole_len=${whole}`, `atrim=end_sample=${whole}`);
+      }
+      if (i > 0) chain.push(`afade=t=in:st=0:d=${seconds(crossfadeSec)}`);
+      if (!isLast) chain.push(`afade=t=out:st=${seconds(length)}:d=${seconds(crossfadeSec)}`);
+      else if (stretch === 1) chain.push(`apad=whole_len=${Math.round(length * AUDIO_RATE)}`);
+    }
     // Delayed in SAMPLES: adelay's default unit is whole milliseconds, which is not a frame boundary.
     const delay = Math.round(offset * AUDIO_RATE);
-    if (delay > 0) audio.push(`adelay=${delay}S:all=1`);
-    parts.push(`[${i}:a]${audio.join(',')}[a${i}]`);
+    if (delay > 0) chain.push(`adelay=${delay}S:all=1`);
+    parts.push(`${heard[i] ? `[${input++}:a]` : ''}${chain.join(',')}[a${i}]`);
     offset += length;
   });
-
-  // Colour is stamped as frame properties: the encoder takes its tags from the frames it is handed, and
-  // the -color_* output options are ignored on the ffmpeg builds this runs against.
-  parts.push(
-    `${ranges.map((_, i) => `[v${i}]`).join('')}concat=n=${ranges.length}:v=1:a=0${o.after ? `,${o.after}` : ''}[vout]`,
-  );
   parts.push(
     ranges.length === 1
       ? '[a0]anull[aout]'
       : `${ranges.map((_, i) => `[a${i}]`).join('')}amix=inputs=${ranges.length}:normalize=0:dropout_transition=0[aout]`,
   );
-
-  return { filter: parts.join(';'), videoLabel: '[vout]', audioLabel: '[aout]' };
+  return parts.join(';');
 }
 
 const describeTags = (t: ColourTags) => `${t.primaries}/${t.transfer}/${t.space}`;
-const sameTags = (a: ColourTags, b: ColourTags) =>
-  a.primaries === b.primaries && a.transfer === b.transfer && a.space === b.space;
 
-/**
- * The conversion every range shares, run once after the join, or undefined when each HDR range is converted
- * on its own: some source is SDR or converted differently, or a range would not reach the join as decoded.
- * concat brings every input to one pixel format, so a deeper source would lose bits before its conversion,
- * and the canvas scale, or the stretch of pixels that are not square, would resample a source as an HDR signal.
- */
-export function sharedConversion(sources: { chain?: string; size: Display; pixFmt: string; sar?: number }[]): string | undefined {
-  const [first] = sources;
-  const alike = (s: (typeof sources)[number]) => s.chain === first.chain && s.pixFmt === first.pixFmt && (s.sar ?? 1) === 1 &&
-    s.size.width === first.size.width && s.size.height === first.size.height;
-  return first?.chain && sources.every(alike) ? first.chain : undefined;
+/** What was assumed for a source whose colour was, and why. */
+const describeAssumed = (id: string, colour: ColourReport): string => {
+  const declared = (['primaries', 'transfer', 'space'] as const).filter((axis) => colour.declared[axis] !== undefined);
+  if (declared.length === 0) return `assumed for "${id}": no tags declared`;
+  const rest = (['primaries', 'transfer', 'space'] as const).filter((axis) => !declared.includes(axis));
+  return `${rest.join(' and ')} assumed bt709 for "${id}", which declares only ${declared.map((axis) => `${axis} ${colour.declared[axis]}`).join(' and ')}`;
+};
+
+/** A file's content as a digest, so a range is reused for the same bytes wherever they sit and never for others. */
+function fileDigest(path: string): string {
+  const hash = createHash('sha256');
+  const fd = openSync(path, 'r');
+  try {
+    const chunk = Buffer.allocUnsafe(8 << 20);
+    for (let n; (n = readSync(fd, chunk, 0, chunk.length, null)) > 0;) hash.update(chunk.subarray(0, n));
+  } finally {
+    closeSync(fd);
+  }
+  return hash.digest('hex');
 }
 
 /**
- * One colour for the whole output, or a refusal: every source must agree, and a source that declares
- * any axis the bt709 assumption would contradict (an HDR transfer, wide-gamut primaries) is never
- * relabelled by having the rest assumed for it.
+ * One range's encode: its ffmpeg arguments, the cache file they make, and the frames that file must hold. The
+ * arguments also write the scan's grey copy (`[g]`) to stdout, read into `changes` beside the file.
  */
-export function decideColour(sources: { id: string; colour: ColourReport }[]): ColourReport {
-  for (const { id, colour } of sources) {
-    if (!colour.assumed) continue;
-    const contradicted = (Object.entries(colour.declared) as [keyof ColourTags, string][])
-      .filter(([axis, value]) => value !== ASSUMED_COLOUR[axis]);
-    if (contradicted.length > 0) {
-      throw new Error(
-        `source "${id}" declares ${contradicted.map(([axis, value]) => `${axis} ${value}`).join(' and ')} but not the rest — ` +
-          'stamping bt709 over it would mislabel the picture. Tag the file completely before assembling.',
-      );
-    }
-  }
-  const first = sources[0];
-  for (const { id, colour } of sources.slice(1)) {
-    if (!sameTags(colour.tags, first.colour.tags)) {
-      throw new Error(
-        `sources disagree on colour: "${first.id}" is ${describeTags(first.colour.tags)} and "${id}" is ` +
-          `${describeTags(colour.tags)} — convert them to one colour space before assembling.`,
-      );
-    }
-  }
-  return first.colour;
+interface RangeJob {
+  index: number;
+  label: string;
+  file: string;
+  args: string[];
+  frames: number;
+  scan: { width: number; height: number };
+  script?: { file: string; text: string };
 }
+
+/** Where a range's picture changes are kept beside its cache file. */
+const changesFile = (file: string) => file.replace(/\.mp4$/, '.changes.json');
+
+/** Writes `text` to `path` through a file of this attempt's own, so a reader never sees half of it. */
+function writeWhole(path: string, text: string): void {
+  const tmp = `${path}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    writeFileSync(tmp, text);
+    renameSync(tmp, path);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
+
+/** A cached range's picture changes; one cached before they were kept beside it is scanned from its own file once. */
+async function changesOf(file: string): Promise<number[]> {
+  if (existsSync(changesFile(file))) return JSON.parse(readFileSync(changesFile(file), 'utf8')) as number[];
+  const changes = await changesIn(file);
+  writeWhole(changesFile(file), JSON.stringify(changes));
+  return changes;
+}
+
+/**
+ * Encodes the jobs, `workers` at a time, each into a file of its own named for this attempt and renamed into the
+ * cache only once it holds every frame, so a run that dies or overlaps another never leaves a short range behind
+ * a name the next run trusts. Each runs in a folder of its own under `work`, where its crop's moves are written.
+ */
+async function encodeRanges(jobs: RangeJob[], work: string, workers: number): Promise<void> {
+  const live = new Set<ChildProcess>();
+  const temps = new Set<string>();
+  let next = 0;
+  let failure: Error | undefined;
+  const one = (job: RangeJob) => new Promise<void>((done, fail) => {
+    const cwd = join(work, `r${job.index}`);
+    mkdirSync(cwd, { recursive: true });
+    if (job.script) writeFileSync(join(cwd, job.script.file), job.script.text);
+    const tmp = `${job.file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
+    temps.add(tmp);
+    const child = spawn(FFMPEG, [...job.args, '-f', 'mp4', tmp, '-map', '[g]', '-f', 'rawvideo', 'pipe:1'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    live.add(child);
+    const reader = new ChangeReader(job.scan);
+    child.stdout!.on('data', (chunk: Buffer) => reader.push(chunk));
+    let stderr = '';
+    child.stderr!.on('data', (d) => { stderr += d; });
+    child.on('error', (e) => fail(new Error(`ffmpeg could not start (${FFMPEG}): ${e.message}`)));
+    child.on('close', (code, signal) => {
+      live.delete(child);
+      if (code !== 0) {
+        fail(new Error(`${job.label} failed to encode (${signal ?? `exit ${code}`}): ${stderr.trim().split('\n').slice(-4).join(' | ')}`));
+        return;
+      }
+      const frames = countFrames(tmp);
+      if (frames !== job.frames) {
+        fail(new Error(`${job.label} encoded ${frames} frames where it plays ${job.frames}; nothing was kept of it`));
+        return;
+      }
+      renameSync(tmp, job.file);
+      temps.delete(tmp);
+      writeWhole(changesFile(job.file), JSON.stringify(reader.changes));
+      done();
+    });
+  });
+  const worker = async () => {
+    while (!failure && next < jobs.length) {
+      const job = jobs[next++];
+      try {
+        await one(job);
+      } catch (e) {
+        failure ??= e as Error;
+        for (const child of live) child.kill('SIGKILL');
+      }
+    }
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(workers, jobs.length) }, worker));
+  } finally {
+    for (const tmp of temps) rmSync(tmp, { force: true });
+  }
+  if (failure) throw failure;
+}
+
+/** Where each range plays on the cut's timeline. */
+const spansOf = (ranges: SnappedRange[]): Span[] => {
+  let at = 0;
+  return ranges.map((range) => ({ start: at, end: (at += playedLength(range)) }));
+};
+
+/**
+ * What the cut does where nothing is heard, range by range, measured on what it plays: the cut's own sound, and each
+ * range's picture changes as it was encoded (`changes`, one list per range). Named are a range whose picture runs
+ * more than TAIL_SECONDS past its last sound, and a stretch held still, frozen or nearly so, with nothing heard under
+ * it for longer than STILL_SECONDS (stillness.ts). A range that plays silent by design has no last sound to judge.
+ * Sound is gated against the cut's own level, as the dead-tail check gates it. Times are given in the range's source,
+ * where its edges are moved.
+ */
+export function rangeNotes(ranges: SnappedRange[], heard: boolean[], sound: Sound | null, changes: number[][]): string[] {
+  const window = WINDOW_MS / 1000;
+  const gate = sound && soundGateOf(sound.envelope);
+  const loud = (k: number) => gate !== null && sound !== null && k >= 0 && k < sound.envelope.length && sound.envelope[k] >= gate;
+  const quiet = (span: Span) => {
+    if (!sound || gate === null) return true;
+    for (let k = Math.floor((span.start - sound.start) / window + 1e-6); k * window + sound.start < span.end - 1e-6; k++) if (loud(k)) return false;
+    return true;
+  };
+  const lines: string[] = [];
+  spansOf(ranges).forEach((span, i) => {
+    const range = ranges[i];
+    const name = `range ${i} of "${range.source}"`;
+    const inSource = (t: number) => range.start + (t - span.start) / stretchOf(range);
+    if (heard[i] && sound) {
+      // Only windows wholly inside the range, so a neighbour's crossfade never counts as this range's sound.
+      const first = Math.ceil((span.start - sound.start) / window - 1e-6);
+      let k = Math.floor((span.end - sound.start) / window + 1e-6) - 1;
+      while (k >= first && !loud(k)) k--;
+      const lastSound = k >= first ? sound.start + (k + 1) * window : null;
+      if (lastSound === null && span.end - span.start > TAIL_SECONDS + 1e-9) {
+        lines.push(`${name}: nothing in its ${inSeconds(span.end - span.start)} is heard above the rest of the cut`);
+      } else if (lastSound !== null && span.end - lastSound > TAIL_SECONDS + 1e-9) {
+        lines.push(`${name}: the picture runs ${inSeconds(span.end - lastSound)} past its last sound, which ends at ${inSeconds(inSource(lastSound))} of the source`);
+      }
+    }
+    // Each range's changes are its own, from its first frame, so a join is never measured as a change.
+    const onCut = (t: number) => span.start + t;
+    for (const still of quietStillsOf(changes[i], 0, span.end - span.start, (s) => quiet({ start: onCut(s.start), end: onCut(s.end) }))) {
+      const length = still.end - still.start;
+      const where = `${inSource(onCut(still.start)).toFixed(2)}-${inSeconds(inSource(onCut(still.end)))} of the source`;
+      lines.push(still.frozen >= length - 0.2
+        ? `${name}: frozen with nothing heard for ${inSeconds(length)}, ${where}`
+        : `${name}: nearly still with nothing heard for ${inSeconds(length)}, ${where}${still.frozen > 0 ? `, frozen for ${inSeconds(still.frozen)} of it` : ''}`);
+    }
+  });
+  return lines;
+}
+
+/**
+ * The cut's own transcript, retimed from its sources' as retime-transcript retimes them, written where a
+ * transcription of the cut would land so no transcription route overwrites it; lines say where, or why none was
+ * written. A source whose sound plays but has no transcript adds no words, and a line names it.
+ */
+function retimeCut(loaded: LoadedEdl, ranges: SnappedRange[], videos: ReadonlyMap<string, string>, heard: boolean[], out: string): string[] {
+  let paths: Map<string, string>;
+  try {
+    paths = transcriptPathsOf(loaded, videos);
+  } catch (e) {
+    return [`no transcript of the cut was written: ${(e as Error).message}`];
+  }
+  const target = transcriptPathFor(out);
+  const lines: string[] = [];
+  const read = new Map<string, Transcript>();
+  const playing = ranges.filter((_, i) => heard[i]);
+  if (playing.length === 0) return ['no transcript of the cut was written: no range plays its sound'];
+  for (const id of sourceOrder(playing)) {
+    const path = paths.get(id)!;
+    if (!existsSync(path)) {
+      lines.push(`source "${id}" has no transcript at ${path}, so its ranges add no words to the cut's`);
+      continue;
+    }
+    try {
+      const file = readTranscriptFile(path);
+      const note = mappedNote(path, file);
+      if (note) lines.push(`source "${id}": ${note}`);
+      read.set(id, file.transcript);
+    } catch (e) {
+      lines.push(`source "${id}"'s transcript is not used: ${(e as Error).message}`);
+    }
+  }
+  if (read.size === 0) return ['no transcript of the cut was written: its sources have none'];
+  const own = [...paths].find(([, path]) => path === target);
+  if (own) return [`no transcript of the cut was written: ${target}, where it goes, is the transcript of source "${own[0]}"`];
+  let result: ReturnType<typeof retime>;
+  try {
+    result = retime(ranges, (id) => read.get(id) ?? { text: '', chunks: [] });
+  } catch (e) {
+    return [...lines, `no transcript of the cut was written: ${(e as Error).message}`];
+  }
+  const { droppedAtEdges, ...transcript } = result;
+  mkdirSync(dirname(target), { recursive: true });
+  writeWhole(target, JSON.stringify(transcript, null, 2));
+  const dropped = droppedNote(droppedAtEdges);
+  return [`the cut's transcript, its sources' words retimed onto it (${wordCount(transcript)} words) -> ${target}`, ...lines, ...(dropped ? [dropped] : [])];
+}
+
+/**
+ * The cut's faces.json and faces.js, its sources' boxes moved onto it (facesOnCut), written where faces would write
+ * the cut's; lines say where, and over which ranges the faces are unknown. When none is written, boxes found on the
+ * file this cut replaced are removed.
+ */
+function facesOfCut(
+  ranges: SnappedRange[],
+  sources: ReadonlyMap<string, { path: string; shown: Display }>,
+  plans: ReadonlyMap<string, Shaping>,
+  cut: Omit<CutPicture, 'width' | 'height' | 'durationSec'>,
+): string[] {
+  const why = new Map<string, string>();
+  const boxes = new Map([...sources].map(([id, { path, shown }]): [string, FacesClip | null] => {
+    const at = ownFaces(path);
+    if (!at) return [id, null];
+    try {
+      const clip = readFaces(at);
+      const other = notFacesOf(clip, path, shown, probeVideoSpan(path).end);
+      if (!other) return [id, clip];
+      why.set(id, `${at} ${other}`);
+    } catch (e) {
+      why.set(id, (e as Error).message);
+    }
+    return [id, null];
+  }));
+  const picture = { ...cut, ...probeSquareSize(cut.video), durationSec: probeVideoSpan(cut.video).end };
+  const spans = spansOf(ranges);
+  const onCut = ranges.map((range, i): RangeOnCut => {
+    const plan = plans.get(range.source);
+    return {
+      start: range.start, end: range.end, fps: range.fps, at: spans[i].start, stretch: stretchOf(range),
+      faces: boxes.get(range.source)!, shown: sources.get(range.source)!.shown,
+      ...(plan && plan.how !== 'already' ? { crop: { ...plan.crop, place: (sec: number) => placeAt(plan.moves, sec) } } : {}),
+    };
+  });
+  const dir = facesFolder(cut.video);
+  const clip = facesOnCut(onCut, picture);
+  if (!clip) {
+    const reasons = [...why].map(([id, text]) => `source "${id}"'s face boxes are not used: ${text}`);
+    const owner = boxesOwner(join(dir, 'faces.json'));
+    const stale = owner !== undefined && sameFile(owner, cut.video);
+    if (stale) for (const file of ['faces.json', 'faces.js']) rmSync(join(dir, file), { force: true });
+    return [`no faces of the cut were written: ${reasons.length ? reasons.join('; ') : 'faces has not run on its sources'}` +
+      `${stale ? `; the boxes in ${dir}, found on the file this cut replaced, are removed` : ''}`];
+  }
+  writeAtomic(join(dir, 'faces.json'), clip);
+  writeTextAtomic(join(dir, 'faces.js'), facesScript(clip));
+  const unknown = sourceOrder(ranges).filter((id) => !boxes.get(id)).map((id) => {
+    const where = ranges.flatMap((r, i) => (r.source === id ? [i] : []));
+    const over = `the cut's faces over its range(s) ${indexList(where)} (${where.map((i) => `${spans[i].start.toFixed(2)}-${inSeconds(spans[i].end)}`).join(', ')}) are unknown`;
+    return why.has(id) ? `source "${id}"'s face boxes are not used, so ${over}: ${why.get(id)}` : `faces has not run on source "${id}", so ${over}`;
+  });
+  return [`the cut's faces, its sources' boxes moved onto it -> ${join(dir, 'faces.js')} and faces.json`, ...unknown];
+}
+
+/** Indices as a short list: 0-3, 5, 7-8. */
+const indexList = (indices: number[]): string => {
+  const runs: string[] = [];
+  for (let i = 0; i < indices.length; i++) {
+    let j = i;
+    while (j + 1 < indices.length && indices[j + 1] === indices[j] + 1) j++;
+    runs.push(j > i ? `${indices[i]}-${indices[j]}` : String(indices[i]));
+    i = j;
+  }
+  return runs.join(', ');
+};
 
 export const usage = {
-  summary: 'Assemble the kept ranges of an EDL into one file, crossfading every join',
+  summary: 'Assemble the kept ranges of an EDL into one file, each at its own speed and grade, crossfading every join',
   flags: {
     edl: { type: 'string', value: '<edl.json>', required: true, help: 'The edit decision list to assemble' },
     out: { type: 'string', value: '<cut.mp4>', required: true, help: 'Where the assembled file is written' },
@@ -179,10 +481,31 @@ export const usage = {
     'The canvas is the first range\'s source as shown: upright, in square pixels. A line names each source cut',
     'to its shape and whether it followed the faces or cut from the middle. An HDR (PQ/HLG) source is converted to',
     'SDR BT.709, and a line says so.',
+    '',
+    'A range may also carry "speed" (0.5 half speed, 2 double), "interpolate": true to draw slow motion by motion',
+    'interpolation instead of repeating frames (far slower to encode, worst at 4K), "mute": true, and "grade". A',
+    'range plays a whole number of frames at its speed. Its sound is time-stretched, pitch kept, at speeds from',
+    `${STRETCHED_SPEEDS.min} to ${STRETCHED_SPEEDS.max}, and silent at any other or when muted; a source with no sound plays silent.`,
+    '"grade" on the EDL grades every range, and a range\'s own "grade" overrides it key by key (null drops a key):',
+    'exposure (stops, -3 to 3), contrast and saturation (1 unchanged, 0 to 3), temperature (kelvin of the light,',
+    '1000 to 40000, 6500 unchanged, lower warmer), lut (a .cube, .3dl, .dat, .m3d or .csp file) and grain (0 to',
+    '100, whole numbers). A relative path in the EDL is read beside it, else from the working directory, else from',
+    'the workspace ($OPEN_EDIT_ROOT), wherever the file is, and a line says where it was found.',
+    '',
+    'Each range\'s picture is kept in <out>.ranges/ under a name made of its source\'s content, its edges, speed,',
+    'grade, shape and the encode, so a run that changes one range encodes that range alone; the sound is cut',
+    'again on every run. Delete the folder to reclaim its space.',
+    '',
+    'When the sources have transcripts, the cut\'s is written where a transcription of it would land,',
+    '$OPEN_EDIT_ROOT/runs/<key>/transcript.json for <key>.mp4, retimed as retime-transcript retimes it. When faces',
+    'has run on them, the cut\'s faces.json and faces.js are written where faces would write the cut\'s, each',
+    'range\'s boxes and graphics moved onto it; the faces over a range whose source has none are marked unknown. Measured',
+    `on the cut, a line names each range whose picture runs more than ${TAIL_SECONDS}s past its last sound, and each`,
+    `stretch held still, frozen or nearly so, with nothing heard for more than ${STILL_SECONDS}s.`,
   ].join('\n'),
 } satisfies Usage;
 
-export function applyEdl(argv: string[]): number {
+export async function applyEdl(argv: string[]): Promise<number> {
   const { values } = parseUsage('apply-edl', usage, argv);
   if (!values.edl || !values.out) {
     throw new Error(usageLine('apply-edl', usage));
@@ -195,19 +518,14 @@ export function applyEdl(argv: string[]): number {
   const crossfadeSec = crossfadeMs / 1000;
   const fit = parseFit(values.fit);
 
-  // Probed once per distinct source; the encode opens one input per RANGE (see inputSeeks).
+  // Probed once per distinct source; every range is encoded from an input of its own (see inputSeeks).
   const order = sourceOrder(loaded.edl.ranges);
   const sources = new Map(order.map((id) => {
     const path = sourcePath(loaded, id);
-    let duration: number;
-    try {
-      duration = audioDurationOf(path);
-    } catch (cause) {
-      // Every join borrows audio from beyond its out-point, so the audio's own length is what the
-      // guard below needs; the container's length would pass a file whose audio ends early or is absent.
-      throw new Error(`source "${id}": ${(cause as Error).message} — apply-edl assembles picture and sound together`, { cause });
-    }
-    return [id, { path, ...probeFrameRate(path), duration, video: videoDurationOf(path), colour: colourTagsOf(path), shown: probeSquareSize(path) }];
+    // Every join borrows audio from beyond its out-point, so the audio's own length is what the guard below
+    // needs; the container's length would pass a file whose audio ends early.
+    const duration = hasAudioStream(path) ? audioDurationOf(path) : null;
+    return [id, { path, ...probeFrameRate(path), duration, video: videoDurationOf(path), colour: decodedColourOf(path), shown: probeSquareSize(path) }];
   }));
   const sourceOf = (id: string) => sources.get(id)!;
   // One frame rate for the whole output: the encode is forced to it, and a source at another rate would
@@ -220,22 +538,17 @@ export function applyEdl(argv: string[]): number {
           'bring them to one rate first (concat-videos re-encodes to a common one).',
       );
     }
-    // The grid assumes every frame slot is filled; a slot the camera skipped inside a kept range moves
-    // every later frame a slot earlier against the sound, and nothing downstream can see it.
-    if (Math.abs(source.averageFps - source.fps) / source.fps > 0.005) {
-      console.warn(
-        `warning: source "${id}" is not constant frame rate (nominal ${source.rate}, average ${source.averageFps.toFixed(2)}) — ` +
-          'a frame the camera skipped inside a kept range shifts the picture against the sound from there on.',
-      );
-    }
   }
   const ranges = snapRanges(loaded.edl.ranges, new Map(order.map((id) => [id, sourceOf(id).fps])));
+  // Heard: the range's sound comes from its source, which then must hold enough of it.
+  const heard = ranges.map((range) => soundOf(range) !== 'muted' && sourceOf(range.source).duration !== null);
 
   ranges.forEach((range, index) => {
+    const length = playedLength(range);
     // A single range emits `anull`, not a crossfade, so it has no minimum beyond being non-empty.
-    if (ranges.length > 1 && range.end - range.start <= crossfadeSec) {
+    if (ranges.length > 1 && length <= crossfadeSec) {
       throw new Error(
-        `range ${index} of "${range.source}" is ${(range.end - range.start).toFixed(3)}s, no longer than the ` +
+        `range ${index} of "${range.source}" plays ${length.toFixed(3)}s, no longer than the ` +
           `${crossfadeMs}ms crossfade — shorten --crossfade or lengthen the range`,
       );
     }
@@ -248,28 +561,33 @@ export function applyEdl(argv: string[]): number {
           `${source.video.toFixed(3)}s long. Move the out-point earlier.`,
       );
     }
+    if (!heard[index]) return;
+    const audio = source.duration!;
     const isLast = index === ranges.length - 1;
-    const needed = isLast ? range.end : range.end + crossfadeSec;
+    const needed = isLast ? range.end : range.end + crossfadeSec / stretchOf(range);
     // The last range's audio may end short of its snapped end: the snap moves the edge up by less than
     // a frame, and AAC stops on its own block grid rather than on the picture's. Within that the graph
     // pads the sound to the picture; beyond it the out-point is genuinely past the recording.
     const tolerated = isLast ? 1 / range.fps + AAC_BLOCK_SEC : 0;
-    if (needed > source.duration + tolerated + 1e-6) {
+    if (needed > audio + tolerated + 1e-6) {
       throw new Error(
         isLast
           ? `range ${index} of "${range.source}" ends at ${range.end.toFixed(3)}s but the source's audio is only ` +
-            `${source.duration.toFixed(3)}s long. Move the out-point earlier.`
+            `${audio.toFixed(3)}s long. Move the out-point earlier.`
           : `range ${index} of "${range.source}" ends at ${range.end.toFixed(3)}s and its join needs ` +
-            `${crossfadeMs}ms more audio, but the source's audio is only ${source.duration.toFixed(3)}s long. ` +
-            'Move the out-point earlier, reorder so this range is last, or lower --crossfade.',
+            `${crossfadeMs}ms more audio, but the source's audio is only ${audio.toFixed(3)}s long. ` +
+            'Move the out-point earlier, reorder so this range is last, mute it, or lower --crossfade.',
       );
     }
   });
 
   const hdr = order.filter((id) => hdrKind(sourceOf(id).colour));
-  // Judged as converted, so an HDR clip joins SDR ones instead of disagreeing with them.
-  const colour = decideColour(order.map((id) => ({ id, colour: converted(sourceOf(id).colour) })));
-  const assumedFor = order.filter((id) => converted(sourceOf(id).colour).assumed);
+  // One colour for the cut as concat-videos decides one for a join: each source brought to it, an HDR one converted first.
+  const joined = joinColour(order.map((id) => ({ id, colour: sourceOf(id).colour, sdr: hdr.includes(id) })));
+  const stampOf = new Map(order.map((id, k) => [id, joined.stamps[k]]));
+  const assumedFor = order.filter((id) => !hdr.includes(id) && sourceOf(id).colour.assumed);
+  // A source whose picture the stamp converts, not only labels: its matrix or range is not the cut's.
+  const recoded = order.filter((id) => stampOf.get(id)!.length > 2);
   const canvas = { width: first.shown.width, height: first.shown.height };
   const ratio = canvas.width / canvas.height;
   // Planned before anything is encoded, so stale face boxes are refused up front.
@@ -281,55 +599,159 @@ export function applyEdl(argv: string[]): number {
     : [];
   const seeks = inputSeeks(ranges);
   const chains = new Map(hdr.map((id) => [id, toSdr(sourceOf(id).colour, `source "${id}"`)]));
-  const once = hdr.length === order.length
-    ? sharedConversion(order.map((id) => ({ chain: chains.get(id), size: sourceOf(id).shown, sar: sourceOf(id).shown.sar, pixFmt: pixelFormatOf(sourceOf(id).path) })))
-    : undefined;
+  const grades = ranges.map((range) => mergeGrade(loaded.edl.grade, range.grade));
+  const luts = new Map<string, { path: string; digest: string }>();
+  for (const grade of grades) {
+    if (grade.lut === undefined || luts.has(grade.lut)) continue;
+    const { path } = locate(loaded, grade.lut);
+    if (!existsSync(path)) throw new Error(`LUT "${grade.lut}" not found at ${path}`);
+    luts.set(grade.lut, { path, digest: fileDigest(path) });
+  }
+  // A range is graded before its stamp, in the matrix its own picture is coded with.
+  const codedIn = (id: string) => (hdr.includes(id) ? 'bt709' : sourceOf(id).colour.declared.space ?? 'bt709');
+  const needsRgb = (g: Grade) => g.exposure !== undefined || g.temperature !== undefined || g.lut !== undefined;
+  ranges.forEach((range, i) => {
+    if (!yuvMatrix(codedIn(range.source)) && needsRgb(grades[i])) {
+      throw new Error(`source "${range.source}" is coded with the ${codedIn(range.source)} matrix, which ffmpeg cannot read as RGB, so its ranges cannot take exposure, temperature or a LUT`);
+    }
+  });
 
   const outPath = resolve(values.out);
   mkdirSync(dirname(outPath), { recursive: true });
+  const cache = `${outPath}.ranges`;
+  mkdirSync(cache, { recursive: true });
+  const ffmpeg = probeVersion(FFMPEG, FFMPEG_PROBE).banner.replace(/\s+Copyright.*$/, '');
+  const digests = new Map(order.map((id) => [id, fileDigest(sourceOf(id).path)]));
+  const files: string[] = [];
+  const jobs: RangeJob[] = [];
+  const scan = scanSize(canvas.width, canvas.height);
+  ranges.forEach((range, i) => {
+    const plan = plans.get(range.source);
+    // Each range runs in a folder of its own, so its crop's moves keep one name and the graph does not change
+    // with the range's place in the cut.
+    const shaped = plan ? shapeChain(plan, 'shape', { from: range.start, to: range.end }) : { filters: asShown(sourceOf(range.source).shown) };
+    const lut = grades[i].lut === undefined ? undefined : luts.get(grades[i].lut!)!;
+    const grade = gradeFilters(grades[i], yuvMatrix(codedIn(range.source)) ?? 'bt709', lut && filterPath(lut.path));
+    const graph = rangeGraph(range, seeks[i], canvas, stampOf.get(range.source)!, first.rate, { hdr: chains.get(range.source), shape: shaped.filters, fit, grade });
+    const { played } = framesOf(range);
+    const path = sourceOf(range.source).path;
+    const encode = (filters: string) => [
+      '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
+      ...(seeks[i] > 0 ? ['-ss', String(seeks[i])] : []), '-i', path,
+      '-filter_complex', filters, '-map', '[v]', '-frames:v', String(played),
+      // -r gives the LAST frame a duration. Without it that frame reaches the muxer with none, the mp4 edit list
+      // ends a frame early, and players drop the frame.
+      '-r', first.rate, ...encodeArgs(crf),
+    ];
+    const args = encode(graph);
+    // The scan's grey copy is split off the frames being encoded, so measuring the range costs no decode of its own;
+    // its trim drops the clones past the range that only the encode's frame count would.
+    const scanned = encode(`${graph.slice(0, -'[v]'.length)},split[v][s];[s]trim=end_frame=${played},${scanFilter(scan)}[g]`);
+    // The source by its content rather than its path, so the name says what the file holds and nothing else.
+    const key = createHash('sha256').update(JSON.stringify([
+      ffmpeg, digests.get(range.source), args.filter((a) => a !== path), 'script' in shaped ? shaped.script?.text ?? '' : '', lut?.digest ?? '',
+    ])).digest('hex').slice(0, 32);
+    const file = join(cache, `${key}.mp4`);
+    files.push(file);
+    if (!existsSync(file) && !jobs.some((j) => j.file === file)) {
+      jobs.push({
+        index: i, label: `range ${i} of "${range.source}"`, file, args: scanned, frames: played, scan,
+        ...('script' in shaped && shaped.script ? { script: shaped.script } : {}),
+      });
+    }
+  });
+
   const work = mkdtempSync(join(tmpdir(), 'open-edit-apply-edl-'));
   try {
-    // Each range's crop is moved on that range's own clock, which starts at its first frame.
-    const shapes = ranges.map((range, i) => {
-      const plan = plans.get(range.source);
-      if (!plan) return asShown(sourceOf(range.source).shown);
-      const { filters, script } = shapeChain(plan, `r${i}`, { from: range.start, to: range.end });
-      if (script) writeFileSync(join(work, script.file), script.text);
-      return filters;
-    });
-    const { filter, videoLabel, audioLabel } = once
-      ? buildGraph(ranges, seeks, canvas, hdrTags(sourceOf(order[0]).colour), crossfadeSec, { after: once, shapes, fit })
-      : buildGraph(ranges, seeks, canvas, colour.tags, crossfadeSec, { hdr: chains, shapes, fit });
-    // Run where the crops' moves are written, so every other path it is given is absolute.
-    execFileSync(FFMPEG, [
-      '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
-      ...ranges.flatMap((range, i) => [...(seeks[i] > 0 ? ['-ss', String(seeks[i])] : []), '-i', sourceOf(range.source).path]),
-      '-filter_complex', filter,
-      '-map', videoLabel, '-map', audioLabel,
-      // -r pins the output to the source rate and gives the LAST frame a duration. Without it that frame
-      // reaches the muxer with none, the mp4 edit list ends a frame early, and players drop the frame.
-      '-r', first.rate,
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf), '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
-      '-movflags', '+faststart',
-      outPath,
-    ], { stdio: ['ignore', 'inherit', 'inherit'], cwd: work });
+    await encodeRanges(jobs, work, encodeWorkers());
+    const list = join(work, 'ranges.ffconcat');
+    writeFileSync(list, `ffconcat version 1.0\n${files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n')}\n`);
+    const sound = ranges.flatMap((range, i) => (heard[i] ? [...(seeks[i] > 0 ? ['-ss', String(seeks[i])] : []), '-vn', '-i', sourceOf(range.source).path] : []));
+    const tmp = join(dirname(outPath), `.${basename(outPath)}.${process.pid}.tmp${extname(outPath)}`);
+    try {
+      execFileSync(FFMPEG, [
+        '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
+        '-f', 'concat', '-safe', '0', '-i', list, ...sound,
+        '-filter_complex', audioGraph(ranges, seeks, crossfadeSec, heard),
+        '-map', '0:v', '-map', '[aout]',
+        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
+        '-movflags', '+faststart',
+        tmp,
+      ], { stdio: ['ignore', 'inherit', 'inherit'] });
+      renameSync(tmp, outPath);
+    } finally {
+      rmSync(tmp, { force: true });
+    }
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+  // These only report on a cut already written, so none failing may fail the command.
+  let notes: string[];
+  try {
+    const changes = await Promise.all(files.map(changesOf));
+    notes = rangeNotes(ranges, heard, soundIn(outPath), changes);
+  } catch (e) {
+    notes = [`the cut's sound and stillness were not measured: ${(e as Error).message}`];
+  }
+  let transcribed: string[];
+  try {
+    transcribed = retimeCut(loaded, ranges, new Map(order.map((id) => [id, sourceOf(id).path])), heard, outPath);
+  } catch (e) {
+    transcribed = [`no transcript of the cut was written: ${(e as Error).message}`];
+  }
+  let faceLines: string[];
+  try {
+    faceLines = facesOfCut(ranges, sources, plans, { video: outPath, fps: first.fps, frameRate: first.rate.replace(/\/1$/, ''), fit });
+  } catch (e) {
+    faceLines = [`no faces of the cut were written: ${(e as Error).message}`];
+  }
+  const found = [
+    ...relocated(loaded, order, [...luts.keys()].map((lut) => ({ what: `LUT "${lut}"`, named: lut }))),
+    ...relocatedTranscripts(loaded),
+  ];
 
   const kept = ranges.reduce((total, r) => total + (r.end - r.start), 0);
+  const played = ranges.reduce((total, r) => total + playedLength(r), 0);
   const joins = ranges.length - 1;
+  const speeds = ranges.some((r) => (r.speed ?? 1) !== 1);
+  let at = 0;
+  const timeline = speeds
+    ? `  At each range's speed the cut runs ${played.toFixed(3)}s:\n` + ranges.map((r, i) => {
+      const from = at;
+      at += playedLength(r);
+      const sound = !heard[i] ? (soundOf(r) === 'muted' ? 'silent' : 'silent (no sound in the source)') : soundOf(r) === 'stretched' ? 'sound stretched' : 'sound kept';
+      return `    range ${i}${r.note ? ` "${r.note}"` : ''}: "${r.source}" ${r.start.toFixed(3)}-${r.end.toFixed(3)}s at ${r.speed ?? 1}x` +
+        `${r.interpolate ? ' interpolated' : ''} -> ${from.toFixed(3)}-${at.toFixed(3)}s of the cut, ${sound}\n`;
+    }).join('')
+    : '';
+  const muted = ranges.flatMap((r, i) => (r.mute ? [i] : []));
+  const silentSources = order.filter((id) => sourceOf(id).duration === null);
+  const byGrade = new Map<string, number[]>();
+  grades.forEach((g, i) => {
+    const text = describeGrade(g);
+    if (text !== 'none') byGrade.set(text, [...(byGrade.get(text) ?? []), i]);
+  });
   console.log(
     `assembled ${ranges.length} range(s) from ${order.length} source(s) -> ${outPath}\n` +
       `  ${kept.toFixed(3)}s kept, ${joins} crossfaded join(s) of ${crossfadeMs}ms; ${canvas.width}x${canvas.height}, ` +
-      `colour ${describeTags(colour.tags)}${assumedFor.length > 0 ? ` (assumed for ${assumedFor.map((id) => `"${id}"`).join(', ')}: no tags declared)` : ''}.\n` +
+      `colour ${describeTags(joined.tags)}` +
+      `${assumedFor.length > 0 ? ` (${assumedFor.map((id) => describeAssumed(id, sourceOf(id).colour)).join('; ')})` : ''}.\n` +
+      recoded.map((id) => `  source "${id}" is coded otherwise (matrix ${codedIn(id)}${sourceOf(id).colour.full ? ', full range' : ''}): its picture is converted to the cut's.\n`).join('') +
+      found.map((line) => `  ${line}.\n`).join('') +
+      timeline +
+      (!speeds && muted.length ? `  Muted: range(s) ${indexList(muted)}.\n` : '') +
+      silentSources.map((id) => `  source "${id}" has no sound: its ranges play silent.\n`).join('') +
+      [...byGrade].map(([text, indices]) => `  Graded ${text}: range(s) ${indexList(indices)}.\n`).join('') +
       hdr.map((id) => `  ${describeHdr(`source "${id}"`, sourceOf(id).colour)}.\n`).join('') +
       [...plans].filter(([, plan]) => plan.how !== 'already')
         .map(([id, plan]) => `  ${describeShape(`source "${id}"`, plan, `the canvas's shape (${canvas.width}x${canvas.height})`)}.\n`).join('') +
       letterboxed.map((id) => `  source "${id}" (${sourceOf(id).shown.width}x${sourceOf(id).shown.height}) is letterboxed onto the canvas.\n`).join('') +
-      '  Each range is snapped to its source\'s frame grid, so the timeline is exactly the sum of the ' +
-      'snapped ranges — a transcript retimed from the same EDL lands on the same instants.',
+      `  ${jobs.length} range(s) encoded, ${ranges.length - jobs.length} reused from ${cache}.\n` +
+      '  Each range is snapped to its source\'s frame grid, so the timeline is exactly the sum of the ranges as they play.' +
+      [...transcribed, ...faceLines, ...notes].map((line) => `\n  ${line}.`).join(''),
   );
+  // Said now, while the EDL is open, since a cut that is the piece's picture fixes the length the render will have.
+  const length = lengthAgainstBrief(played, [outPath, loaded.path], 'the cut');
+  if (length) console.log(`  ${length}`);
   return 0;
 }

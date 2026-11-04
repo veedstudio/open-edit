@@ -6,6 +6,7 @@
 // functions in helpers that do not exist inside the page.
 
 import { SPEAKER_FN } from './speaker.ts';
+import { READ_TEXT } from '../verify/text.ts';
 
 export interface RuntimeConfig {
   seed: number;
@@ -17,6 +18,11 @@ export interface RuntimeConfig {
   captureScale: number;
   /** Marks the speaker layer's cut-out inside its closed shadow root, where the session finds it to show or hide it. */
   speakerKey: string;
+  /**
+   * When the speaker layer's cut-out shows on the page's clock: from `at` seconds, its own first frame there, until
+   * `until`, or to the end when null. It is cut from the footage, so it keeps to the footage's place.
+   */
+  cutout: { at: number; until: number | null };
 }
 
 /** What `__openedit.ready()` reports back once the page has loaded. */
@@ -42,6 +48,39 @@ export interface ReadyInfo {
   problems: string[];
   /** The page carries a `data-stateless` mark: it draws each frame from the time alone, so a worker may jump to any frame. */
   stateless: boolean;
+  /** Text the load raised to the size floor. */
+  raised: RaisedText[];
+}
+
+/** An element whose text was under the size floor when it was first seen, and has been drawn at the floor since. */
+export interface RaisedText {
+  /** The element, as a path from the body, the same in every worker. */
+  key: string;
+  /** The frame it was first raised in; -1 for the page's load. */
+  frame: number;
+  /** Its own text when it was raised, as drawn. */
+  text: string;
+  /** The size the page gave it, in CSS px. */
+  from: number;
+  /** At the floor it runs onto more lines than it did. */
+  wrapped: boolean;
+  /** At the floor its glyphs run past the block holding them, or the stage, where they did not. */
+  past: boolean;
+}
+
+/** What a frame reports back: media that could not be played, and text first raised to the floor in it. */
+export interface FrameReport {
+  problems: string[];
+  raised: RaisedText[];
+}
+
+/** The stage's size as the page has laid it out, and whether the page links a safe-zone stylesheet of its own. */
+export interface StageZone {
+  width: number;
+  height: number;
+  linked: boolean;
+  /** The zone render gives a page that links none is in it. */
+  given: boolean;
 }
 
 /** What a frame fails with when it draws a video larger than the smaller copy the video is served from. */
@@ -243,6 +282,9 @@ const SOURCE = String.raw`
     if (v.loop) return t % d;
     return Math.min(t, Math.max(0, d - 0.001));
   }
+  // The cut-out runs on the footage's time, which starts CFG.cutout.at seconds into the page's.
+  const targetOf = (v, sec) => videoTarget(v, speaker && v === speaker.video ? Math.max(0, sec - CFG.cutout.at) : sec);
+  const cutoutShows = (sec) => sec >= CFG.cutout.at && (CFG.cutout.until === null || sec < CFG.cutout.until);
   // A video that cannot load or decode is reported, not fatal: the frame renders without it, the way a
   // missing image does, and the renderer lists it at the end.
   const problems = new Set();
@@ -342,6 +384,165 @@ const SOURCE = String.raw`
     if (document.fonts.status === 'loading') await within(document.fonts.ready, budget, 'fonts');
   }
 
+  function stageBox() {
+    const el = document.querySelector('#stage, [data-stage]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const width = Math.round(el.offsetWidth || r.width);
+    const height = Math.round(el.offsetHeight || r.height);
+    return width > 0 && height > 0 ? { el, width, height, left: Math.round(r.left + window.scrollX), top: Math.round(r.top + window.scrollY) } : null;
+  }
+  // A stylesheet with a rule for a stage's zone, or one linked by the name safe-zone writes, is the page's own zone;
+  // the one render gives a page that has none is not.
+  const GIVEN = 'data-openedit-zone';
+  function zoneLinked() {
+    const has = (rules) => {
+      for (const r of rules) {
+        if ((r.selectorText || '').includes('data-safe-zone') || (r.cssRules && has(r.cssRules))) return true;
+        try { if (r.styleSheet && has(r.styleSheet.cssRules)) return true; } catch (e) { /* another origin's sheet */ }
+      }
+      return false;
+    };
+    for (const sheet of document.styleSheets) {
+      if (sheet.ownerNode && sheet.ownerNode.hasAttribute && sheet.ownerNode.hasAttribute(GIVEN)) continue;
+      try { if (has(sheet.cssRules)) return true; } catch (e) { /* another origin's sheet */ }
+    }
+    return [...document.querySelectorAll('link[rel~="stylesheet"]')].some((l) => /safe-zone[^/]*\.css/i.test(l.getAttribute('href') || ''));
+  }
+
+  // Text under the size floor is drawn at it, as a minimum: each frame the size the page gives a raised element is
+  // put back and read first, so one the page has since made larger shows at that size. Text with no letter or digit
+  // (an icon, an arrow, a lone symbol) and SVG text, drawn to its picture's scale, keep theirs.
+  const READ = new RegExp(${JSON.stringify(READ_TEXT.source)}, 'u');
+  const NOT_TEXT = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'TEXTAREA', 'TITLE', 'OPTION']);
+  let floor = 0;
+  // Each raised element, with the inline size the page gave it and the one written over it.
+  const raised = new Map();
+  let lifted = [];
+  // While the floor writes a size, transitions take no time in the element and what inherits from it: under one on
+  // font-size (transition: all on a caption or its words) the write would ease in real time and the capture land
+  // partway. The rule's layer comes first in the document, so its !important outranks any the page's stylesheets carry.
+  const HOLD = 'data-openedit-floor';
+  const holdStyle = document.createElement('style');
+  holdStyle.textContent = '@layer openedit-floor{' + ['', '::before', '::after'].map((p) => ':is([' + HOLD + '],[' + HOLD + '] *)' + p).join(',')
+    + '{transition-duration:0s!important;transition-delay:0s!important}}';
+  const flushStyle = () => document.documentElement.getBoundingClientRect();
+  // Elements whose text appears or whose class changes after the load: a caption set in __seek is raised in its frame.
+  let mutations = [];
+  const watcher = new MutationObserver((records) => { mutations.push(...records); });
+  const ownText = (el) => { let s = ''; for (const n of el.childNodes) if (n.nodeType === 3) s += n.data; return s; };
+  const readable = (el) => el instanceof HTMLElement && el.isConnected && !NOT_TEXT.has(el.tagName) && READ.test(ownText(el));
+  function textIn(node, into) {
+    if (node.nodeType === 3) { if (node.parentElement) into.add(node.parentElement); return; }
+    if (node.nodeType !== 1) return;
+    const walk = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) if (n.parentElement) into.add(n.parentElement);
+  }
+  function changed() {
+    const records = mutations.concat(watcher.takeRecords());
+    mutations = [];
+    const out = new Set();
+    for (const r of records) {
+      if (r.type === 'characterData') textIn(r.target, out);
+      else if (r.type === 'childList') { if (r.target.nodeType === 1) out.add(r.target); for (const n of r.addedNodes) textIn(n, out); }
+      else textIn(r.target, out);
+    }
+    return out;
+  }
+  const lineRange = document.createRange();
+  // How an element's own text sits: on how many lines, and whether its glyphs run past the block holding them or
+  // the stage. Up and down, a font's glyphs stand up to about a quarter of an em past a line box of line-height 1, so
+  // only more than that counts.
+  function fit(el) {
+    const tops = [];
+    let ink = null;
+    for (const n of el.childNodes) {
+      if (n.nodeType !== 3 || !/\S/.test(n.data)) continue;
+      lineRange.selectNodeContents(n);
+      for (const q of lineRange.getClientRects()) {
+        if (!(q.width > 0)) continue;
+        if (!tops.some((t) => Math.abs(t - q.top) < q.height / 2)) tops.push(q.top);
+        ink = ink ? [Math.min(ink[0], q.left), Math.min(ink[1], q.top), Math.max(ink[2], q.right), Math.max(ink[3], q.bottom)] : [q.left, q.top, q.right, q.bottom];
+      }
+    }
+    let block = el;
+    while (block.parentElement && getComputedStyle(block).display === 'inline') block = block.parentElement;
+    const slack = parseFloat(getComputedStyle(el).fontSize) * 0.3;
+    const past = (b) => !!b && !!ink && (ink[0] < b.left - 1 || ink[2] > b.right + 1 || ink[1] < b.top - slack || ink[3] > b.bottom + slack);
+    const stage = stageBox();
+    return { lines: tops.length, past: past(block.getBoundingClientRect()) || past(stage && stage.el.getBoundingClientRect()) };
+  }
+  function cased(text, how) {
+    if (how === 'uppercase') return text.toUpperCase();
+    if (how === 'lowercase') return text.toLowerCase();
+    if (how === 'capitalize') return text.replace(/(^|\s)(\S)/g, (_, a, b) => a + b.toUpperCase());
+    return text;
+  }
+  function pathOf(el) {
+    if (el === document.body || !el.parentElement) return el.tagName.toLowerCase();
+    if (el.id && document.getElementById(el.id) === el) return '#' + CSS.escape(el.id);
+    let k = 1;
+    for (let n = el.previousElementSibling; n; n = n.previousElementSibling) k++;
+    return pathOf(el.parentElement) + '>' + el.tagName.toLowerCase() + ':nth-child(' + k + ')';
+  }
+  const inOrder = (a, b) => (a === b ? 0 : a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+  function keepFloor(seen, frameIndex) {
+    if (!floor || !(raised.size || seen.size)) return;
+    if (!holdStyle.isConnected) (document.head || document.documentElement).prepend(holdStyle);
+    // The page's own changes start their transitions before anything is held, and the writes are styled while it is.
+    flushStyle();
+    const held = [];
+    const hold = (el) => { if (!el.hasAttribute(HOLD)) { el.setAttribute(HOLD, ''); held.push(el); } };
+    try {
+      writeFloor(seen, frameIndex, hold);
+      flushStyle();
+    } finally {
+      for (const el of held) el.removeAttribute(HOLD);
+    }
+  }
+  function writeFloor(seen, frameIndex, hold) {
+    for (const [el, s] of raised) {
+      if (!el.isConnected) { raised.delete(el); continue; }
+      const value = el.style.getPropertyValue('font-size');
+      const priority = el.style.getPropertyPriority('font-size');
+      // A size the page has written inline since is its own, and the one to fall back to.
+      if (value !== s.wrote || priority !== 'important') { s.value = value; s.priority = priority; }
+      hold(el);
+      el.style.setProperty('font-size', s.value, s.priority);
+    }
+    // New text is measured at the page's own size before anything is raised: one layout for all of it, not one each.
+    const fresh = new Map();
+    for (const el of seen) {
+      if (raised.has(el) || !readable(el)) continue;
+      const px = parseFloat(getComputedStyle(el).fontSize);
+      if (px < floor) fresh.set(el, { px, was: null });
+    }
+    for (const [el, f] of fresh) f.was = fit(el);
+    // In document order, so an ancestor is raised before what inherits its size is read.
+    const order = [...new Set([...raised.keys(), ...fresh.keys()])].filter(readable).sort(inOrder);
+    const first = [];
+    for (const el of order) {
+      if (!(parseFloat(getComputedStyle(el).fontSize) < floor)) continue;
+      let s = raised.get(el);
+      if (!s) {
+        s = { value: el.style.getPropertyValue('font-size'), priority: el.style.getPropertyPriority('font-size'), wrote: '' };
+        raised.set(el, s);
+        first.push(el);
+      }
+      hold(el);
+      el.style.setProperty('font-size', floor + 'px', 'important');
+      s.wrote = el.style.getPropertyValue('font-size');
+    }
+    for (const el of first) {
+      const { px, was } = fresh.get(el);
+      const now = fit(el);
+      lifted.push({
+        key: pathOf(el), frame: frameIndex, text: cased(ownText(el).replace(/\s+/g, ' ').trim(), getComputedStyle(el).textTransform),
+        from: Math.round(px * 10) / 10, wrapped: now.lines > was.lines, past: now.past && !was.past,
+      });
+    }
+  }
+
   // Videos the page set a time on in this frame. A time of 0 is as much a placement as any other (a
   // scene that starts on this frame), so it is the write that counts, not the value it left.
   let pageTimed = new WeakSet();
@@ -370,6 +571,7 @@ const SOURCE = String.raw`
     if (g) g.globalTimeline.seek(sec, false);
     // The speaker's box, if a script of the page dropped it, goes back before its picture is sought.
     let speakerBack = speaker ? speaker.sync() : false;
+    if (speaker && speaker.show(cutoutShows(sec))) speakerBack = true;
     // A video plays from frame 0 by default; a page that places one elsewhere sets its time in __seek,
     // which runs after this and wins.
     let videos = liveVideos();
@@ -382,7 +584,7 @@ const SOURCE = String.raw`
     for (const v of videos) {
       if (!playable(v)) continue;
       if (!v.paused) v.pause();
-      const target = videoTarget(v, sec);
+      const target = targetOf(v, sec);
       if (Math.abs(v.currentTime - target) > 1e-6) mediaTime.set.call(v, target);
     }
     // The default seek's picture is presented before __seek can move the video again. A picture Chrome
@@ -406,7 +608,7 @@ const SOURCE = String.raw`
       if (!v.paused) v.pause();
       // The load's own picture, when Chrome presents one now, must not pass for the seek's.
       await presentedAfter(v, track(v).count, 250);
-      const at = pageTimed.has(v) ? v.currentTime : videoTarget(v, sec);
+      const at = pageTimed.has(v) ? v.currentTime : targetOf(v, sec);
       const was = { count: track(v).count, time: -1 };
       mediaTime.set.call(v, at);
       await presentVideo(v, budget, was);
@@ -418,14 +620,15 @@ const SOURCE = String.raw`
     unsourced.clear();
     // Animations that __seek or that turn started are pinned to this frame too, not left running.
     seekAnimations(t, true);
+    keepFloor(changed(), i);
     // The speaker layer takes the footage layer's placing as it now stands, whatever the page did this frame. A box
-    // that went back has no picture until one is presented again: Chrome skips a seek to the time already shown, so
-    // the cut-out is sought a hair later, to the same picture, and waited for like any other.
+    // that went back, or a cut-out back in view, has no picture until one is presented again: Chrome skips a seek to
+    // the time already shown, so the cut-out is sought a hair later, to the same picture, and waited for like any other.
     if (speaker && speaker.sync()) speakerBack = true;
     if (speakerBack && playable(speaker.video)) {
       const v = speaker.video;
       const was = { count: track(v).count, time: -1 };
-      mediaTime.set.call(v, videoTarget(v, sec) + 1e-4);
+      mediaTime.set.call(v, targetOf(v, sec) + 1e-4);
       await presentVideo(v, budget, was);
     }
     await settleImages(budget);
@@ -437,7 +640,7 @@ const SOURCE = String.raw`
       const s = drawnScale(v);
       if (s !== null && s > 1 + 2 / Math.min(v.videoWidth, v.videoHeight)) throw new Error('video ' + videoName(v) + ' ' + ${JSON.stringify(DRAWN_LARGER)});
     }
-    return drainProblems();
+    return { problems: drainProblems(), raised: lifted.splice(0) };
   }
 
   window.__openedit = {
@@ -462,17 +665,54 @@ const SOURCE = String.raw`
         v.style.setProperty('visibility', 'hidden', 'important');
       });
     },
-    async ready(budget) {
+    // The size text is drawn at as a minimum, 0 when none is held, so a script that lays text out to fit measures it there.
+    textFloor() { return floor; },
+    stageZone() {
+      const s = stageBox();
+      return s && { width: s.width, height: s.height, linked: zoneLinked(), given: document.querySelector('style[' + GIVEN + ']') !== null };
+    },
+    // The stage marked with its shape and, given a stylesheet, the zone put first in the head, so any rule of the page's
+    // own wins a tie. Called before the page's own scripts run, each goes in as soon as the parser makes its element,
+    // which is before the next of the page's scripts runs.
+    zone(shape, css) {
+      let style = null;
+      const put = () => {
+        if (css && !style && document.head) {
+          style = document.createElement('style');
+          style.setAttribute(GIVEN, shape);
+          style.textContent = css;
+          document.head.insertBefore(style, document.head.firstChild);
+        }
+        const stage = document.querySelector('#stage, [data-stage]');
+        if (stage && (css || !stage.hasAttribute('data-safe-zone'))) stage.setAttribute('data-safe-zone', shape);
+        return stage && (style || !css);
+      };
+      if (put()) return;
+      const watch = new MutationObserver(() => { if (put()) watch.disconnect(); });
+      watch.observe(document, { childList: true, subtree: true });
+    },
+    // Its waits share the one budget, so a page that is slow at each in turn still answers within it.
+    async ready(budget, floorPx) {
+      const until = RealDate.now() + budget;
+      const left = () => Math.max(1, until - RealDate.now());
       for (const v of [...document.querySelectorAll('video, audio'), ...speakerVideo()]) { v.autoplay = false; v.muted = true; if (!v.paused) v.pause(); }
-      await within(Promise.all([...document.fonts].map((f) => f.load().catch(() => {}))), budget, 'loading fonts');
-      await within(document.fonts.ready, budget, 'fonts');
+      await within(Promise.all([...document.fonts].map((f) => f.load().catch(() => {}))), left(), 'loading fonts');
+      await within(document.fonts.ready, left(), 'fonts');
       for (const f of document.fonts) {
         if (f.status === 'error') problems.add('font ' + f.family + ' ' + f.weight + ' ' + f.style + ' failed to load, so its text falls back to another face');
       }
-      await settleImages(budget);
+      await settleImages(left());
+      floor = floorPx || 0;
+      if (floor) {
+        const all = new Set();
+        if (document.body) textIn(document.body, all);
+        keepFloor(all, -1);
+        watcher.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+      }
       const videos = liveVideos();
       for (const v of videos) { if (v.preload !== 'auto') v.preload = 'auto'; if (v.readyState === 0 && v.networkState !== 3) v.load(); }
-      await Promise.all(videos.map((v) => presentVideo(v, budget, null)));
+      const share = left();
+      await Promise.all(videos.map((v) => presentVideo(v, share, null)));
       for (const v of videos) {
         if (playable(v)) { track(v); continue; }
         if (v.error) continue;
@@ -483,23 +723,24 @@ const SOURCE = String.raw`
         const unplayable = sources.every((s) => s.type && v.canPlayType(s.type) === '');
         problems.add('video ' + videoName(v) + (unplayable ? ': none of its sources is one Chrome can play' : ': none of its sources loaded'));
       }
-      const el = document.querySelector('#stage, [data-stage]');
-      let stage = null;
-      if (el) {
-        const r = el.getBoundingClientRect();
-        const width = Math.round(el.offsetWidth || r.width);
-        const height = Math.round(el.offsetHeight || r.height);
-        if (width > 0 && height > 0) stage = { width, height, left: Math.round(r.left + window.scrollX), top: Math.round(r.top + window.scrollY) };
-      }
+      const box = stageBox();
+      const stage = box && { width: box.width, height: box.height, left: box.left, top: box.top };
       const owned = speakerVideo()[0];
       const cutout = owned ? { url: owned.currentSrc || owned.src, playable: playable(owned) && owned.videoWidth > 0 } : null;
       const unplayable = videos.filter((v) => !playable(v)).map((v) => v.currentSrc || v.src).filter(Boolean);
-      return { stage, videos: playing(videos.filter(playable)), unplayable, cutout, problems: drainProblems(), stateless: document.querySelector('[data-stateless]') !== null };
+      return {
+        stage, videos: playing(videos.filter(playable)), unplayable, cutout, problems: drainProblems(), stateless: document.querySelector('[data-stateless]') !== null,
+        raised: lifted.splice(0),
+      };
     },
     frame,
     async preroll(from, to, budget) {
-      const seen = [];
-      for (let i = from; i < to; i++) seen.push(...await frame(i, budget));
+      const seen = { problems: [], raised: [] };
+      for (let i = from; i < to; i++) {
+        const r = await frame(i, budget);
+        seen.problems.push(...r.problems);
+        seen.raised.push(...r.raised);
+      }
       return seen;
     },
   };

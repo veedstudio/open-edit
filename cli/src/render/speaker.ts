@@ -64,13 +64,15 @@ export const SPEAKER_FN = String.raw`function (adopt, key) {
     var sheet = document.createElement('style');
     sheet.textContent = SHADOW;
     var placing = document.createElement('style');
+    // Inside the closed root, so only the runtime hides the cut-out, outside the footage's place on the page's clock.
+    var hiding = document.createElement('style');
     var video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
     video.preload = 'auto';
     video.src = file;
     if (key) video.setAttribute('data-oe-key', key);
-    root.append(sheet, placing, video);
+    root.append(sheet, placing, hiding, video);
     function lay(on) {
       stage = on;
       stage.setAttribute('data-oe-stage', '');
@@ -107,8 +109,15 @@ export const SPEAKER_FN = String.raw`function (adopt, key) {
       if (placing.textContent !== rule) placing.textContent = rule;
       return back;
     }
+    // True when the cut-out comes back into view, as its picture has then to be drawn again.
+    function show(on) {
+      var rule = on ? '' : 'video{visibility:hidden}';
+      if (hiding.textContent === rule) return false;
+      hiding.textContent = rule;
+      return on;
+    }
     sync();
-    if (adopt) adopt({ video: video, sync: sync });
+    if (adopt) adopt({ video: video, sync: sync, show: show });
     else preview(video, sync);
   }
 

@@ -1,15 +1,24 @@
-// faces.js: the face boxes of one clip and the code that keeps a page's text out of them. The page loads
-// it with a <script> tag, so it works from file:// as well as under render, and one source serves the
-// page, the faces command's summary and the tests, which evaluate it in Node.
+// faces.js: the face boxes of one clip, the graphics burned into it, and the code that keeps a page's text out of
+// them. The page loads it with a <script> tag, so it works from file:// as well as under render, and one source
+// serves the page, the faces command's summary and the tests, which evaluate it in Node.
 //
 // Kept as plain JavaScript source, not a function to be stringified: a transpiler may wrap named
 // functions in helpers that do not exist inside the page.
 import { runInNewContext } from 'node:vm';
+import type { GraphicBox } from './graphics.ts';
+
+export type { GraphicBox } from './graphics.ts';
 
 export interface FaceBox { x: number; y: number; w: number; h: number; score?: number }
 /** One sampled frame: `sec` is its presentation time, so variable-frame-rate footage reads true. */
 export interface Sample { sec: number; faces: FaceBox[] }
-export interface Shot { start: number; end: number; samples: Sample[] }
+export interface Shot {
+  start: number;
+  end: number;
+  samples: Sample[];
+  /** No frame of it was looked at, which is not the same as no face: a range of a cut whose source faces never ran on. */
+  unknown?: true;
+}
 
 /** What the faces command writes: boxes in the clip's own display pixels, top-left origin. */
 export interface FacesClip {
@@ -27,6 +36,10 @@ export interface FacesClip {
   confidence: number;
   /** Kept clear of text on every side of a face box, as a fraction of the box's size. */
   textMargin: number;
+  /** Kept clear of text on every side of a graphic, as a fraction of the frame's shorter side. */
+  graphicsMargin?: number;
+  /** Graphics burned into the footage, each with the seconds it is up; absent from a faces.json written before they were looked for. */
+  graphics?: GraphicBox[];
   shots: Shot[];
   detector?: { readyMs: number; frames: number; totalMs: number };
 }
@@ -39,6 +52,7 @@ export interface FacesApi {
   clips: Record<string, FacesClip>;
   add(clip: FacesClip): void;
   boxes(from: number, to?: number, clip?: string): Rect[];
+  graphics(from: number, to?: number, clip?: string): Rect[];
   clear(rect: Rect, avoid: Rect[], bounds: Rect): Placement;
 }
 
@@ -128,13 +142,25 @@ export const PAGE_SOURCE = String.raw`
     throw new Error('openeditFaces: ' + (keys.length ? 'face data for several clips is loaded; name one with {clip}' : 'no faces.js is loaded') + loaded);
   }
 
-  // The faces on screen from 'from' up to 'to' seconds (at 'from' alone when 'to' is left out), padded
-  // by the clip's text margin. Within a shot that is every sample in the span plus the nearest one on
-  // each side, since the face moves between them.
+  // The graphics burned into the footage that are up at any moment from 'from' to 'to' seconds (at 'from' alone
+  // when 'to' is left out), padded by the clip's graphics margin.
+  function graphics(from, to, name) {
+    var clip = pick(name);
+    if (to === undefined) to = from;
+    var m = (clip.graphicsMargin || 0) * Math.min(clip.width, clip.height);
+    return (clip.graphics || []).filter(function (g) { return g.from <= to && g.to >= from; }).map(function (g) {
+      var x = Math.max(0, g.x - m), y = Math.max(0, g.y - m);
+      return { x: x, y: y, w: Math.min(clip.width, g.x + g.w + m) - x, h: Math.min(clip.height, g.y + g.h + m) - y };
+    });
+  }
+
+  // What text is kept off from 'from' up to 'to' seconds (at 'from' alone when 'to' is left out): the faces on
+  // screen, padded by the clip's text margin, and the graphics up. Within a shot the faces are every sample in
+  // the span plus the nearest one on each side, since the face moves between them.
   function boxes(from, to, name) {
     var clip = pick(name);
     if (to === undefined) to = from;
-    var out = [];
+    var out = graphics(from, to, clip.video);
     clip.shots.forEach(function (shot) {
       var shown = to > from ? shot.start < to && shot.end > from : shot.start <= from && from < shot.end;
       if (!shown) return;
@@ -229,11 +255,38 @@ export const PAGE_SOURCE = String.raw`
     return out;
   }
   var rectOf = function (el) { var r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+  // The one <video> on show that plays this clip, else null. A render hides the video it lays as --footage, which then
+  // fills the stage.
+  function playing(clip) {
+    if (typeof document === 'undefined' || !document.querySelectorAll) return null;
+    var found = [];
+    document.querySelectorAll('video').forEach(function (v) {
+      var file = fileOf(v);
+      var plays = known.get(v) === clip || (file && matching(file).indexOf(clip.video) >= 0);
+      var r = v.getBoundingClientRect();
+      if (plays && r.width > 0 && r.height > 0 && getComputedStyle(v).visibility === 'visible') found.push(v);
+    });
+    return found.length === 1 ? found[0] : null;
+  }
 
-  // Moves 'el' the least distance that keeps it clear of every face on screen from 'from' to 'to' seconds
-  // of the clip (its own time, not the page's), inside the stage (or options.within). It starts from where
-  // the page put the element each time, so calling it again, every frame from __seek included, gives the
-  // same answer for the same layout. The result is where the element ended, as measured.
+  // What placed text keeps inside: options.within, else the [data-safe] container it sits in, else the zone a
+  // safe-zone stylesheet marks on the stage with its --safe-* insets, else the stage.
+  function boundsOf(el, stage, within) {
+    if (within) return { rect: rectOf(within), name: 'options.within' };
+    var safe = el.parentElement && el.parentElement.closest('[data-safe]');
+    if (safe) return { rect: rectOf(safe), name: 'its [data-safe] container' };
+    var r = rectOf(stage), cs = getComputedStyle(stage);
+    var inset = ['top', 'right', 'bottom', 'left'].map(function (side) { return parseFloat(cs.getPropertyValue('--safe-' + side)); });
+    if (!inset.every(isFinite) || !stage.offsetWidth || !stage.offsetHeight) return { rect: r, name: 'the stage' };
+    var kx = r.w / stage.offsetWidth, ky = r.h / stage.offsetHeight;
+    return { rect: { x: r.x + inset[3] * kx, y: r.y + inset[0] * ky, w: r.w - (inset[1] + inset[3]) * kx, h: r.h - (inset[0] + inset[2]) * ky }, name: 'the stage\'s safe zone' };
+  }
+
+  // Moves 'el' the least distance that keeps it clear of every face on screen, and every graphic burned into the
+  // footage that is up, from 'from' to 'to' seconds of the clip (its own time, not the page's), inside what boundsOf
+  // names. The clip's picture is where the <video> playing it draws it (options.video, else the one on show), or the
+  // stage. It starts from where the page put the element each time, so calling it again, every frame from __seek
+  // included, gives the same answer for the same layout. The result is where the element ended, as measured.
   function place(el, from, to, options) {
     options = options || {};
     var clip = pick(options.clip, options.video);
@@ -254,16 +307,17 @@ export const PAGE_SOURCE = String.raw`
       state.wrote = el.style.translate;
     };
     var rect = rectOf(el);
-    var frame = drawn(options.video || stage, clip);
+    var frame = drawn(options.video || playing(clip) || stage, clip);
     var sx = frame.w / clip.width, sy = frame.h / clip.height;
     var avoid = boxes(from, to, clip.video).map(function (b) {
       return { x: frame.x + b.x * sx, y: frame.y + b.y * sy, w: b.w * sx, h: b.h * sy };
     });
-    var wr = rectOf(options.within || stage);
+    var bound = boundsOf(el, stage, options.within);
+    var wr = bound.rect;
     var res = clear(rect, avoid, wr);
     var span = from + ' to ' + (to === undefined ? from : to) + ' s of the clip';
     if (!res.clear) {
-      console.warn('openeditFaces.place: no place inside ' + (options.within ? 'options.within' : 'the stage') + ' keeps this element off every face from ' +
+      console.warn('openeditFaces.place: no place inside ' + bound.name + ' keeps this element off every face and graphic from ' +
         span + ', so it stays where the page put it: make it smaller or shorten its span');
       return { x: rect.x, y: rect.y, clear: false, moved: false };
     }
@@ -292,7 +346,7 @@ export const PAGE_SOURCE = String.raw`
           '!important rule, which an inline translate cannot override. Move it in the page, or give it a wrapper to place');
       }
     } else if (hit || !inside) {
-      console.warn('openeditFaces.place: moved this element for ' + span + ', but it ' + (hit ? 'still overlaps a face' : 'now leaves the stage') +
+      console.warn('openeditFaces.place: moved this element for ' + span + ', but it ' + (hit ? 'still overlaps a face or graphic' : 'now leaves ' + bound.name) +
         ': a transform on it or an ancestor (a rotation, say) turns the move. Place it without that transform');
     }
     return { x: end.x, y: end.y, clear: !hit && inside, moved: went };
@@ -305,6 +359,7 @@ export const PAGE_SOURCE = String.raw`
       if (typeof document !== 'undefined' && document.readyState && document.readyState !== 'loading') learn();
     },
     boxes: boxes,
+    graphics: graphics,
     clear: clear,
     place: place,
   };

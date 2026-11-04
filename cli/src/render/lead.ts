@@ -6,6 +6,8 @@ import { RenderSession, type SessionOptions } from './session.ts';
 // Date.now() reads the same instant at frame 0 on every machine.
 export const SEED = 0x5eed;
 export const EPOCH = Date.UTC(2025, 0, 1);
+// The longest any one wait inside the page may take: over ten times the slowest page load measured, so only a page
+// that has stopped answering reaches it.
 export const BUDGET_MS = 60_000;
 
 export interface Canvas {
@@ -16,7 +18,7 @@ export interface Canvas {
   clip: SessionOptions['clip'];
 }
 
-export type SessionBase = Omit<SessionOptions, 'viewport' | 'clip'>;
+export type SessionBase = Omit<SessionOptions, 'viewport' | 'clip' | 'canvas'>;
 type Stage = NonNullable<RenderSession['info']['stage']>;
 
 const PROBE = { width: 1920, height: 1080 };
@@ -25,7 +27,7 @@ const PROBE = { width: 1920, height: 1080 };
 export class UsageError extends Error {}
 
 export function sessionOptions(base: SessionBase, canvas: Canvas): SessionOptions {
-  return { ...base, viewport: canvas.viewport, clip: canvas.clip };
+  return { ...base, viewport: canvas.viewport, clip: canvas.clip, canvas: { width: canvas.width, height: canvas.height } };
 }
 
 const fitsIn = (s: Stage, v: { width: number; height: number }): boolean =>

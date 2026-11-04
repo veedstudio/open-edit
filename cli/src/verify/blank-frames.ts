@@ -3,7 +3,8 @@
 // held longer than BLANK_SECONDS; and a first frame that is blank, near-black or partway into a fade-in, since platforms
 // show it as the cover. A flash may carry a caption, since a scene missing for a frame under its caption still flashes; a
 // stretch must be empty, since a title held on a flat background is a design, not a gap.
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { FFMPEG } from '../config.ts';
 import { alphaInput } from '../probe.ts';
 import type { CheckReport, ReviewContext } from './checks.ts';
@@ -64,7 +65,7 @@ const NEAR_BLACK_FRACTION = 0.25;
  * An opening is fading in while its mean luma climbs at least this many levels a second: a fade from black to a
  * mid-grey picture (110 levels) over seven seconds still climbs faster.
  */
-const FADE_RATE = 15;
+export const FADE_RATE = 15;
 
 /** The climb is measured over this many seconds ahead, so 8-bit steps and a frame a rate conversion repeats even out. */
 const FADE_WINDOW = 0.25;
@@ -136,15 +137,26 @@ export function parseLevels(text: string): FrameLevels[] {
   });
 }
 
-/** One decode of the picture at its own frame rate: every frame's levels. */
-export function levelsIn(video: string): FrameLevels[] {
-  // Limited range before measuring, so a full-range render's white is 235 like everyone else's.
-  const text = execFileSync(FFMPEG, ['-nostdin', '-v', 'error', '-i', video, '-map', '0:v:0', '-an', '-sn', '-dn',
-    '-vf', `scale=${SCAN_WIDTH}:-2:out_range=tv,format=yuv420p,signalstats,metadata=print:file=-`,
-    '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 1 << 30, stdio: ['ignore', 'pipe', 'pipe'] });
+// Limited range before measuring, so a full-range render's white is 235 like everyone else's.
+const levelsArgs = (video: string, seconds?: number) => ['-nostdin', '-v', 'error', ...(seconds === undefined ? [] : ['-t', String(seconds)]),
+  '-i', video, '-map', '0:v:0', '-an', '-sn', '-dn', '-vf', `scale=${SCAN_WIDTH}:-2:out_range=tv,format=yuv420p,signalstats,metadata=print:file=-`,
+  '-f', 'null', '-'];
+const LEVELS_OPTIONS = { encoding: 'utf8', maxBuffer: 1 << 30 } as const;
+
+function levelsFrom(text: string, video: string): FrameLevels[] {
   const frames = parseLevels(text);
   if (!frames.length) throw new Error(`ffmpeg decoded no frames from ${video}`);
   return frames;
+}
+
+/** One decode of the picture at its own frame rate: every frame's levels. */
+export function levelsIn(video: string): FrameLevels[] {
+  return levelsFrom(execFileSync(FFMPEG, levelsArgs(video), { ...LEVELS_OPTIONS, stdio: ['ignore', 'pipe', 'pipe'] }), video);
+}
+
+/** The levels of the first `seconds` of the picture, without holding up anything else that runs meanwhile. */
+export async function openingLevelsIn(video: string, seconds: number): Promise<FrameLevels[]> {
+  return levelsFrom((await promisify(execFile)(FFMPEG, levelsArgs(video, seconds), LEVELS_OPTIONS)).stdout, video);
 }
 
 export interface Flash {

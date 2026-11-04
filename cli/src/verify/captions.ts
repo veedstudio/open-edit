@@ -1,6 +1,7 @@
-// The captions check: stretches of speech with no caption on screen, in a video the page captions. Nothing on the
-// page is marked as a caption: a text is one when it shows the words spoken while it is up, or, in another language
-// than the voice, when it is one of a run of texts in one place that each hold for a phrase while words are spoken.
+// The captions check: stretches of speech with no caption on screen, in a video the page captions. A text is a caption
+// when the page sets it in its caption track (a [data-captions] element, which captions.js fills), when it shows the
+// words spoken while it is up, or, in another language than the voice, when it is one of a run of texts in one place
+// that each hold for a phrase while words are spoken.
 import type { TextRecord } from '../render/text-record.ts';
 import { recordSeconds, sampleSeconds, timeOf } from '../render/text-record.ts';
 import type { CheckReport, Found, ReviewContext, TextRecordInput, TranscriptInput } from './checks.ts';
@@ -45,6 +46,8 @@ interface Shown {
   end: number;
   /** Where it was last seen. */
   edges: Edges;
+  /** Set in the page's caption track, so a caption whatever its words, and never one block with text beside it. */
+  track: boolean;
 }
 
 const near = (a: Edges, b: Edges): boolean => {
@@ -60,9 +63,10 @@ function shownTexts(record: TextRecord): Shown[] {
   for (const sample of record.samples) {
     const t = timeOf(record, sample.frame);
     const next: typeof open = [];
-    for (const block of blocksOf(sample.texts)) {
+    const blocks = [false, true].flatMap((track) => blocksOf(sample.texts.filter((e) => !!e.caption === track)).map((b) => ({ ...b, track })));
+    for (const block of blocks) {
       if (!/\p{L}/u.test(block.text)) continue;
-      const key = block.tokens.join(' ');
+      const key = `${block.track ? 'track' : 'text'}:${block.tokens.join(' ')}`;
       const at = open.findIndex((o) => o.key === key && near(o.shown.edges, block.edges));
       if (at >= 0) {
         const [o] = open.splice(at, 1);
@@ -70,7 +74,7 @@ function shownTexts(record: TextRecord): Shown[] {
         o.shown.edges = block.edges;
         next.push(o);
       } else {
-        next.push({ shown: { text: block.text, tokens: block.tokens, start: t, end: t + step, edges: block.edges }, key });
+        next.push({ shown: { text: block.text, tokens: block.tokens, start: t, end: t + step, edges: block.edges, track: block.track }, key });
       }
     }
     done.push(...open.map((o) => o.shown));
@@ -136,9 +140,12 @@ function inStep(shown: Shown[], byWords: Set<Shown>, words: Word[], step: number
 export function judgeCaptions({ path, record }: Found<TextRecordInput>, transcript: Found<TranscriptInput>): CheckReport {
   const words = wordsOf(transcript.transcript, recordSeconds(record));
   if (words.length === 0) return skippedFor(`the speech: ${transcript.path} holds no words within the video`);
-  const shown = shownTexts(record);
+  const all = shownTexts(record);
+  const track = all.filter((t) => t.track);
+  const shown = all.filter((t) => !t.track);
   const byWords = new Set(shown.filter((t) => showsTheWords(t, words)));
-  const captions = new Set([...byWords, ...inStep(shown, byWords, words, sampleSeconds(record))]);
+  const stepped = inStep(shown, byWords, words, sampleSeconds(record)).filter((t) => !byWords.has(t));
+  const captions = new Set([...track, ...byWords, ...stepped]);
   const covered = (w: Word) => [...captions].some((c) => c.start < w.end + 1e-9 && c.end > w.start);
   const share = words.filter(covered).length / words.length;
   if (share < CAPTIONED_SHARE) {
@@ -161,7 +168,7 @@ export function judgeCaptions({ path, record }: Found<TextRecordInput>, transcri
   }
   if (run.length) stretches.push(run);
   const missing = stretches.filter((r) => r.at(-1)!.end - r[0].start >= MIN_UNCAPTIONED);
-  const kinds = `${byWords.size} showing the words spoken, ${captions.size - byWords.size} changing in step with them`;
+  const kinds = `${track.length ? `${track.length} in the page's caption track, ` : ''}${byWords.size} showing the words spoken, ${stepped.length} changing in step with them`;
   if (missing.length === 0) {
     return { verdict: 'pass', lines: [`every stretch of speech has a caption on screen: ${captions.size} caption text(s), ${kinds}`, `the words: ${transcript.path}`], skipped: [] };
   }

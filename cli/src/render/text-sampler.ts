@@ -1,13 +1,25 @@
-// The script that lists the text a page draws, injected beside the page runtime. The renderer calls it right after
-// capturing a frame, so it reads the layout that frame was drawn from: the static HTML cannot answer this, since
-// text animates, appears, moves and changes. It reads layout and style only, so the next frame draws the same.
+// The script that lists the text a page draws, and the <video> elements it shows, injected beside the page runtime.
+// The renderer calls it right after capturing a frame, so it reads the layout that frame was drawn from: the static
+// HTML cannot answer this, since text animates, appears, moves and changes. It reads layout and style only, so the
+// next frame draws the same.
 //
 // Kept as plain JavaScript source for the same reason as the page runtime: a transpiler may wrap named functions in
 // helpers that do not exist inside the page.
 
+/** A <video> the frame shows, measured in the output video's pixels: its source URL, its second, and where its picture lies. */
+export interface SampledVideo {
+  src: string;
+  time: number;
+  box: [number, number, number, number];
+  shown: [number, number, number, number];
+}
+
+/** What the sampler reads off one frame. */
+export interface SampledFrame { texts: TextEntry[]; videos: SampledVideo[] }
+
 /** One text the frame shows: an element's own text nodes, measured in the output video's pixels. */
 export interface TextEntry {
-  /** The element's own text as drawn: whitespace collapsed, its text-transform applied. */
+  /** The element's own text as drawn: whitespace collapsed, a line break between its pieces read as a space, its text-transform applied. */
   text: string;
   /** Left, top, width and height of the glyphs, clipped to the canvas, to overflow and to an inset() clip-path. */
   box: [number, number, number, number];
@@ -20,8 +32,18 @@ export interface TextEntry {
   color: [number, number, number, number];
   /** The product of the element's opacity and its ancestors'. */
   opacity: number;
+  /**
+   * How opaque the backgrounds the page paints under the glyphs are, 0-1: the element's own and those of every element
+   * below it down to a <video>, an image or a canvas, at the least covered of five points of its box. Absent in a record
+   * written before it was measured.
+   */
+  backing?: number;
   /** A CSS selector for the element, so one text can be followed from frame to frame. */
   selector: string;
+  /** Set on text inside a [data-captions] element: the page's caption track, which captions.js fills. */
+  caption?: true;
+  /** Drawn by an SVG element, to its picture's own scale, so neither render nor the review holds it to the size floor. */
+  svg?: true;
 }
 
 const SOURCE = String.raw`
@@ -151,6 +173,20 @@ const SOURCE = String.raw`
       }
       return false;
     }
+    // Whether what stands between two of an element's own text nodes ends a line: a <br> or a block in the flow, met
+    // directly or inside an inline child. Anything else leaves them on one line, so a word split around it stays whole.
+    function breaksLine(from, to) {
+      for (let n = from; n && n !== to; n = n.nextSibling) {
+        if (n.nodeType !== Node.ELEMENT_NODE) continue;
+        const cs = styleOf(n).cs;
+        if (cs.display === 'none' || cs.position === 'absolute' || cs.position === 'fixed' || cs.float !== 'none') continue;
+        if (n.tagName === 'BR') return true;
+        if (cs.display === 'inline' || cs.display === 'contents') {
+          if (n instanceof HTMLElement && breaksLine(n.firstChild, null)) return true;
+        } else if (!/^(inline|ruby)/.test(cs.display)) return true;
+      }
+      return false;
+    }
     const selectors = new Map();
     function selectorOf(el) {
       let p = selectors.get(el);
@@ -174,6 +210,54 @@ const SOURCE = String.raw`
       let list = own.get(el);
       if (!list) own.set(el, (list = []));
       list.push(n);
+    }
+    // How opaque one element's own backgrounds are: its colour and each gradient layer at its most transparent stop.
+    function paints(el) {
+      const cs = styleOf(el).cs;
+      let clear = 1 - rgba(cs.backgroundColor)[3];
+      const image = cs.backgroundImage;
+      if (image && image !== 'none') {
+        let depth = 0, cur = '';
+        const layers = [];
+        for (const c of image) {
+          if (c === '(') depth++;
+          if (c === ')') depth--;
+          if (c === ',' && depth === 0) { layers.push(cur); cur = ''; } else cur += c;
+        }
+        layers.push(cur);
+        for (const layer of layers) {
+          if (!/gradient\(/.test(layer)) continue;
+          const stops = layer.match(/rgba?\([^)]*\)|transparent/g) || [];
+          if (stops.length) clear *= 1 - Math.min(...stops.map((c) => rgba(c)[3]));
+        }
+      }
+      return (1 - clear) * opacityOf(el);
+    }
+    // The elements painted under 'el' at a point, its own first, down to the first picture: by hit-testing, or, where the
+    // element takes no hits (pointer-events: none), its ancestors.
+    const PICTURE = new Set(['VIDEO', 'IMG', 'CANVAS', 'svg', 'SVG']);
+    function under(el, x, y) {
+      const stack = document.elementsFromPoint(x, y);
+      const at = stack.indexOf(el);
+      const below = [];
+      if (at >= 0) {
+        for (let i = at; i < stack.length; i++) {
+          if (PICTURE.has(stack[i].tagName) || stack[i] === document.body || stack[i] === document.documentElement) break;
+          below.push(stack[i]);
+        }
+        return below;
+      }
+      for (let n = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) below.push(n);
+      return below;
+    }
+    function backing(el, b) {
+      let least = 1;
+      for (const [fx, fy] of [[0.5, 0.5], [0.2, 0.25], [0.8, 0.25], [0.2, 0.75], [0.8, 0.75]]) {
+        let clear = 1;
+        for (const n of under(el, b[0] + fx * (b[2] - b[0]), b[1] + fy * (b[3] - b[1]))) clear *= 1 - paints(n);
+        least = Math.min(least, 1 - clear);
+      }
+      return r2(least);
     }
     const range = document.createRange();
     const out = [];
@@ -201,17 +285,76 @@ const SOURCE = String.raw`
       if (!box) continue;
       box = meet(meet(clipOf(el), canvas), box);
       if (box[2] <= box[0] || box[3] <= box[1]) continue;
-      out.push({
-        text: cased(nodes.map((n) => n.data).join('').replace(/\s+/g, ' ').trim(), cs.textTransform),
+      const entry = {
+        text: cased(nodes.map((n, k) => (k && breaksLine(nodes[k - 1].nextSibling, n) ? ' ' : '') + n.data).join('').replace(/\s+/g, ' ').trim(), cs.textTransform),
         box: [r1((box[0] - ox) * scale), r1((box[1] - oy) * scale), r1((box[2] - box[0]) * scale), r1((box[3] - box[1]) * scale)],
         fontSize: r1(parseFloat(cs.fontSize) * scaleOf(el) * scale),
         color,
         opacity: r2(opacity),
+        backing: backing(el, box),
         selector: selectorOf(el),
-      });
+        ...(svg ? { svg: true } : {}),
+      };
+      if (el.closest('[data-captions]')) entry.caption = true;
+      out.push(entry);
     }
-    return out;
+    const toOut = (b) => [r1((b[0] - ox) * scale), r1((b[1] - oy) * scale), r1((b[2] - b[0]) * scale), r1((b[3] - b[1]) * scale)];
+    const videos = [];
+    for (const v of document.querySelectorAll('video')) {
+      const src = v.currentSrc || v.src;
+      if (!src || !v.videoWidth || !v.videoHeight) continue;
+      const cs = styleOf(v).cs;
+      if (cs.visibility !== 'visible' || opacityOf(v) < 0.01) continue;
+      // A turned or skewed picture has no box to carry the clip's pixels through.
+      const m = matrixOf(v);
+      if (Math.abs(m.b) > 1e-6 || Math.abs(m.c) > 1e-6) continue;
+      const r = v.getBoundingClientRect();
+      const w = v.offsetWidth, h = v.offsetHeight;
+      if (!(r.width > 0 && r.height > 0 && w > 0 && h > 0)) continue;
+      // The element's own pixels to the viewport's, through every scale and translate on it and its ancestors.
+      const kx = r.width / w, ky = r.height / h;
+      const px = (name) => parseFloat(cs[name]) || 0;
+      const cx = px('borderLeftWidth') + px('paddingLeft'), cy = px('borderTopWidth') + px('paddingTop');
+      const cw = w - cx - px('borderRightWidth') - px('paddingRight'), ch = h - cy - px('borderBottomWidth') - px('paddingBottom');
+      if (!(cw > 0 && ch > 0)) continue;
+      const contain = Math.min(cw / v.videoWidth, ch / v.videoHeight);
+      const fit = cs.objectFit;
+      const k = fit === 'cover' ? Math.max(cw / v.videoWidth, ch / v.videoHeight) : fit === 'none' ? 1
+        : fit === 'scale-down' ? Math.min(1, contain) : fit === 'fill' ? null : contain;
+      const pw = k === null ? cw : v.videoWidth * k, ph = k === null ? ch : v.videoHeight * k;
+      const at = position(cs.objectPosition || '', cw - pw, ch - ph);
+      if (!at) continue;
+      const left = r.left + (cx + at[0]) * kx, top = r.top + (cy + at[1]) * ky;
+      const box = [left, top, left + pw * kx, top + ph * ky];
+      const content = [r.left + cx * kx, r.top + cy * ky, r.left + (cx + cw) * kx, r.top + (cy + ch) * ky];
+      const shown = meet(meet(meet(clipOf(v), canvas), content), box);
+      if (shown[2] <= shown[0] || shown[3] <= shown[1]) continue;
+      videos.push({ src, time: Math.round(v.currentTime * 1e6) / 1e6, box: toOut(box), shown: toOut(shown) });
+    }
+    return { texts: out, videos };
   };
+  const KEYWORD = { left: 0, top: 0, center: 0.5, right: 1, bottom: 1 };
+  // A computed object-position's offsets across the slack either way, or null for a form it does not know: never a guess.
+  function position(value, freeX, freeY) {
+    const parts = [];
+    let depth = 0, cur = '';
+    for (const c of value) {
+      if (c === '(') depth++;
+      if (c === ')') depth--;
+      if (c === ' ' && depth === 0) { if (cur) parts.push(cur); cur = ''; } else cur += c;
+    }
+    if (cur) parts.push(cur);
+    const along = (token, free) => {
+      const m = /^calc\((-?[\d.]+)%\s*([+-])\s*(-?[\d.]+)px\)$/.exec(token);
+      if (m) return (free * parseFloat(m[1])) / 100 + (m[2] === '-' ? -1 : 1) * parseFloat(m[3]);
+      if (/^-?[\d.]+%$/.test(token)) return (free * parseFloat(token)) / 100;
+      if (/^-?[\d.]+px$/.test(token)) return parseFloat(token);
+      if (token in KEYWORD) return free * KEYWORD[token];
+      return token ? NaN : free / 2;
+    };
+    const x = along(parts[0] || '', freeX), y = along(parts[1] || '', freeY);
+    return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+  }
   // Fixed, so a page's own global of that name cannot stand in for it and write a record of its choosing.
   Object.defineProperty(window, '__oeText', { value: sample, writable: false, configurable: false });
 })();

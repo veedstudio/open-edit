@@ -5,15 +5,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findFaces } from '../src/commands/faces.ts';
+import { applyEdl } from '../src/commands/apply-edl.ts';
+import { findFaces, readFaces } from '../src/commands/faces.ts';
 import { cropFor, cropMoves, cropTrack, holdsFor, oneFace, parseAspect, partsOf, pathThrough, sendcmdScript, stillPlace, type Crop } from '../src/commands/reframe.ts';
 import { FFMPEG, FFPROBE } from '../src/config.ts';
+import { ownFaces } from '../src/faces/folder.ts';
 import { missingDetector } from '../src/faces/mediapipe.ts';
+import { probeVideoSpan } from '../src/probe.ts';
 import type { FaceBox, FacesClip, Shot } from '../src/faces/page-script.ts';
-import { rotatedCopy, scratchDir } from './helpers/synth.ts';
+import { FLAT_RGB, captureConsole, flatClip, probeStream, rotatedCopy, scratchDir, shownRgb } from './helpers/synth.ts';
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const FIXTURE = fileURLToPath(new URL('./fixtures/talking-head.mp4', import.meta.url));
@@ -303,6 +306,30 @@ function leftColumns(video: string): number[] {
   });
 }
 
+/** A clip of `size` (WxH) whose brightness rises left to right, `seconds` long. */
+function wideGradient(dir: string, size: string, seconds = 0.2): string {
+  const src = join(dir, `gradient-${size}.mp4`);
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', `color=c=black:s=${size}:r=30:d=${seconds}`, '-vf', 'geq=lum=X*255/W:cb=128:cr=128',
+    '-c:v', 'libx264', '-crf', '10', '-pix_fmt', 'yuv420p', src]);
+  return src;
+}
+
+/** The size and sample aspect of a clip's picture, e.g. `1080,1920,1:1`. */
+const sizeOf = (file: string) => execFileSync(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,sample_aspect_ratio',
+  '-of', 'csv=p=0', file], { encoding: 'utf8' }).trim();
+
+/** The mean stored luma of each named column of one frame of a clip, its first by default. */
+function columnsOf(video: string, columns: number[], frame = 0): number[] {
+  const [w, h] = sizeOf(video).split(',').map(Number);
+  const y = execFileSync(FFMPEG, ['-v', 'error', '-i', video, '-vf', `select=eq(n\\,${frame}),extractplanes=y`, '-frames:v', '1', '-f', 'rawvideo', '-'],
+    { maxBuffer: 1 << 26 });
+  return columns.map((x) => {
+    let sum = 0;
+    for (let row = 0; row < h; row++) sum += y[row * w + x];
+    return sum / h;
+  });
+}
+
 test('reframe: the encoded clip shows the crop each shot\'s face asked for, switching on the cut', () => {
   const dir = scratchDir('reframe-gradient');
   const src = gradient(dir);
@@ -313,7 +340,7 @@ test('reframe: the encoded clip shows the crop each shot\'s face asked for, swit
   ], { width: 640, height: 360, durationSec: 2, video: src });
   writeFileSync(join(dir, 'faces.json'), JSON.stringify(clip));
   const out = join(dir, 'tall.mp4');
-  const r = reframe([src, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out]);
+  const r = reframe([src, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out, '--size', 'native']);
   assert.equal(r.status, 0, r.stderr);
   const left = leftColumns(out);
   assert.equal(left.length, 60);
@@ -321,6 +348,12 @@ test('reframe: the encoded clip shows the crop each shot\'s face asked for, swit
   // source is 438/640 of full brightness, about 175.
   for (const n of [0, 15, 29]) assert.ok(left[n] < 12, `frame ${n}: ${left[n].toFixed(1)}, expected near black`);
   for (const n of [30, 45, 59]) assert.ok(Math.abs(left[n] - 175) < 10, `frame ${n}: ${left[n].toFixed(1)}, expected about 175`);
+  // Scaled to the canvas by default, the moving crop is the same: column 5 of 1080 is source column 1 past the crop's place.
+  const canvas = join(dir, 'canvas.mp4');
+  assert.equal(reframe([src, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', canvas]).status, 0);
+  assert.match(sizeOf(canvas), /^1080,1920/);
+  assert.ok(columnsOf(canvas, [5], 15)[0] < 12, 'before the cut, near black');
+  assert.ok(Math.abs(columnsOf(canvas, [5], 45)[0] - 175) < 10, 'after the cut, about 175');
 });
 
 test('reframe: with no face boxes it cuts the whole clip from the middle, and says so', () => {
@@ -328,12 +361,69 @@ test('reframe: with no face boxes it cuts the whole clip from the middle, and sa
   const src = gradient(dir);
   const out = join(dir, 'tall.mp4');
   // A workspace of its own, so no faces.json waits at the default place.
-  const r = spawnSync(process.execPath, ['--import', 'tsx', CLI, 'reframe', src, '--aspect', '9:16', '--out', out],
+  const r = spawnSync(process.execPath, ['--import', 'tsx', CLI, 'reframe', src, '--aspect', '9:16', '--out', out, '--size', 'native'],
     { encoding: 'utf8', env: { ...process.env, OPEN_EDIT_ROOT: dir } });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /no face boxes for .*gradient\.mp4 \(faces writes them\), so the crop is cut from the middle/);
   // The middle of 438 px of travel, on an even pixel, is 218: column 2 is source column 220, 220/640 bright.
   for (const [n, v] of leftColumns(out).entries()) assert.ok(Math.abs(v - 88) < 8, `frame ${n}: ${v.toFixed(1)}, expected about 88`);
+});
+
+test('reframe: by default a 1920x1080 clip cut to 9:16 comes out at the 1080x1920 platform canvas, the crop scaled up unstretched', () => {
+  const dir = scratchDir('reframe-canvas');
+  const src = wideGradient(dir, '1920x1080');
+  const out = join(dir, 'tall.mp4');
+  const r = run(['reframe', src, '--aspect', '9:16', '--out', out], dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /1920x1080 → 606x1080 \(9:16\), scaled to 1080x1920/);
+  assert.match(sizeOf(out), /^1080,1920(,1:1|,N\/A)?$/);
+  // The 606 px crop from the middle (source column 656 on) spread over 1080: output columns 2, 540 and 1077 are source
+  // columns 657, 959 and 1260, each X*255/1920 bright. The whole frame squeezed in, or another crop, moves at least one.
+  const [left, middle, right] = columnsOf(out, [2, 540, 1077]);
+  for (const [got, want] of [[left, 87.3], [middle, 127.4], [right, 167.3]]) {
+    assert.ok(Math.abs(got - want) < 4, `column brightness ${got.toFixed(1)}, expected about ${want}`);
+  }
+});
+
+test('reframe: a 4K clip cut to 9:16 comes out at 1080x1920, and 1:1 and 4:5 at their own platform canvases', () => {
+  const dir = scratchDir('reframe-canvases');
+  const uhd = join(dir, 'uhd.mp4');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=3840x2160:r=30:d=0.2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', uhd]);
+  const tall = join(dir, 'tall.mp4');
+  const r = run(['reframe', uhd, '--aspect', '9:16', '--out', tall], dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /3840x2160 → 1214x2160 \(9:16\), scaled to 1080x1920/);
+  assert.match(sizeOf(tall), /^1080,1920/);
+  const hd = wideGradient(dir, '1920x1080');
+  for (const [aspect, size] of [['1:1', '1080,1080'], ['4:5', '1080,1350']]) {
+    const out = join(dir, `${aspect.replace(':', 'x')}.mp4`);
+    assert.equal(run(['reframe', hd, '--aspect', aspect, '--out', out], dir).status, 0);
+    assert.match(sizeOf(out), new RegExp(`^${size}`), `${aspect}: ${sizeOf(out)}`);
+  }
+});
+
+test('reframe: --size names another size of the shape, native keeps the source\'s pixels, and a size of another shape is refused', () => {
+  const dir = scratchDir('reframe-size');
+  const src = wideGradient(dir, '1920x1080');
+  const big = join(dir, 'big.mp4');
+  const r = run(['reframe', src, '--aspect', '9:16', '--out', big, '--size', '2160x3840'], dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /→ 606x1080 \(9:16\), scaled to 2160x3840/);
+  assert.match(sizeOf(big), /^2160,3840/);
+  const native = join(dir, 'native.mp4');
+  const n = run(['reframe', src, '--aspect', '9:16', '--out', native, '--size', 'native'], dir);
+  assert.equal(n.status, 0, n.stderr);
+  assert.match(n.stdout, /1920x1080 → 606x1080 \(9:16\), 1 shot/);
+  assert.doesNotMatch(n.stdout, /scaled/);
+  assert.match(sizeOf(native), /^606,1080/);
+  // The same crop, pixel for pixel: column 2 is source column 658.
+  assert.ok(Math.abs(columnsOf(native, [2])[0] - 87.4) < 4);
+  const other = run(['reframe', src, '--aspect', '9:16', '--out', join(dir, 'x.mp4'), '--size', '1080x1350'], dir);
+  assert.equal(other.status, 1);
+  assert.match(other.stderr, /--size 1080x1350 is not 9:16: 9:16 is 1080x1920 on the platforms, or 2160x3840 in 4K/);
+  const odd = run(['reframe', src, '--aspect', '9:16', '--out', join(dir, 'y.mp4'), '--size', '1081x1920'], dir);
+  assert.equal(odd.status, 1);
+  assert.match(odd.stderr, /--size wants WxH with even sides, e.g\. 1080x1920, or native; got "1081x1920"/);
 });
 
 const run = (args: string[], root: string) =>
@@ -348,14 +438,14 @@ test('reframe: its own output reframed again to the same shape is already in it,
   const again = join(dir, 'again.mp4');
   const r = run(['reframe', tall, '--aspect', '9:16', '--out', again], dir);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /is already 9:16 \(202x360\), so it is re-encoded upright, uncropped/);
+  assert.match(r.stdout, /is already 9:16 \(1080x1920\), so it is re-encoded upright, uncropped → /, 'at the canvas already, so not scaled again');
   assert.doesNotMatch(r.stdout, /no face boxes/);
-  assert.deepEqual([JSON.parse(streamOf(again)).streams[0].width, JSON.parse(streamOf(again)).streams[0].height], [202, 360]);
+  assert.deepEqual([JSON.parse(streamOf(again)).streams[0].width, JSON.parse(streamOf(again)).streams[0].height], [1080, 1920]);
   // 203x360 is 9:16 to within the rounding; H.264 wants even sides, so its last column goes.
   const odd = join(dir, 'odd.mkv');
   execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=s=203x360:r=30:d=1', '-c:v', 'ffv1', odd]);
   const evened = join(dir, 'evened.mp4');
-  const o = run(['reframe', odd, '--aspect', '9:16', '--out', evened], dir);
+  const o = run(['reframe', odd, '--aspect', '9:16', '--out', evened, '--size', 'native'], dir);
   assert.equal(o.status, 0, o.stderr);
   assert.match(o.stdout, /is already 9:16 \(203x360\), so it is re-encoded upright, to even pixels \(202x360\)/);
   const stream = JSON.parse(streamOf(evened)).streams[0];
@@ -368,10 +458,10 @@ test('reframe: a clip already in the asked shape is re-encoded the same way, unc
   const out = join(dir, 'same.mp4');
   const r = run(['reframe', src, '--aspect', '16:9', '--out', out], dir);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /is already 16:9 \(640x360\), so it is re-encoded upright, uncropped/);
+  assert.match(r.stdout, /is already 16:9 \(640x360\), so it is re-encoded upright, uncropped, scaled to 1920x1080/);
   assert.doesNotMatch(r.stdout, /cut from the middle/, 'nothing is cut, so nothing is said about where');
   const probe = execFileSync(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,nb_frames', '-of', 'csv=p=0', out], { encoding: 'utf8' }).trim();
-  assert.equal(probe, '640,360,60');
+  assert.equal(probe, '1920,1080,60');
   // A named face file that is missing is refused even here, before anything is encoded.
   const missing = run(['reframe', src, '--aspect', '16:9', '--faces', join(dir, 'none.json'), '--out', join(dir, 'x.mp4')], dir);
   assert.equal(missing.status, 1);
@@ -380,22 +470,22 @@ test('reframe: a clip already in the asked shape is re-encoded the same way, unc
 
 test('reframe: a portrait phone clip stored sideways comes out upright, and joins a reframed landscape clip upright', () => {
   const dir = scratchDir('reframe-phone');
-  // Stored 640x360 with a 90 degree rotation tag: a 360x640 picture, already 9:16.
+  // Stored 640x360 with a 90 degree rotation tag: a 360x640 picture, already 9:16, scaled to the 1080x1920 canvas.
   const flat = join(dir, 'flat.mp4');
   execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=s=640x360:r=30:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', flat]);
   const phone = rotatedCopy(flat, join(dir, 'phone.mp4'), 90);
   const tall = join(dir, 'tall.mp4');
   assert.equal(run(['reframe', phone, '--aspect', '9:16', '--out', tall], dir).status, 0);
   const upright = JSON.parse(streamOf(tall)).streams[0];
-  assert.deepEqual([upright.codec_name, upright.width, upright.height, upright.side_data_list], ['h264', 360, 640, undefined]);
-  // A landscape clip reframed to 9:16, then the two joined: one upright 360x640 canvas, no rotation tag.
+  assert.deepEqual([upright.codec_name, upright.width, upright.height, upright.side_data_list], ['h264', 1080, 1920, undefined]);
+  // A landscape clip reframed to 9:16, then the two joined: one upright 1080x1920 canvas, no rotation tag.
   const land = join(dir, 'land916.mp4');
   assert.equal(run(['reframe', gradient(dir), '--aspect', '9:16', '--out', land], dir).status, 0);
   const joined = join(dir, 'joined.mp4');
   const r = run(['concat-videos', joined, tall, land], dir);
   assert.equal(r.status, 0, r.stderr);
   const both = JSON.parse(streamOf(joined)).streams[0];
-  assert.deepEqual([both.width, both.height, both.side_data_list], [360, 640, undefined]);
+  assert.deepEqual([both.width, both.height, both.side_data_list], [1080, 1920, undefined]);
 });
 
 test('reframe: a ProRes .mov already in shape comes out as an H.264 .mp4', () => {
@@ -406,9 +496,25 @@ test('reframe: a ProRes .mov already in shape comes out as an H.264 .mp4', () =>
   const r = run(['reframe', mov, '--aspect', '16:9', '--out', out], dir);
   assert.equal(r.status, 0, r.stderr);
   const stream = JSON.parse(streamOf(out)).streams[0];
-  assert.deepEqual([stream.codec_name, stream.width, stream.height, Number(stream.nb_frames)], ['h264', 640, 360, 30]);
+  assert.deepEqual([stream.codec_name, stream.width, stream.height, Number(stream.nb_frames)], ['h264', 1920, 1080, 30]);
 });
 
+test('reframe: a clip labelled in part or not at all comes out labelled on all four axes, showing the same colour, and apply-edl assembles it', () => {
+  const dir = scratchDir('reframe-colour');
+  for (const kind of ['vp8', 'matrix', 'untagged', 'full', 'rgb'] as const) {
+    const out = join(dir, `${kind}-tall.mp4`);
+    const r = run(['reframe', flatClip(dir, kind), '--aspect', '9:16', '--out', out], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(probeStream(out, 'v:0', 'color_range,color_primaries,color_transfer,color_space'),
+      { color_range: 'tv', color_primaries: 'bt709', color_transfer: 'bt709', color_space: 'bt709' }, kind);
+    // Converted with swscale's default rounding the green comes out 4 levels off; relabelled BT.709 rather than converted,
+    // a BT.601 picture shows it 21 levels darker.
+    const shown = shownRgb(out);
+    assert.ok(shown.every((v, i) => Math.abs(v - FLAT_RGB[i]) < 4), `${kind}: shown as ${shown.map((v) => v.toFixed(1))}, made as ${FLAT_RGB}`);
+    writeFileSync(join(dir, `${kind}.json`), JSON.stringify({ sources: { a: out }, ranges: [{ source: 'a', start: 0, end: 0.5 }] }));
+    captureConsole(() => applyEdl(['--edl', join(dir, `${kind}.json`), '--out', join(dir, `${kind}-cut.mp4`)]));
+  }
+});
 
 test('reframe: anamorphic footage is cut in the pixels it is shown in, and comes out with square pixels', () => {
   const dir = scratchDir('reframe-anamorphic');
@@ -418,7 +524,7 @@ test('reframe: anamorphic footage is cut in the pixels it is shown in, and comes
     '-c:v', 'libx264', '-crf', '10', '-pix_fmt', 'yuv420p', src]);
   writeFileSync(join(dir, 'faces.json'), JSON.stringify(clipOf([{ start: 0, end: 1, samples: [] }], { width: 1920, height: 1080, durationSec: 1, video: src })));
   const out = join(dir, 'tall.mp4');
-  const r = reframe([src, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out]);
+  const r = reframe([src, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out, '--size', 'native']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /1920x1080 → 606x1080/);
   const probe = execFileSync(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,sample_aspect_ratio', '-of', 'csv=p=0', out], { encoding: 'utf8' }).trim();
@@ -428,6 +534,115 @@ test('reframe: anamorphic footage is cut in the pixels it is shown in, and comes
   let sum = 0;
   for (let row = 0; row < 1080; row++) sum += y[row * 606 + 2];
   assert.ok(Math.abs(sum / 1080 - 87) < 8, `left column ${(sum / 1080).toFixed(1)}, expected about 87`);
+});
+
+/** The faces.json a reader takes for `video` in the workspace `root`, as shots, the joins and reframe itself look it up. */
+function facesIn(root: string, video: string): string | null {
+  const before = process.env.OPEN_EDIT_ROOT;
+  process.env.OPEN_EDIT_ROOT = root;
+  try {
+    return ownFaces(video);
+  } finally {
+    if (before === undefined) delete process.env.OPEN_EDIT_ROOT;
+    else process.env.OPEN_EDIT_ROOT = before;
+  }
+}
+
+/** The bounding box of the bright pixels of a luma frame inside `r`, or null when it has none. */
+function brightIn(y: Buffer, width: number, height: number, r: { x: number; y: number; w: number; h: number }) {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let row = Math.max(0, r.y); row < Math.min(height, r.y + r.h); row++) {
+    for (let col = Math.max(0, r.x); col < Math.min(width, r.x + r.w); col++) {
+      if (y[row * width + col] < 126) continue;
+      [x0, y0, x1, y1] = [Math.min(x0, col), Math.min(y0, row), Math.max(x1, col + 1), Math.max(y1, row + 1)];
+    }
+  }
+  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * That each sample's boxes in the faces.json at `path` lie on the white squares drawn in its clip's frame at that time, to
+ * within `tol` pixels on every edge, and that nothing else in the frame is white: a box dropped is a face not shown.
+ */
+function boxesLandOnFaces(path: string, tol: number): number {
+  const clip = readFaces(path);
+  const { width: w, height: h } = clip;
+  const samples = clip.shots.flatMap((shot) => shot.samples);
+  const frames = samples.map((s) => Math.round(s.sec * 30));
+  const raw = execFileSync(FFMPEG, ['-v', 'error', '-i', clip.video, '-vf', `select='${frames.map((n) => `eq(n\\,${n})`).join('+')}'`,
+    '-fps_mode', 'passthrough', '-pix_fmt', 'gray', '-f', 'rawvideo', '-'], { maxBuffer: 1 << 28 });
+  assert.equal(raw.length, samples.length * w * h, `one ${w}x${h} frame per sample`);
+  let boxes = 0;
+  for (const [i, sample] of samples.entries()) {
+    const y = raw.subarray(i * w * h, (i + 1) * w * h);
+    let area = 0;
+    for (const b of sample.faces) {
+      const seen = brightIn(y, w, h, { x: b.x - 4 * tol, y: b.y - 4 * tol, w: b.w + 8 * tol, h: b.h + 8 * tol });
+      assert.ok(seen, `${sample.sec} s: no face drawn near the box ${JSON.stringify(b)}`);
+      for (const k of ['x', 'y', 'w', 'h'] as const) {
+        assert.ok(Math.abs(seen[k] - b[k]) <= tol, `${sample.sec} s: the box ${JSON.stringify(b)} against the face drawn at ${JSON.stringify(seen)}`);
+      }
+      area += b.w * b.h;
+      boxes++;
+    }
+    let white = 0;
+    for (let k = 0; k < y.length; k++) if (y[k] >= 126) white++;
+    assert.ok(Math.abs(white - area) <= 0.03 * Math.max(area, 1000), `${sample.sec} s: ${white} white pixels in the frame, ${area} in its boxes`);
+  }
+  return boxes;
+}
+
+test('reframe: the output gets its own face boxes, moved and scaled with the crop, and they land on the faces in its frames', () => {
+  const dir = scratchDir('reframe-own-faces');
+  // White squares on black, 640x360: a face pacing right for 2 s (one followed with pans), three faces held at one place
+  // for 1 s (one inside the crop, one it cuts through, one it leaves out), then a face larger than the crop for 1 s.
+  const src = join(dir, 'squares.mp4');
+  const box = (x: number, y: number, w: number, h: number, when: string) => `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=white:t=fill:enable='${when}'`;
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=640x360:r=30:d=4', '-f', 'lavfi', '-i', 'color=c=white:s=60x60:r=30:d=4',
+    '-filter_complex', `[0][1]overlay=x='20+250*t':y=150:eval=frame:enable='lt(t,2)',${box(300, 120, 60, 60, 'gte(t,2)*lt(t,3)')},`
+      + `${box(410, 40, 110, 30, 'gte(t,2)*lt(t,3)')},${box(40, 250, 40, 40, 'gte(t,2)*lt(t,3)')},${box(190, 80, 260, 200, 'gte(t,3)')}`,
+    '-c:v', 'libx264', '-crf', '10', '-pix_fmt', 'yuv420p', src]);
+  // Sampled every sixth frame, where the pacing face stands on an even pixel as the overlay draws it.
+  const at = (from: number, to: number) => Array.from({ length: (to - from) * 5 }, (_, k) => Number((from + k / 5).toFixed(6)));
+  const durationSec = probeVideoSpan(src).end;
+  const source = clipOf([
+    { start: 0, end: 2, samples: at(0, 2).map((sec) => ({ sec, faces: [{ x: 20 + 250 * sec, y: 150, w: 60, h: 60, score: 0.9 }] })) },
+    { start: 2, end: 3, samples: at(2, 3).map((sec) => ({ sec, faces: [face(300, 120, 60, 60), face(410, 40, 110, 30), face(40, 250, 40, 40)] })) },
+    { start: 3, end: durationSec, samples: at(3, 4).map((sec) => ({ sec, faces: [face(190, 80, 260, 200)] })) },
+  ], { video: src, width: 640, height: 360, durationSec });
+  writeFileSync(join(dir, 'faces.json'), JSON.stringify(source));
+  const out = join(dir, 'tall.mp4');
+  const r = run(['reframe', src, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out], dir);
+  assert.equal(r.status, 0, r.stderr);
+  // Where faces would write them for the output, and where every reader looks.
+  const own = facesIn(dir, out);
+  assert.ok(own && existsSync(own.replace(/json$/, 'js')), `no faces.json and faces.js of ${out}: ${r.stdout}`);
+  assert.ok(r.stdout.includes(`wrote the faces of tall.mp4, its source's boxes moved with the crop, to ${own} and `), r.stdout);
+  const tall = readFaces(own);
+  assert.deepEqual([tall.video, tall.width, tall.height], [out, 1080, 1920]);
+  assert.deepEqual(tall.shots.map((s) => [s.start, s.samples.map((x) => x.sec)]), source.shots.map((s) => [s.start, s.samples.map((x) => x.sec)]),
+    'the shots and sample times are the source\'s');
+  const held = tall.shots[1].samples[0].faces;
+  assert.equal(held.length, 2, 'the face the crop leaves out is dropped');
+  assert.ok(held[1].x + held[1].w === 1080 && held[1].w < 200, `the face the crop cuts through is kept in part: ${JSON.stringify(held[1])}`);
+  assert.deepEqual([tall.shots[2].samples[0].faces[0].x, tall.shots[2].samples[0].faces[0].w], [0, 1080], 'a face larger than the crop fills its width');
+  // Measured on the encoded frames, where a source pixel is 5.35 of the canvas's: every edge within 2 of them.
+  assert.equal(boxesLandOnFaces(own, 2), 10 + 5 * 2 + 5);
+
+  // Reframed again at half the size, a clip already in the shape: nothing is cut, and the output's own boxes are read and scaled.
+  const small = join(dir, 'small.mp4');
+  const again = run(['reframe', out, '--aspect', '9:16', '--size', '540x960', '--out', small], dir);
+  assert.equal(again.status, 0, again.stderr);
+  const smallFaces = facesIn(dir, small);
+  assert.ok(smallFaces, again.stdout);
+  assert.equal(readFaces(smallFaces).width, 540);
+  assert.equal(boxesLandOnFaces(smallFaces, 2), 25);
+
+  // Another clip with no boxes written over the same output: none are written, and the old clip's are gone.
+  const plain = run(['reframe', gradient(dir), '--aspect', '9:16', '--out', out], dir);
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.doesNotMatch(plain.stdout, /wrote the faces/);
+  assert.equal(facesIn(dir, out), null);
 });
 
 const noDetector = missingDetector();
@@ -452,7 +667,7 @@ test('reframe: the landscape fixture cut to 9:16 keeps the face inside the crop 
   const dir = scratchDir('reframe');
   const out = join(dir, 'tall.mp4');
   writeFileSync(join(dir, 'faces.json'), JSON.stringify(clip));
-  const r = reframe([FIXTURE, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out]);
+  const r = reframe([FIXTURE, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out, '--size', 'native']);
   assert.equal(r.status, 0, r.stderr);
   const tall = findFaces(out, OPTIONS);
   assert.deepEqual([tall.width, tall.height], [202, 360]);
@@ -461,4 +676,37 @@ test('reframe: the landscape fixture cut to 9:16 keeps the face inside the crop 
     const [f] = s.faces;
     assert.ok(f.x > 0 && f.x + f.w < tall.width, `${s.sec}s: the face ${f.x}-${f.x + f.w} touches the edge of the ${tall.width} px crop`);
   }
+});
+
+/** The overlap of two boxes over their union. */
+const iou = (a: FaceBox, b: FaceBox) => {
+  const w = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+  const h = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  return (w * h) / (a.w * a.h + b.w * b.h - w * h);
+};
+
+test('reframe: the boxes it writes for the fixture cut to 9:16 are the faces the detector finds on the output', { skip: detect }, () => {
+  const dir = scratchDir('reframe-faces-match');
+  writeFileSync(join(dir, 'faces.json'), JSON.stringify(findFaces(FIXTURE, OPTIONS)));
+  const out = join(dir, 'tall.mp4');
+  const r = run(['reframe', FIXTURE, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out], dir);
+  assert.equal(r.status, 0, r.stderr);
+  const written = readFaces(facesIn(dir, out)!);
+  const found = findFaces(out, OPTIONS);
+  // Every field faces writes, but the detector's own timings, and the size and length every reader checks against the clip.
+  assert.deepEqual(Object.keys(written).sort(), Object.keys(found).filter((k) => k !== 'detector').sort());
+  assert.deepEqual([written.width, written.height, written.durationSec], [found.width, found.height, found.durationSec]);
+  const samples = written.shots.flatMap((shot) => shot.samples);
+  let compared = 0;
+  for (const s of found.shots.flatMap((shot) => shot.samples)) {
+    const mine = samples.find((x) => Math.abs(x.sec - s.sec) < 0.002);
+    if (!mine) continue;
+    compared++;
+    assert.equal(mine.faces.length, s.faces.length, `${s.sec} s: ${mine.faces.length} boxes written, ${s.faces.length} found`);
+    for (const f of s.faces) {
+      const best = Math.max(...mine.faces.map((g) => iou(f, g)));
+      assert.ok(best >= 0.6, `${s.sec} s: the face found at ${JSON.stringify(f)} overlaps the boxes written by ${best.toFixed(2)} of their union`);
+    }
+  }
+  assert.ok(compared >= 0.9 * samples.length, `${compared} of ${samples.length} samples taken at the same moments`);
 });

@@ -16,6 +16,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, stateDir } from '../config.ts';
 import { loadEdl, snapRanges, sourceOrder, sourcePath } from '../edl.ts';
+import { mergeGrade } from '../grade.ts';
 import { readJsonFile } from '../json-file.ts';
 import { openUrl } from '../open-url.ts';
 import { audioDurationOf, probeDisplaySize, probeFps, probeSquareSize, videoDurationOf } from '../probe.ts';
@@ -28,7 +29,7 @@ import { startPageServer } from '../render/server.ts';
 import { RenderSession } from '../render/session.ts';
 import { splitContiguous, workersFor } from '../render/timing.ts';
 import { channelLevels } from '../channels.ts';
-import { effectLevels, readSpec, trackLevels } from './mix-audio.ts';
+import { effectLevels, fits, musicSpans, readSpec, trackLevels } from './mix-audio.ts';
 import { cropFor } from './reframe.ts';
 import { BUDGET_MS, EPOCH, SEED } from '../render/lead.ts';
 import { pageRoots } from './render.ts';
@@ -45,6 +46,7 @@ import { refreshingHttp } from '../veed/http.ts';
 import { NO_LOGIN_HELP, resolveVeedToken } from '../veed/resolve-token.ts';
 import { pickProjectWorkspace } from '../veed/workspace.ts';
 import { DEFAULT_WORKSPACE_PATH, rememberedWorkspace } from '../veed/workspace-store.ts';
+import { mappedNote, readTranscriptFile, type TranscriptRead } from '../transcript/read-transcript.ts';
 import type { Transcript } from '../transcript/transcript-types.ts';
 
 export const usage = {
@@ -116,11 +118,12 @@ async function run(planPath: string, values: Values, made: { url?: string }): Pr
   // mix-audio's do against its run.
   const parts: Exclude<Part, { type: 'mix' | 'edl' }>[] = plan.parts.flatMap((p) => {
     if (p.type === 'mix') {
-      const spec = readSpec(at(p.file));
+      const spec = readSpec(at(p.file), plan.duration);
       const levels = trackLevels(from, spec);
       const byPath = new Map(spec.tracks.map((t, i) => [t.path, levels[i]]));
       const setDb = effectLevels(from, spec, levels).map((e) => e?.gainDb);
-      const mixed = mixParts(spec, (track) => audioDurationOf(at(track)), (track) => byPath.get(track) ?? channelLevels(at(track)), setDb);
+      const fitted = fits(spec, musicSpans(from, spec));
+      const mixed = mixParts(spec, (track) => audioDurationOf(at(track)), (track) => byPath.get(track) ?? channelLevels(at(track)), setDb, fitted);
       for (const note of mixed.notes) console.error(`veed-project: ${note}`);
       return mixed.parts;
     }
@@ -128,6 +131,17 @@ async function run(planPath: string, values: Values, made: { url?: string }): Pr
       const loaded = loadEdl(at(p.file));
       const ids = sourceOrder(loaded.edl.ranges);
       const ranges = snapRanges(loaded.edl.ranges, new Map(ids.map((id) => [id, probeFps(sourcePath(loaded, id))])));
+      // Laid at 1x, a range at another speed would change the length of the cut and move every later range.
+      const sped = ranges.findIndex((r) => (r.speed ?? 1) !== 1);
+      if (sped >= 0) {
+        throw new PlanError(`${p.file}: range ${sped} plays at ${ranges[sped].speed}x, and an EDL's ranges are laid at the speed they were filmed; `
+          + 'hand off the cut apply-edl assembled from it as a video part instead');
+      }
+      const graded = ranges.map((r, i) => (Object.keys(mergeGrade(loaded.edl.grade, r.grade)).length ? i : -1)).filter((i) => i >= 0);
+      if (graded.length) {
+        console.error(`veed-project: ${p.file} grades range(s) ${graded.join(', ')}; the editor is handed each range as filmed, `
+          + 'so hand off the cut apply-edl assembled from it for the graded picture');
+      }
       // apply-edl cuts such a source as reframe does; the editor is handed the whole picture to frame its own way.
       for (const id of ids) {
         const { width, height } = probeSquareSize(sourcePath(loaded, id));
@@ -162,9 +176,15 @@ async function run(planPath: string, values: Values, made: { url?: string }): Pr
   const transcripts = new Map<string, Transcript>();
   for (const p of parts) {
     if (p.type !== 'captions') continue;
-    const t = readJsonFile(at(p.transcript)) as Transcript;
-    if (!Array.isArray(t?.chunks)) throw new PlanError(`${p.transcript} is not a transcript: it has no "chunks"`);
-    transcripts.set(at(p.transcript), t);
+    let read: TranscriptRead;
+    try {
+      read = readTranscriptFile(at(p.transcript));
+    } catch (error) {
+      throw new PlanError((error as Error).message);
+    }
+    const note = mappedNote(p.transcript, read);
+    if (note) console.log(`veed-project: ${note}`);
+    transcripts.set(at(p.transcript), read.transcript);
   }
 
   const work = resolve(values.work ?? join(from, 'veed'));
@@ -413,7 +433,7 @@ async function renderFrames(page: string, parts: LayerPart[], dir: string, plan:
   const server = await startPageServer({ roots: pageRoots(page, []).roots });
   const base = {
     chrome, server, page, viewport: { width: plan.width, height: plan.height }, clip: null, transparent: true, layers: parts.map((p) => p.select),
-    fps: { num: fps, den: 1 }, seed: SEED, epoch: EPOCH, budgetMs: BUDGET_MS, failedLoads: new Set<string>(), refused: new Set<string>(),
+    fps: { num: fps, den: 1 }, seed: SEED, epoch: EPOCH, budgetMs: BUDGET_MS, failedLoads: new Set<string>(), refused: new Set<string>(), givenZone: {},
   };
   const runs = splitContiguous(Array.from({ length: total }, (_, i) => i), workersFor(total, layerWorkers(), 24));
   // A frame a layer is judged absent from is this one picture, linked rather than captured.

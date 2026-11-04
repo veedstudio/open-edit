@@ -60,7 +60,7 @@ export interface InstallOptions {
 export async function installChrome(o: InstallOptions = {}): Promise<string> {
   const log = o.log ?? ((line: string) => console.error(line));
   const p = o.platform === undefined ? chromePlatform() : o.platform;
-  if (!p) throw new Error(`no Chrome Headless Shell build for ${process.platform}/${process.arch}; pass --chrome <path> to a Chrome or Chromium you have`);
+  if (!p) throw new Error(`no Chrome Headless Shell build for ${process.platform}/${process.arch}; pass --chrome <path> to a Chrome or Chromium you have, or set OPENEDIT_CHROME to it`);
   const root = o.root ?? installRoot();
   const exe = installedChrome(p, root);
   if (existsSync(exe) && !o.force) return exe;
@@ -130,11 +130,21 @@ export function chromeVersion(exe: string): { banner: string; failure: string } 
 export const linuxHint = (): string =>
   (process.platform === 'linux' ? '\n  A missing system library is the usual cause on Linux; `npx playwright-core install-deps chromium-headless-shell` installs them.' : '');
 
-/** The binary to run: an explicit one, else the pinned install, downloading it on first use. */
-export async function resolveChrome(explicit: string | undefined, log?: (line: string) => void): Promise<string> {
-  if (explicit) {
-    if (!existsSync(explicit) || !statSync(explicit).isFile()) throw new Error(`--chrome ${explicit} is not a file`);
-    return explicit;
+/**
+ * A Chrome other than the pinned one, with what named it: --chrome, else OPENEDIT_CHROME (an empty value counts as
+ * unset, as OPENEDIT_FFMPEG's does). Null when neither does, and the pinned install is run.
+ */
+export function customChrome(flag: string | undefined, env: NodeJS.ProcessEnv = process.env): { path: string; from: string } | null {
+  if (flag) return { path: flag, from: '--chrome' };
+  return env.OPENEDIT_CHROME ? { path: env.OPENEDIT_CHROME, from: 'OPENEDIT_CHROME' } : null;
+}
+
+/** The binary to run: --chrome or OPENEDIT_CHROME, else the pinned install, downloading it on first use. */
+export async function resolveChrome(explicit: string | undefined, log?: (line: string) => void, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const custom = customChrome(explicit, env);
+  if (custom) {
+    if (!existsSync(custom.path) || !statSync(custom.path).isFile()) throw new Error(`${custom.from} ${custom.path} is not a file`);
+    return custom.path;
   }
   return installChrome({ log });
 }

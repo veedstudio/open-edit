@@ -521,7 +521,20 @@ ${scripts}</head><body><div id="stage">${body}</div></body></html>`);
     const full = await place(page('full.html', 'width:640px;height:360px', '<div class="cap" id="c"></div>', '.cap{left:0;top:0;width:640px;height:300px}'), null);
     assert.deepEqual(full.res, { x: 0, y: 0, clear: false, moved: false });
     assert.deepEqual(full.rect, { x: 0, y: 0, w: 640, h: 300 });
-    assert.match(warnings.join('\n'), /no place inside the stage keeps this element off every face from 0 to 2 s of the clip, so it stays where the page put it/);
+    assert.match(warnings.join('\n'), /no place inside the stage keeps this element off every face and graphic from 0 to 2 s of the clip, so it stays where the page put it/);
+
+    // Inside a [data-safe] container the caption keeps inside it: up past the face, the nearer side, would leave the
+    // container, so it goes down. The zone a safe-zone stylesheet marks on the stage with its insets bounds it the same.
+    const safe = await twice(page('safe.html', 'width:640px;height:360px',
+      '<div data-safe style="position:absolute;left:100px;top:120px;width:440px;height:240px"><div class="cap" id="c" style="left:120px;top:30px"></div></div>'), null);
+    assert.deepEqual([safe.rect!.x, safe.rect!.y, safe.res!.clear], [220, 226, true]);
+    const zoned = await twice(page('zoned.html', 'width:640px;height:360px;--safe-top:120px;--safe-right:100px;--safe-bottom:0px;--safe-left:100px',
+      '<div class="cap" id="c" style="left:220px;top:150px"></div>'), null);
+    assert.deepEqual([zoned.rect!.x, zoned.rect!.y, zoned.res!.clear], [220, 226, true]);
+    warnings.length = 0;
+    await place(page('tight.html', 'width:640px;height:360px',
+      '<div data-safe style="position:absolute;left:200px;top:100px;width:250px;height:150px"><div class="cap" id="c" style="left:20px;top:40px"></div></div>'), null);
+    assert.match(warnings.join('\n'), /no place inside its \[data-safe\] container keeps this element off every face/);
 
     // Two clips loaded, and the video stood down the way a --footage render does it, after load: the clip it
     // showed is remembered.

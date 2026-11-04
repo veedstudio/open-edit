@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { FFMPEG } from '../src/config.ts';
 import {
   beforeLastPhraseOf, END_CARD_CAP, END_CARD_FLOOR, endCardLimit, judgeDeadTail, lastSoundIn, lastSoundOf, lastWordOf, measureDeadTail,
-  readingSeconds, TAIL_SECONDS, WINDOW_MS, type LastSound,
+  readingSeconds, soundSpanOf, TAIL_SECONDS, WINDOW_MS, type LastSound,
 } from '../src/verify/dead-tail.ts';
 import { pictureDurationOf } from '../src/probe.ts';
 import type { TextEntry, TextSample } from '../src/render/text-record.ts';
@@ -73,6 +73,12 @@ const CTA = 'Link in bio for the full guide';
 
 await test('the last sound ends where the level last reaches the gate', () => {
   assert.equal(lastSoundOf(envelope([-20, 3], [-100, 4]), WINDOW_MS).end, 3);
+});
+
+await test('sound starts where the level first reaches the same gate, so a quiet lead-in is silence', () => {
+  assert.deepEqual(soundSpanOf(envelope([-55, 1.5], [-20, 3], [-100, 4]), WINDOW_MS), { start: 1.5, end: 4.5 });
+  assert.deepEqual(soundSpanOf(envelope([-20, 3]), WINDOW_MS, 0.5), { start: 0.5, end: 3.5 }, 'placed where the track starts');
+  assert.equal(soundSpanOf(envelope([-100, 3]), WINDOW_MS), null);
 });
 
 await test('room tone after the last line is silence, not sound', () => {
@@ -382,7 +388,7 @@ const dir = scratchDir('dead-tail');
 const toneUntil = (until: number) => `aevalsrc=exprs='if(lt(t,${until}),0.3*sin(2*PI*220*t),0)':s=48000`;
 /** The check as the review runs it, on the picture's length probed here. */
 const measure = (video: string, transcript: TranscriptInput, textRecord: TextRecordInput = { missing: 'none' }) =>
-  measureDeadTail({ video, duration: pictureDurationOf(video), transcript, askedLength: { missing: 'none' }, textRecord });
+  measureDeadTail({ video, duration: pictureDurationOf(video), transcript, askedLength: { missing: 'none' }, textRecord, brief: { missing: 'none' } });
 
 await test('a clip with a silent tail is reported', () => {
   const clip = synthClip(dir, 'silent-tail.mp4', { video: TESTSRC, audio: toneUntil(3), seconds: 6 });

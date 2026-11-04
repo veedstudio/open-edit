@@ -148,6 +148,47 @@ export function alphaOf(png: Buffer): { width: number; height: number; alpha: Ui
   return { width, height, alpha };
 }
 
+/** Where two pictures of one size differ: how many pixels, and the box around them. RGB counts as opaque RGBA. */
+export function pngDifference(a: Buffer, b: Buffer): { pixels: number; total: number; box: [number, number, number, number] | null } {
+  const pa = parse(a);
+  const pb = parse(b);
+  if (pa.width !== pb.width || pa.height !== pb.height) throw new Error(`the pictures differ in size (${pa.width}x${pa.height} and ${pb.width}x${pb.height})`);
+  const ra = inflateSync(pa.idat);
+  const rb = inflateSync(pb.idat);
+  let prevA = Buffer.alloc(pa.width * pa.channels);
+  let rowA = Buffer.alloc(pa.width * pa.channels);
+  let prevB = Buffer.alloc(pb.width * pb.channels);
+  let rowB = Buffer.alloc(pb.width * pb.channels);
+  // A grey or grey-alpha PNG is read as one colour channel, so it compares with RGB on its value.
+  const at = (row: Buffer, x: number, ch: number, c: number) => {
+    const colourChannels = ch >= 3 ? 3 : 1;
+    if (c < 3) return row[x * ch + (colourChannels === 3 ? c : 0)];
+    return ch === 4 || ch === 2 ? row[x * ch + ch - 1] : 255;
+  };
+  let pixels = 0;
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < pa.height; y++) {
+    unfilter(ra, y, rowA, prevA, pa.channels);
+    unfilter(rb, y, rowB, prevB, pb.channels);
+    for (let x = 0; x < pa.width; x++) {
+      let same = true;
+      for (let c = 0; c < 4 && same; c++) same = at(rowA, x, pa.channels, c) === at(rowB, x, pb.channels, c);
+      if (same) continue;
+      pixels++;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      y1 = y;
+    }
+    [prevA, rowA] = [rowA, prevA];
+    [prevB, rowB] = [rowB, prevB];
+  }
+  return { pixels, total: pa.width * pa.height, box: pixels ? [x0, y0, x1 - x0 + 1, y1 - y0 + 1] : null };
+}
+
 /** Whether a frame counts as drawn: something varies, and on a transparent background something is visible. */
 export const showsSomething = (b: Blankness): boolean => !b.uniform && b.alphaMax > 0;
 

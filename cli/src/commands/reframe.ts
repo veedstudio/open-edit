@@ -1,8 +1,10 @@
 // A clip cut to another shape, e.g. 16:9 to 9:16, around the faces `faces` found, else from the middle: the one
 // tool for a change of shape, so every crop a piece needs comes out the same. It never guesses who is who,
-// and it knows faces, not who is talking:
+// and it knows faces, not who is talking. The crop is scaled to 1080 px on its short side, the platforms' canvas for
+// their shapes, unless --size names another size or `native` keeps the source's own pixels:
 //
-//   openedit reframe <video> --aspect 9:16 --out <file> [--faces <faces.json>]
+//   openedit reframe <video> --aspect 9:16 --out <file> [--faces <faces.json>] [--size WxH|native]
+//   openedit reframe <video> --out runs/<key>/<file>        (the shape of the platform in the piece's brief.json)
 //
 // - A shot that shows one face only (never two at once, each found overlapping the one before) is followed:
 //   the crop holds still while the face stays inside it, and moves only when no single place keeps every
@@ -16,36 +18,50 @@
 //   run's last, no other run of four or more on the far side of that jump overlaps either of those two faces,
 //   and the samples showing several faces between the two runs span at most a second. Each part is framed as
 //   a shot, and the crop changes at the split as at a cut.
+// With the clip's face boxes it also writes the output's own where faces would write them for it, each box and burned-in
+// graphic moved and scaled with the crop, so the faces of the clip a page shows are never looked for twice.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
+import { readBrief, type FoundBrief } from '../brief.ts';
+import { settledTags, stampColour } from '../colour.ts';
 import { FFMPEG } from '../config.ts';
-import { othersFaces, ownFaces, strandedFaces } from '../faces/folder.ts';
-import type { FaceBox, FacesClip, Shot } from '../faces/page-script.ts';
-import { probeFrameRate, probeSquareSize, probeVideoSpan } from '../probe.ts';
+import { facesFolder, othersFaces, ownFaces, strandedFaces } from '../faces/folder.ts';
+import { graphicOnto } from '../faces/onto-cut.ts';
+import { facesScript, type FaceBox, type FacesClip, type GraphicBox, type Shot } from '../faces/page-script.ts';
+import { decodedColourOf, probeFrameRate, probeSquareSize, probeVideoSpan } from '../probe.ts';
+import { writeAtomic, writeTextAtomic } from '../providers/exclusive-files.ts';
 import { resolveVideoArg } from '../resolve-video.ts';
 import { asShown } from '../shown.ts';
-import { measuredAs, notFacesOf, readFaces } from './faces.ts';
+import { canvasFor, type Size } from '../verify/canvas.ts';
+import { measuredAs, notFacesOf, readFaces, toDisplay } from './faces.ts';
+import { formatNamed, type Shape } from './safe-zone.ts';
 
 export const usage = {
-  summary: 'Cut a clip to another shape: around the faces faces found (one face followed, several held still), else from the middle',
+  summary: 'Cut a clip to another shape at the platforms\' 1080 px canvas: around the faces faces found (one face followed, several held still), else from the middle',
   positionals: '<video>',
   flags: {
-    aspect: { type: 'string', required: true, value: 'W:H', help: 'The shape to cut to, e.g. 9:16 or 1:1' },
+    aspect: { type: 'string', value: 'W:H', help: 'The shape to cut to, e.g. 9:16 or 1:1 (default: the shape of the platform in the piece\'s brief.json, found from --out)' },
     out: { type: 'string', required: true, value: '<file>', help: 'The reframed clip: re-encoded upright to H.264 in square pixels at the source\'s frame rate, with its sound, a clip already in the shape included' },
     faces: { type: 'string', value: '<faces.json>', help: 'The boxes to follow (default the clip\'s own, in runs/<key>/faces-<hash>/ where faces writes them, else in runs/<key>/faces.json when an older faces wrote them there for this clip; with none, the crop is cut from the middle)' },
+    size: {
+      type: 'string', value: 'WxH|native',
+      help: 'The output\'s size, of the shape cut to with even sides, e.g. 2160x3840 for 9:16 in 4K (default 1080 px on the short side, the platforms\' canvas '
+        + 'for their shapes: 1080x1920 for 9:16, 1080x1080 for 1:1, 1080x1350 for 4:5, 1920x1080 for 16:9); native keeps the crop in the source\'s own pixels, unscaled',
+    },
   },
   notes: [
-    'The crop keeps the source\'s full height (or width) and its resolution, and jumps at a cut. With face boxes',
-    'each shot, which can be split again where a face seen alone for four samples jumps further than its own',
-    'width and is seen alone there for four more (a dissolve or a cut the cut detection missed), is followed when',
-    'it shows one face only, still while the face stays inside and moving smoothly only when it must, and held at',
-    'one place when it shows more, where the faces wholly inside add up to the most height; a shot with none is',
-    'cut from the middle. Without face boxes the whole clip is cut from the middle. A clip already in the shape,',
-    'to within the two pixels even sides round to, is re-encoded uncropped. The output is new footage: run faces',
-    'on it before laying text.',
+    'The crop keeps the source\'s full height (or width), is scaled (lanczos) to the output size, and jumps at a cut.',
+    'With face boxes each shot, which can be split again where a face seen alone for four samples jumps further than',
+    'its own width and is seen alone there for four more (a dissolve or a cut the cut detection missed), is followed',
+    'when it shows one face only, still while the face stays inside and moving smoothly only when it must, and held',
+    'at one place when it shows more, where the faces wholly inside add up to the most height; a shot with none is',
+    'cut from the middle. Without face boxes the whole clip is cut from the middle. A clip already in the shape, to',
+    'within the two pixels even sides round to, is re-encoded uncropped and scaled the same way. When the clip has face',
+    'boxes, the output\'s own are written where faces writes them for it, each box and graphic moved and scaled with the crop',
+    'and cut where the crop cuts it, and the path is printed; without, none are.',
   ].join('\n'),
 } satisfies Usage;
 
@@ -66,12 +82,35 @@ export function parseAspect(raw: string): number {
 
 const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
 
+const sized = (s: Size) => `${s.width}x${s.height}`;
+
+/** Whether a size has the shape `ratio`, to within the two pixels even sides round to. */
+const hasShape = (width: number, height: number, ratio: number) => Math.abs(width - height * ratio) < 2 || Math.abs(height - width / ratio) < 2;
+
+/**
+ * The size --size asks for: `native` for the crop's own pixels, else even sides (H.264 in 4:2:0 wants them) of the
+ * shape `ratio`, so the scale never stretches the picture. Absent, the platforms' canvas for the shape.
+ */
+export function parseSize(raw: string | undefined, ratio: number, aspect: string): Size | 'native' {
+  if (raw === undefined) return canvasFor(ratio);
+  if (raw.trim() === 'native') return 'native';
+  const m = /^(\d+)x(\d+)$/.exec(raw.trim());
+  const [width, height] = m ? [Number(m[1]), Number(m[2])] : [NaN, NaN];
+  if (!(width >= 2 && height >= 2 && width % 2 === 0 && height % 2 === 0)) {
+    throw new Error(`--size wants WxH with even sides, e.g. ${sized(canvasFor(ratio))}, or native; got "${raw}"`);
+  }
+  if (!hasShape(width, height, ratio)) {
+    throw new Error(`--size ${raw.trim()} is not ${aspect}: ${aspect} is ${sized(canvasFor(ratio))} on the platforms, or ${sized(canvasFor(ratio, 2160))} in 4K`);
+  }
+  return { width, height };
+}
+
 /**
  * The largest crop of that shape: the full height of a wider source, the full width of a taller one. A source
  * within two pixels of the shape, which even pixels round to (a reframe's own output, say), is already in it.
  */
 export function cropFor(width: number, height: number, ratio: number): Crop {
-  if (Math.abs(width - height * ratio) < 2 || Math.abs(height - width / ratio) < 2) {
+  if (hasShape(width, height, ratio)) {
     return { w: even(width), h: even(height), axis: width / height > ratio ? 'x' : 'y', travel: 0 };
   }
   if (width / height > ratio) {
@@ -385,7 +424,7 @@ export function planShape(video: string, ratio: number, o: { faces?: string; lab
 }
 
 /** The place the crop holds at `sec` of the clip: the last move at or before it. */
-function placeAt(moves: { sec: number; at: number }[], sec: number): number {
+export function placeAt(moves: { sec: number; at: number }[], sec: number): number {
   let at = moves[0].at;
   for (const m of moves) {
     if (m.sec > sec) break;
@@ -421,6 +460,69 @@ export function parseFit(text: string | undefined): Fit {
   throw new Error(`--fit expects crop or letterbox, got "${text}"`);
 }
 
+/**
+ * Where the crop's pixels land in the output, as ffmpeg's scale and crop put them: the crop scaled to cover `to` with its
+ * shape kept, each side rounded to the nearest pixel, and the middle of that cut out.
+ */
+function coverScale(crop: { w: number; h: number }, to: Size): { sx: number; sy: number; ox: number; oy: number } {
+  const w = Math.max(to.width, Math.round((to.height * crop.w) / crop.h));
+  const h = Math.max(to.height, Math.round((to.width * crop.h) / crop.w));
+  return { sx: w / crop.w, sy: h / crop.h, ox: Math.floor((w - to.width) / 2), oy: Math.floor((h - to.height) / 2) };
+}
+
+/** The clip reframe wrote, as its faces.json describes it. */
+interface Output extends Size { video: string; fps: number; frameRate: string; durationSec: number }
+
+/**
+ * The faces of reframe's output, from its source's: each sample's boxes moved with the crop where it stood at that sample and
+ * scaled with it, a box the crop cuts kept in part and one wholly outside dropped as faces does at a frame's edge, the shots
+ * and times the source's, so the output's faces.json reads as faces' own for it.
+ */
+function reframedFaces(s: Shaping, source: FacesClip, out: Output): FacesClip {
+  const { sx, sy, ox, oy } = coverScale(s.crop, out);
+  const shiftAt = (sec: number) => {
+    const at = s.moves.length ? placeAt(s.moves, sec) : 0;
+    return s.crop.axis === 'x' ? { x: at * sx + ox, y: oy } : { x: ox, y: at * sy + oy };
+  };
+  const shots = source.shots.map((shot, k): Shot => ({
+    start: shot.start,
+    // The last shot runs to the output's own end, as faces would measure it there.
+    end: k === source.shots.length - 1 ? out.durationSec : shot.end,
+    samples: shot.samples.map((sample) => {
+      const boxes = sample.faces.map((f): [number, number, number, number, number?] => [f.x, f.y, f.w, f.h, f.score]);
+      return { sec: sample.sec, faces: toDisplay(boxes, sx, sy, out.width, out.height, shiftAt(sample.sec)) };
+    }),
+  }));
+  // Each graphic moved with the crop as a face is, over the seconds it is up.
+  const boxAt = (g: GraphicBox) => (sec: number) => {
+    const [box] = toDisplay([[g.x, g.y, g.w, g.h]], sx, sy, out.width, out.height, shiftAt(sec));
+    return box ? { x: box.x, y: box.y, w: box.w, h: box.h } : null;
+  };
+  const graphics = source.graphics?.flatMap((g) => graphicOnto(g.from, g.to, source.every, boxAt(g), (sec) => sec));
+  return {
+    video: out.video, name: basename(out.video), width: out.width, height: out.height, fps: out.fps, frameRate: out.frameRate,
+    durationSec: out.durationSec, model: source.model, every: source.every, threshold: source.threshold,
+    confidence: source.confidence, textMargin: source.textMargin,
+    ...(graphics ? { graphicsMargin: source.graphicsMargin, graphics } : {}), shots,
+  };
+}
+
+/**
+ * The boxes of a clip already in the shape, which planShape does not read since nothing is cut: those `named`, else its own,
+ * when they were found on this clip as it is now. Otherwise null, and why.
+ */
+function wholeFaces(video: string, named: string | undefined, size: Size): { clip: FacesClip | null; why?: string } {
+  const path = named === undefined ? ownFaces(video) : resolve(named);
+  if (!path) return { clip: null };
+  try {
+    const clip = readFaces(path);
+    const other = notFacesOf(clip, video, size, probeVideoSpan(video).end);
+    return other ? { clip: null, why: `${path} ${other}` } : { clip };
+  } catch (e) {
+    return { clip: null, why: (e as Error).message };
+  }
+}
+
 const unused = (s: Shaping) => (s.ignored ? `; ${s.ignored} holds another clip's and is not used` : '');
 
 /** What a command prints for a clip it cut to `target`: which of reframe's two ways it took, and from what. */
@@ -431,25 +533,74 @@ export function describeShape(what: string, s: Shaping, target: string): string 
   return `${what} (${size}) is cut to ${target} from the middle, as reframe cuts it: ${why}`;
 }
 
+/**
+ * The shape to cut to: --aspect, else the shape of the platform in the piece's brief, which is found from the clip
+ * reframe writes, since that is the piece's own file and the source may be anyone's. Null when neither gives one.
+ */
+export function aspectFor(named: string | undefined, out: string): { aspect: string; said?: string } | null {
+  let found: FoundBrief | null = null;
+  try {
+    found = readBrief(out);
+  } catch (error) {
+    // An --aspect needs no brief, so one that cannot be read stops only a call that relies on it.
+    if (named === undefined) throw error;
+  }
+  const platform = found?.brief.platform;
+  if (named !== undefined) {
+    const theirs = platform === undefined ? undefined : shapeOf(platform);
+    const differs = theirs !== undefined && Math.abs(parseAspect(theirs) / parseAspect(named) - 1) > 1e-9;
+    return { aspect: named, said: differs ? `${named} from --aspect, over the ${theirs} of the platform ${platform} in ${found!.path}` : undefined };
+  }
+  if (platform === undefined) return null;
+  const shape = shapeOf(platform);
+  if (!shape) throw new Error(`${found!.path} has the platform ${JSON.stringify(platform)}, which names no one shape: pass --aspect`);
+  return { aspect: shape, said: `${shape}, the shape of the platform ${platform} in ${found!.path}` };
+}
+
+// A platform posted in several shapes names none (openedit brief refuses one, but a brief can be written by hand).
+function shapeOf(platform: string): Shape | undefined {
+  try {
+    return formatNamed(platform).shape;
+  } catch {
+    return undefined;
+  }
+}
+
 export function reframe(argv: string[]): number {
   const { values, positionals } = parseUsage('reframe', usage, argv);
   const [videoArg] = positionals;
-  if (!videoArg || !values.aspect || !values.out) {
+  if (!videoArg || !values.out) {
     console.error(usageLine('reframe', usage));
     return 2;
   }
+  const out = resolve(values.out);
+  const chosen = aspectFor(values.aspect, out);
+  if (!chosen) {
+    console.error(`no --aspect, and no platform in a brief.json for ${out}: pass --aspect, or record where the piece is posted with `
+      + `npx @veedstudio/openedit-cli brief ${dirname(values.out)} --platform <zone>`);
+    console.error(usageLine('reframe', usage));
+    return 2;
+  }
+  const aspect = chosen.aspect;
+  if (chosen.said) console.log(`reframe: shape ${chosen.said}`);
   const video = resolveVideoArg(videoArg);
   if (!existsSync(video)) throw new Error(`video not found: ${video}`);
   if (values.faces !== undefined && !existsSync(resolve(values.faces))) {
     throw new Error(`no face boxes at ${resolve(values.faces)}: run npx @veedstudio/openedit-cli faces ${videoArg} first, or leave out --faces to cut from the middle`);
   }
-  const shape = planShape(video, parseAspect(values.aspect), {
+  const ratio = parseAspect(aspect);
+  const size = parseSize(values.size, ratio, aspect);
+  const shape = planShape(video, ratio, {
     faces: values.faces, label: videoArg,
     ways: `, or name its faces.json with --faces${values.faces === undefined ? '' : ', or leave out --faces to cut from the middle'}`,
   });
   const { width, height, crop } = shape;
+  const to = size === 'native' ? { width: crop.w, height: crop.h } : size;
+  const scaled = to.width !== crop.w || to.height !== crop.h;
   if (shape.how !== 'already' && !shape.clip) console.log(`reframe: no face boxes for ${videoArg} (faces writes them)${unused(shape)}, so the crop is cut from the middle`);
-  const out = resolve(values.out);
+  const whole: { clip: FacesClip | null; why?: string } = shape.how === 'already' ? wholeFaces(video, values.faces, { width, height }) : { clip: shape.clip };
+  // The clip at `out` is about to be replaced, and boxes found on the one there before would be read as its faces.
+  if (existsSync(out)) for (const file of ['faces.json', 'faces.js']) rmSync(join(facesFolder(out), file), { force: true });
   const work = mkdtempSync(join(tmpdir(), 'open-edit-reframe-'));
   try {
     // A clip already in the shape gets the same encode with no crop, so every clip a piece joins comes out alike:
@@ -458,7 +609,11 @@ export function reframe(argv: string[]): number {
     if (script) writeFileSync(join(work, script.file), script.text);
     // H.264 in 4:2:0 wants even sides: an odd one loses its last pixel.
     if (shape.how === 'already' && (crop.w !== width || crop.h !== height)) filters.push(`crop=${crop.w}:${crop.h}:0:0`);
-    filters.push('setsar=1');
+    // Covered, then trimmed to the size, as the joins fit a clip to their canvas: the at most two pixels by which the
+    // crop's even sides miss the shape are cut off rather than stretched.
+    if (scaled) filters.push(`scale=${to.width}:${to.height}:force_original_aspect_ratio=increase:flags=lanczos`, `crop=${to.width}:${to.height}`);
+    const colour = decodedColourOf(video);
+    filters.push('setsar=1', ...stampColour(colour, settledTags(colour)));
     const r = spawnSync(FFMPEG, ['-nostdin', '-y', '-v', 'error', '-i', video,
       '-vf', filters.join(','),
       '-map', '0:v:0', '-map', '0:a:0?', '-fps_mode', 'passthrough',
@@ -468,9 +623,21 @@ export function reframe(argv: string[]): number {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+  const fitted = scaled ? `, scaled to ${sized(to)}` : '';
   console.log(shape.how !== 'already'
-    ? `reframe: ${width}x${height} → ${crop.w}x${crop.h} (${values.aspect}), ${shape.clip?.shots.length ?? 1} shot(s), the crop changes place ${shape.moves.length - 1} time(s) → ${out}`
-    : `reframe: ${videoArg} is already ${values.aspect} (${width}x${height}), so it is re-encoded upright, ` +
-      `${crop.w === width && crop.h === height ? 'uncropped' : `to even pixels (${crop.w}x${crop.h})`} → ${out}`);
+    ? `reframe: ${width}x${height} → ${crop.w}x${crop.h} (${aspect})${fitted}, ${shape.clip?.shots.length ?? 1} shot(s), the crop changes place ${shape.moves.length - 1} time(s) → ${out}`
+    : `reframe: ${videoArg} is already ${aspect} (${width}x${height}), so it is re-encoded upright, ` +
+      `${crop.w === width && crop.h === height ? 'uncropped' : `to even pixels (${crop.w}x${crop.h})`}${fitted} → ${out}`);
+  if (whole.clip) {
+    const rate = probeFrameRate(out);
+    const faces = reframedFaces(shape, whole.clip, { video: out, ...to, fps: rate.fps, frameRate: rate.rate.replace(/\/1$/, ''), durationSec: probeVideoSpan(out).end });
+    // Found only now that the file exists, by its real path, as faces finds it.
+    const dir = facesFolder(out);
+    writeAtomic(join(dir, 'faces.json'), faces);
+    writeTextAtomic(join(dir, 'faces.js'), facesScript(faces));
+    console.log(`reframe: wrote the faces of ${basename(out)}, its source's boxes moved with the crop, to ${join(dir, 'faces.json')} and ${join(dir, 'faces.js')}`);
+  } else if (whole.why) {
+    console.log(`reframe: no faces written for ${basename(out)}: ${whole.why}`);
+  }
   return 0;
 }

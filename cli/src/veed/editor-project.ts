@@ -2,7 +2,7 @@
 // become the editor's own items, and a page's graphics become transparent clips cut to their boxes, so a person can
 // take the edit apart in VEED and the agent can pick it up again from what they left.
 import { oneSided } from '../channels.ts';
-import { ducks, type MixSpec } from '../commands/mix-audio.ts';
+import { ducks, type Fit, type MixSpec } from '../commands/mix-audio.ts';
 import type { SnappedRange } from '../edl.ts';
 import type { TranscriptChunk, TranscriptWord } from '../transcript/transcript-types.ts';
 
@@ -443,11 +443,12 @@ export function planFromPulled(
 /**
  * The ranges of an EDL as video parts on one timeline; `source` resolves a range's source to its file. Give the ranges
  * snapped to their sources' frames, as apply-edl cuts them, so the cuts land where a retimed transcript expects them.
+ * A muted range is laid at no volume, as apply-edl plays it.
  */
 export function edlParts(p: EdlPart, ranges: SnappedRange[], source: (id: string) => string): VideoPart[] {
   let at = p.at ?? 0;
   return ranges.map((r, i) => {
-    const part: VideoPart = { type: 'video', file: source(r.source), at, in: r.start, out: r.end, z: p.z ?? 0, volume: p.volume ?? 1, name: r.note ?? `cut ${i + 1}` };
+    const part: VideoPart = { type: 'video', file: source(r.source), at, in: r.start, out: r.end, z: p.z ?? 0, volume: r.mute ? 0 : p.volume ?? 1, name: r.note ?? `cut ${i + 1}` };
     at += r.end - r.start;
     return part;
   });
@@ -455,30 +456,44 @@ export function edlParts(p: EdlPart, ranges: SnappedRange[], source: (id: string
 
 /**
  * The tracks of a mix-audio spec as audio parts, as mix-audio plays them: gain as the editor's linear volume, each
- * track cut at the film's end, and its fade-out where the film's falls. `length` gives a track file's own length,
- * `levels` its channel levels, and `setDb` the gain mix-audio sets each effect given none to (see `effectLevels`),
- * indexed like the spec's tracks. The editor plays each file as it is, so a ducked track and a one-sided one that
- * mix-audio would centre are named in `notes`.
+ * track cut where it stops (its endSec, else the film's end), and its fade-out where that falls. `length` gives a track
+ * file's own length, `levels` its channel levels, `setDb` the gain mix-audio sets each effect given none to (see
+ * `effectLevels`), and `fitted` how it runs each music track to its end (see `fits`), indexed like the spec's tracks:
+ * a looped track is one item per repeat, each crossfaded into the next. The editor plays each file as it is, so a
+ * ducked track and a one-sided one that mix-audio would centre are named in `notes`.
  */
 export function mixParts(
   spec: MixSpec,
   length: (path: string) => number,
   levels: (path: string) => readonly number[],
   setDb: readonly (number | undefined)[] = [],
+  fitted: readonly (Fit | undefined)[] = [],
 ): { parts: AudioPart[]; notes: string[] } {
   const notes: string[] = [];
   const hasVoice = spec.tracks.some((t) => t.role === 'voice');
   const parts = spec.tracks.flatMap((t, i): AudioPart[] => {
-    const end = Math.min(t.atSec + length(t.path), spec.durationSec);
+    const name = `${t.role ?? 'audio'}: ${t.path.split('/').pop()}`;
+    const volume = Math.round(10 ** ((t.gainDb ?? setDb[i] ?? 0) / 20) * 1000) / 1000;
+    const fit = fitted[i];
+    const stop = fit?.until ?? Math.min(t.endSec ?? spec.durationSec, spec.durationSec);
+    const end = fit ? stop : Math.min(t.atSec + length(t.path), stop);
     if (end <= t.atSec) return [];
     if (ducks(t, hasVoice)) notes.push(`${t.path}: ducking under the voice is not carried; it plays at its own gain`);
     if (!t.keepPan && oneSided(levels(t.path))) notes.push(`${t.path}: centring is not carried; it plays on one channel, as recorded`);
-    // mix-audio fades every track over the film's last fadeOutSec, which reaches a track only if it is still playing then.
-    const fadeOut = t.fadeOutSec ? Math.min(t.fadeOutSec, end - Math.max(t.atSec, spec.durationSec - t.fadeOutSec)) : 0;
+    if (fit) {
+      return fit.pieces.map((p, k): AudioPart => {
+        const out = Math.min(p.out, length(t.path));
+        const fadeIn = k === 0 ? t.fadeInSec : p.fadeIn;
+        // The fade that ends the track is laid on its last item, as far as that item reaches.
+        const fadeOut = k === fit.pieces.length - 1 ? Math.min(fit.fadeOutSec, out - p.in) : p.fadeOut;
+        return { type: 'audio', file: t.path, at: p.at, in: p.in, out, name, volume, ...(fadeIn ? { fadeIn } : {}), ...(fadeOut ? { fadeOut } : {}) };
+      });
+    }
+    // mix-audio fades a track over the last fadeOutSec before it stops, which reaches it only if it is still playing then.
+    const fadeOut = t.fadeOutSec ? Math.round(Math.min(t.fadeOutSec, end - Math.max(t.atSec, stop - t.fadeOutSec)) * 1000) / 1000 : 0;
     return [{
-      type: 'audio', file: t.path, at: t.atSec, in: 0, out: end - t.atSec, name: `${t.role ?? 'audio'}: ${t.path.split('/').pop()}`,
-      volume: Math.round(10 ** ((t.gainDb ?? setDb[i] ?? 0) / 20) * 1000) / 1000,
-      ...(t.fadeInSec ? { fadeIn: t.fadeInSec } : {}), ...(end >= spec.durationSec && fadeOut > 0 ? { fadeOut } : {}),
+      type: 'audio', file: t.path, at: t.atSec, in: 0, out: Math.round((end - t.atSec) * 1000) / 1000, name, volume,
+      ...(t.fadeInSec ? { fadeIn: t.fadeInSec } : {}), ...(end >= stop && fadeOut > 0 ? { fadeOut } : {}),
     }];
   });
   return { parts, notes };

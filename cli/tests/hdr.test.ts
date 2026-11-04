@@ -7,7 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { applyEdl, buildGraph, sharedConversion } from '../src/commands/apply-edl.ts';
+import { CONVERTED, stampColour } from '../src/colour.ts';
+import { applyEdl, rangeGraph } from '../src/commands/apply-edl.ts';
 import { concatVideos, filterGraph } from '../src/commands/concat-videos.ts';
 import { extractFrames } from '../src/commands/frames.ts';
 import { FFMPEG } from '../src/config.ts';
@@ -18,7 +19,7 @@ import {
   SDR_NEIGHBOURS, SDR_REFERENCE, assertConverted, expectedLuma, hdr10Data, hdrClip, lumaOf, type Transfer,
 } from './helpers/hdr.ts';
 import {
-  SINE, TESTSRC, captureConsole, captureConsoleAsync, meanAbsDiff, probeStream, rawFrame, scratchDir, synthClip,
+  SINE, TESTSRC, captureConsoleAsync, meanAbsDiff, probeStream, rawFrame, scratchDir, synthClip,
 } from './helpers/synth.ts';
 
 const BT709 = { color_primaries: 'bt709', color_transfer: 'bt709', color_space: 'bt709' };
@@ -127,104 +128,85 @@ await test('a state folder named relative to where the CLI runs is still read by
   }
 });
 
-await test('apply-edl: only an HDR source\'s ranges are converted, and every range is labelled before the join', () => {
+await test('apply-edl: only an HDR source\'s ranges are converted, before they are scaled, and every range is labelled for the join', () => {
   const range = (source: string, start: number) => ({ source, start, end: start + 0.4, fps: 25 });
-  const { filter } = buildGraph([range('a', 0), range('b', 0), range('a', 0.4)], [0, 0, 0], { width: 320, height: 240 }, BT709_TAGS, 0.04,
-    { hdr: new Map([['b', toSdr(colourTagsOf(hlg))]]) });
-  const chains = filter.split(';');
-  const video = (i: number) => chains.find((c) => c.startsWith(`[${i}:v]`))!;
-  assert.doesNotMatch(video(0), /lut1d/);
-  assert.match(video(1), /lut1d=/);
-  assert.doesNotMatch(video(2), /lut1d/);
-  for (const i of [0, 1, 2]) assert.match(video(i), /setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709\[v\d\]$/);
+  const chain = toSdr(colourTagsOf(hlg));
+  const graph = (source: string, start: number, hdr?: string) => rangeGraph(range(source, start), 0, { width: 320, height: 240 }, stampColour(CONVERTED, BT709_TAGS), '25/1', { hdr });
+  assert.doesNotMatch(graph('a', 0), /lut1d/);
+  assert.ok(graph('b', 0, chain).includes(`setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop=5,${chain},scale=320:240`), 'converted, then scaled');
+  for (const g of [graph('a', 0), graph('b', 0, chain), graph('a', 0.4)]) assert.match(g, /setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv\[v\]$/);
 });
 
 let n = 0;
-function assemble(sources: Record<string, string>, ids: string[], args: string[] = []): { out: string; printed: string } {
+async function assemble(sources: Record<string, string>, ids: string[], args: string[] = []): Promise<{ out: string; printed: string }> {
   const edl = join(dir, `edl-${n}.json`);
   const out = join(dir, `cut-${n++}.mp4`);
   // Ten frames a range at 25 fps, so frame k of the second range is frame 10 + k of the cut.
   writeFileSync(edl, JSON.stringify({ sources, ranges: ids.map((source) => ({ source, start: 0, end: 0.4 })) }));
-  return { out, printed: captureConsole(() => applyEdl(['--edl', edl, '--out', out, ...args])).out };
+  return { out, printed: (await captureConsoleAsync(() => applyEdl(['--edl', edl, '--out', out, ...args]))).out };
 }
 
-await test('apply-edl: a cut of one HDR clip is converted once, after the join, its ranges joined in their own colour', () => {
-  const range = (start: number) => ({ source: 'a', start, end: start + 0.4, fps: 25 });
-  const once = toSdr(colourTagsOf(hlg));
-  const { filter } = buildGraph([range(0), range(0.4)], [0, 0], { width: 320, height: 240 },
-    { primaries: 'bt2020', transfer: 'arib-std-b67', space: 'bt2020nc' }, 0.04, { after: once });
-  assert.equal(filter.split('lut1d=').length, 3, 'one conversion: two curves');
-  for (const i of [0, 1]) assert.match(filter, new RegExp(`colorspace=bt2020nc\\[v${i}\\]`));
-  assert.ok(filter.includes(`concat=n=2:v=1:a=0,${once}[vout]`), filter);
-});
-
-await test('apply-edl: HDR sources of another bit depth or size are each converted before the join, not once after it', () => {
+await test('apply-edl: HDR sources of another bit depth or size are each converted on their own range, before it is scaled', async () => {
   const chain = toSdr(colourTagsOf(hlg));
-  const at = (pixFmt: string, width = 320, height = 240) => ({ chain, size: { width, height }, pixFmt });
-  assert.equal(sharedConversion([at('yuv420p'), at('yuv420p')]), chain);
-  assert.equal(sharedConversion([at('yuv420p'), at('yuv420p10le')]), undefined, 'concat would cut the 10-bit source to 8 bits');
-  assert.equal(sharedConversion([at('yuv420p'), at('yuv420p', 160, 120)]), undefined, 'the canvas scale would resample an HLG signal');
-  assert.equal(sharedConversion([at('yuv420p'), { ...at('yuv420p'), chain: toSdr(colourTagsOf(pq)) }]), undefined);
-  assert.equal(sharedConversion([at('yuv420p'), { ...at('yuv420p'), chain: undefined }]), undefined);
   // Encoded losslessly after an 8-bit 320x240 clip, each range is exactly its source converted first. Converted
-  // once after the join instead, the ramp is cut to 8 bits and the small clip scaled as HLG, and both move.
+  // after a join or a scale instead, the ramp is cut to 8 bits and the small clip scaled as HLG, and both move.
   const lanczos = 'scale=320:240:force_original_aspect_ratio=decrease:flags=lanczos';
   const y = (file: string, frame: number, vf?: string) => rawFrame(file, frame, vf).subarray(0, W * 240);
   for (const [name, first, after] of [['ramp10.mp4', chain, `format=yuv420p,${chain}`], ['small.mp4', `${chain},${lanczos}`, `${lanczos},${chain}`]]) {
     const source = join(dir, name);
     const right = y(source, 5, first);
     assert.ok(meanAbsDiff(right, y(source, 5, after)) > 0.15, `${name}: the two orders differ on this clip`);
-    const got = y(assemble({ a: 'hlg.mp4', b: name }, ['a', 'b'], ['--crf', '0']).out, 15);
+    const got = y((await assemble({ a: 'hlg.mp4', b: name }, ['a', 'b'], ['--crf', '0'])).out, 15);
     const off = meanAbsDiff(got, right);
     assert.ok(off < 0.05, `${name}: ${off.toFixed(3)} levels from its source converted before the join`);
   }
 });
 
-await test('apply-edl: an HLG source comes out SDR, tagged bt709, as the reference converts it', () => {
-  const { out, printed } = assemble({ a: 'hlg.mp4' }, ['a', 'a']);
+await test('apply-edl: an HLG source comes out SDR, tagged bt709, as the reference converts it', async () => {
+  const { out, printed } = await assemble({ a: 'hlg.mp4' }, ['a', 'a']);
   assert.deepEqual(probeStream(out, 'v:0', TAGS), BT709);
   assert.match(printed, /colour bt709\/bt709\/bt709\.\n {2}source "a" is HDR \(HLG, bt2020\/arib-std-b67\/bt2020nc\): converted to SDR BT\.709/);
   converted(hlg, 5, lumaOf(out, 5, 'video'), 'arib-std-b67', 'the cut');
   converted(hlg, 2, lumaOf(out, 12, 'video'), 'arib-std-b67', 'its second range');
 });
 
-await test('HDR coded with a matrix ffmpeg cannot decode is refused by name, and nothing says it was converted', (t) => {
+await test('HDR coded with a matrix ffmpeg cannot decode is refused by name, and nothing says it was converted', async (t) => {
   const space = colourTagsOf(retag(pq, 'cl.mp4', { matrix: [10, 'bt2020c'] })).declared.space;
   if (space !== 'bt2020c') {
     t.skip(`this ffmpeg did not carry the bt2020c matrix into the fixture: ffprobe reads ${space}`);
     return;
   }
   let printed = '';
-  assert.throws(() => { printed = assemble({ a: 'cl.mp4' }, ['a']).printed; },
+  await assert.rejects(async () => { printed = (await assemble({ a: 'cl.mp4' }, ['a'])).printed; },
     /source "a" is HDR coded with the bt2020c matrix, which ffmpeg cannot decode, so it cannot be converted to SDR/);
   assert.doesNotMatch(printed, /converted/);
   assert.throws(() => extractFrames(join(dir, 'cl.mp4'), { out: join(dir, 'cl-stills'), frame: ['1'] }), /cl\.mp4 is HDR coded with the bt2020c matrix/);
 });
 
-await test('apply-edl: an HDR10 source loses its metadata with its HDR, and a count of frames reads past side data', () => {
+await test('apply-edl: an HDR10 source loses its metadata with its HDR, and a count of frames reads past side data', async () => {
   assert.deepEqual(hdr10Data(pq, 'stream'), ['Mastering display metadata', 'Content light level metadata'], 'the fixture carries HDR10 boxes');
   // ffprobe prints an empty field for the stream's side data after the count.
   assert.equal(countFrames(pq), 25);
-  const { out, printed } = assemble({ a: 'pq.mp4' }, ['a']);
+  const { out, printed } = await assemble({ a: 'pq.mp4' }, ['a']);
   assert.deepEqual(probeStream(out, 'v:0', TAGS), BT709);
   assert.deepEqual([hdr10Data(out, 'stream'), hdr10Data(out, 'frame')], [[], []]);
   assert.match(printed, /source "a" is HDR \(PQ, bt2020\/smpte2084\/bt2020nc\)/);
   converted(pq, 5, lumaOf(out, 5, 'video'), 'smpte2084', 'the cut');
 });
 
-await test('apply-edl: an untagged SDR clip beside an HLG one is left as it was, and the HLG one is converted', () => {
-  const { out, printed } = assemble({ a: 'untagged.mp4', b: 'hlg.mp4' }, ['a', 'b']);
+await test('apply-edl: an untagged SDR clip beside an HLG one is left as it was, and the HLG one is converted', async () => {
+  const { out, printed } = await assemble({ a: 'untagged.mp4', b: 'hlg.mp4' }, ['a', 'b']);
   assert.deepEqual(probeStream(out, 'v:0', TAGS), BT709);
   assert.doesNotMatch(printed, /source "a" is HDR/);
   // Converting it too, or relabelling it in the join, moves it far more than one re-encode does (0.2).
   const kept = meanAbsDiff(rawFrame(out, 2), rawFrame(untagged, 2));
   assert.ok(kept < 0.6, `the untagged range moved ${kept.toFixed(2)} levels`);
   converted(hlg, 2, lumaOf(out, 12, 'video'), 'arib-std-b67', 'the HLG range', 2);
-  assert.deepEqual(probeStream(assemble({ a: 'hlg.mp4', b: 'pq.mp4' }, ['a', 'b']).out, 'v:0', TAGS), BT709, 'HLG joins PQ');
+  assert.deepEqual(probeStream((await assemble({ a: 'hlg.mp4', b: 'pq.mp4' }, ['a', 'b'])).out, 'v:0', TAGS), BT709, 'HLG joins PQ');
 });
 
-await test('apply-edl and frames: HDR declared on the transfer alone is converted as BT.2020, and said to be', () => {
-  const { out, printed } = assemble({ a: 'transfer-only.mp4' }, ['a']);
+await test('apply-edl and frames: HDR declared on the transfer alone is converted as BT.2020, and said to be', async () => {
+  const { out, printed } = await assemble({ a: 'transfer-only.mp4' }, ['a']);
   assert.deepEqual(probeStream(out, 'v:0', TAGS), BT709);
   assert.match(printed, /colour bt709\/bt709\/bt709\.\n {2}source "a" is HDR \(HLG, bt2020 \(unset\)\/arib-std-b67\/bt2020nc \(unset\)\)/);
   assert.doesNotMatch(printed, /assumed/, 'a converted source is not one whose colour was assumed');
@@ -233,8 +215,8 @@ await test('apply-edl and frames: HDR declared on the transfer alone is converte
   converted(transferOnly, 5, lumaOf(plan.stills[0].path, 0, 'still'), 'arib-std-b67', 'the still');
 });
 
-await test('apply-edl and frames: PQ in P3 primaries is converted from P3, not read as BT.2020', () => {
-  const { out, printed } = assemble({ a: 'p3.mp4' }, ['a']);
+await test('apply-edl and frames: PQ in P3 primaries is converted from P3, not read as BT.2020', async () => {
+  const { out, printed } = await assemble({ a: 'p3.mp4' }, ['a']);
   assert.deepEqual(probeStream(out, 'v:0', TAGS), BT709);
   assert.match(printed, /source "a" is HDR \(PQ, smpte432\/smpte2084\/bt2020nc\)/);
   assertConverted(p3, 5, lumaOf(out, 5, 'video'), { transfer: 'smpte2084', primaries: 'smpte432', width: W, tolerance: 1.5, what: 'the cut' });
@@ -252,11 +234,12 @@ await test('frames: an HDR still is the converted picture, and says so', () => {
 });
 
 await test('concat-videos: an HDR clip is converted before it is fitted, and every clip is labelled BT.709 before the join', async () => {
+  const stamp = stampColour(CONVERTED, BT709_TAGS);
   const graph = filterGraph({ width: 320, height: 240 }, 'letterbox', [{ hasAudio: true, duration: 1 }, { hasAudio: true, duration: 1 }],
-    [null, toSdr(colourTagsOf(hlg))], BT709_TAGS);
+    [null, toSdr(colourTagsOf(hlg))], [stamp, stamp]);
   assert.match(graph, /^\[0:v\]scale=320:240:/);
   assert.match(graph, /\[1:v\]scale=in_color_matrix=bt2020,format=gbrpf32le,lut1d=/);
-  for (const i of [0, 1]) assert.match(graph, new RegExp(`fps=30,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709\\[v${i}\\]`));
+  for (const i of [0, 1]) assert.match(graph, new RegExp(`fps=30,.*setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv\\[v${i}\\]`));
   // Untagged first, so the label would otherwise be the first clip's: none at all.
   const out = join(dir, 'joined.mp4');
   const printed = await captureConsoleAsync(() => concatVideos([untagged, hlg, pq], out));
@@ -269,7 +252,10 @@ await test('concat-videos: an HDR clip is converted before it is fitted, and eve
   converted(hlg, 0, lumaOf(out, 30, 'video'), 'arib-std-b67', 'the HLG clip', 2);
   converted(pq, 0, lumaOf(out, 60, 'video'), 'smpte2084', 'the PQ clip', 2);
   const sd = synthClip(dir, 'sd.mp4', { video: TESTSRC, audio: SINE, seconds: 1, vf: 'setparams=color_primaries=smpte170m:color_trc=smpte170m:colorspace=smpte170m' });
-  await assert.rejects(concatVideos([sd, hlg], join(dir, 'mixed.mp4')), /sources disagree on colour/, 'an SD clip is not relabelled BT.709');
+  // An SD clip first: the converted HDR clip joins under its colour, as any SD and HD clips do.
+  const mixed = join(dir, 'mixed.mp4');
+  await captureConsoleAsync(() => concatVideos([sd, hlg], mixed));
+  assert.deepEqual(probeStream(mixed, 'v:0', TAGS), { color_primaries: 'smpte170m', color_transfer: 'smpte170m', color_space: 'smpte170m' });
 });
 
 await test('the conversion check has teeth: a frame left unconverted, or converted with any parameter moved, fails it', () => {

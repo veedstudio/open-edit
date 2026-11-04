@@ -12,6 +12,8 @@ import {
 } from '../src/commands/mux-audio.ts';
 import { channelLevels, toStereo } from '../src/channels.ts';
 import { FFMPEG } from '../src/config.ts';
+import { decode, envelopeOf } from '../src/commands/speech-probe.ts';
+import { lastSoundOf, TAIL_SECONDS } from '../src/verify/dead-tail.ts';
 import { hdrClip } from './helpers/hdr.ts';
 import { SINE, TESTSRC, bandLevels, captureConsole, probeStream, scratchDir, synthClip } from './helpers/synth.ts';
 
@@ -167,10 +169,14 @@ await test('the output lands where --out names, and the per-attempt temp file is
   assert.deepEqual(readdirSync(join(dir, 'delivered')), ['film.mp4']);
 });
 
-await test('a missing --audio or --out is refused by name rather than guessed', () => {
+await test('a missing --audio or --out is refused by name rather than guessed, and so are --audio and --music together', () => {
   const { result, err } = captureConsole(() => muxAudio(['--video', picture('lonely'), '--out', join(dir, 'x.mp4')]));
   assert.equal(result, 2);
-  assert.match(err, /pass --video, --audio and --out together/);
+  assert.match(err, /pass --video, --out and one of --audio or --music/);
+  const track = synthClip(dir, 'both-flags.m4a', { audio: SINE, seconds: 2 });
+  const both = captureConsole(() => muxAudio(['--video', picture('both-flags'), '--audio', track, '--music', track, '--out', join(dir, 'z.mp4')]));
+  assert.equal(both.result, 2);
+  assert.match(both.err, /one of --audio or --music/);
 });
 
 await test('a --video that does not exist is named as the missing input', () => {
@@ -186,4 +192,51 @@ await test('a --video with stream side data (HDR10\'s, or a phone\'s rotation) i
   const { result, err } = captureConsole(() => muxAudio(['--video', video, '--audio', track, '--out', out, '--no-loudnorm']));
   assert.equal(result, 0, err);
   assert.ok(Math.abs(Number(probeStream(out, 'a:0', 'duration').duration) - 2) < 0.1, 'the sound is cut where the picture ends');
+});
+
+// --- the sound reaches the ends of the picture -----------------------------------------------
+
+/** Where the last sound in a file ends, gated as the review's dead-tail check gates it. */
+const lastSound = (file: string) => lastSoundOf(envelopeOf(decode(file, null), 1600), 100).end ?? 0;
+
+await test('--music runs a 10 s music file under a 30 s picture to its last frame, looped and faded out', () => {
+  const music = synthClip(dir, 'bed-10s.m4a', { audio: 'aevalsrc=sin(2*PI*200*t)/8|sin(2*PI*200*t)/8:s=48000', seconds: 10 });
+  const video = synthClip(dir, 'bed-30s-render.mp4', { video: TESTSRC, seconds: 30 });
+  const out = join(dir, 'bed', 'out.mp4');
+  const { result, out: said, err } = captureConsole(() => muxAudio(['--video', video, '--music', music, '--out', out]));
+  assert.equal(result, 0, err);
+  assert.match(said, /^mux: .*bed-10s\.m4a looped to 30s \(its sound ends 10s in\): 3 repeats joined by 1s crossfades, faded out over the last 1\.5s$/m);
+  assert.doesNotMatch(said, /is silent for/, 'nothing silent is left to say');
+  assert.ok(Math.abs(Number(probeStream(out, 'a:0', 'duration').duration) - 30) < 0.1);
+  assert.ok(lastSound(out) > 30 - TAIL_SECONDS, `sound to within a beat of the end: ${lastSound(out)}s`);
+  assert.ok(bandLevels(out, 200, [29.6, 30])[0] < bandLevels(out, 200, [20, 25])[0] - 10, 'faded into the last frame');
+  assert.deepEqual(readdirSync(join(dir, 'bed')), ['out.mp4'], 'the fitted bed it built is not left behind');
+});
+
+// Two delivered runs passed generated music, as long as the picture, straight to mux-audio: its own fade into
+// silence left 2.5 s and 1.1 s silent under the last frames.
+await test('--music loops a piece whose sound ends before its file does, which --audio lays on as it is and names', () => {
+  const music = synthClip(dir, 'fades-early.m4a', { audio: 'aevalsrc=sin(2*PI*200*t)/8*if(lt(t\\,6)\\,1\\,max(0\\,7-t)):s=48000', seconds: 10 });
+  const video = synthClip(dir, 'fades-early-render.mp4', { video: TESTSRC, seconds: 10 });
+  const fitted = join(dir, 'fades-early', 'music.mp4');
+  const asMusic = captureConsole(() => muxAudio(['--video', video, '--music', music, '--out', fitted]));
+  assert.equal(asMusic.result, 0, asMusic.err);
+  assert.match(asMusic.out, /fades-early\.m4a looped to 10s \(its sound ends 6\.\ds in\): 1 repeat joined by a 1s crossfade/);
+  assert.ok(lastSound(fitted) > 10 - TAIL_SECONDS, `sound to within a beat of the end: ${lastSound(fitted)}s`);
+  const asIs = join(dir, 'fades-early', 'audio.mp4');
+  const asAudio = captureConsole(() => muxAudio(['--video', video, '--audio', music, '--out', asIs]));
+  assert.equal(asAudio.result, 0, asAudio.err);
+  assert.match(asAudio.out, /^mux: .*audio\.mp4 is silent for its last 3\.\d\ds, after 6\.\d\ds$/m);
+});
+
+await test('mux-audio prints a silent opening and ending of what it wrote longer than a beat, and nothing for a full one', () => {
+  const video = synthClip(dir, 'gaps-render.mp4', { video: TESTSRC, seconds: 10 });
+  const gaps = synthClip(dir, 'gaps.m4a', { audio: `aevalsrc=sin(2*PI*1000*t)/8*between(t\\,1.5\\,7):s=48000`, seconds: 10 });
+  const { result, out } = captureConsole(() => muxAudio(['--video', video, '--audio', gaps, '--out', join(dir, 'gaps', 'out.mp4')]));
+  assert.equal(result, 0);
+  assert.match(out, /^mux: .*gaps[\\/]out\.mp4 is silent for its first 1\.50s, and its last 3\.00s, after 7\.00s$/m);
+  const short = synthClip(dir, 'short-gap.m4a', { audio: `aevalsrc=sin(2*PI*1000*t)/8*between(t\\,0.5\\,9.5):s=48000`, seconds: 10 });
+  const beat = captureConsole(() => muxAudio(['--video', video, '--audio', short, '--out', join(dir, 'short-gap', 'out.mp4')]));
+  assert.equal(beat.result, 0);
+  assert.doesNotMatch(beat.out, /silent/, 'half a second at each end is a beat, not a silence');
 });

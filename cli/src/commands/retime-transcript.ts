@@ -3,14 +3,18 @@
 //   openedit retime-transcript --edl <edl.json> --out <transcript.json>
 //
 // A cut changes when words were said, never which, so every word keeps its window and shifts by its
-// range's offset. A word straddling a cut edge is kept only if most of it survives, decided on overlap
-// rather than on its start time alone.
+// range's offset, stretched with its range when that plays at another speed. A word straddling a cut edge is
+// kept only if most of it survives, decided on overlap rather than on its start time alone. A range that plays
+// silent keeps no words: nobody hears them.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
-import { assertRanges, loadEdl, snapRanges, sourceOrder, sourcePath, type EdlRange, type SnappedRange } from '../edl.ts';
-import { readJsonFile } from '../json-file.ts';
+import {
+  assertRanges, loadEdl, locate, playedLength, relocated, snapRanges, soundOf, sourceOrder, sourcePath, stretchOf,
+  type EdlRange, type LoadedEdl, type SnappedRange,
+} from '../edl.ts';
 import { probeFps } from '../probe.ts';
+import { mappedNote, readTranscriptFile } from '../transcript/read-transcript.ts';
 import { collidingRunKey, transcriptPathFor, wordCount } from '../transcript/transcript-cache.ts';
 import type { Transcript, TranscriptChunk, TranscriptWord } from '../transcript/transcript-types.ts';
 
@@ -32,14 +36,15 @@ function touches([a, b]: [number, number], range: EdlRange): boolean {
 }
 
 /**
- * Words whose majority lies inside [start, end), moved so that `start` becomes `offset`.
- * A word overlapping the edge by half its length or less is dropped rather than clipped.
+ * Words whose majority lies inside [start, end), moved so that `start` becomes `offset` and every second after
+ * it lasts `stretch` seconds. A word overlapping the edge by half its length or less is dropped rather than clipped.
  */
 export function placeRange(
   transcript: Transcript,
   range: EdlRange,
   offset: number,
   rangeIndex: number,
+  stretch = 1,
 ): Placed[] {
   const out: Placed[] = [];
   const { start, end } = range;
@@ -51,7 +56,7 @@ export function placeRange(
       if (duration > 0 && Math.min(b, end) - Math.max(a, start) <= duration / 2) return;
       const shifted: TranscriptWord = {
         text: word.text,
-        timestamp: [offset + Math.max(a, start) - start, offset + Math.min(b, end) - start],
+        timestamp: [offset + (Math.max(a, start) - start) * stretch, offset + (Math.min(b, end) - start) * stretch],
       };
       out.push({ word: shifted, chunk: chunkIndex, range: rangeIndex, key: `${range.source}#${chunkIndex}#${wordIndex}` });
     });
@@ -98,14 +103,17 @@ export function retime(ranges: SnappedRange[], loadTranscript: (id: string) => T
   ranges.forEach((range, index) => {
     // A single range may legitimately keep nothing — a b-roll shot, a held title, a pause. Only an
     // edit that keeps nothing ANYWHERE is the mistake, and that is checked once, after the loop.
-    placed.push(...placeRange(transcripts.get(range.source)!, range, offset, index));
-    offset += range.end - range.start;
+    if (soundOf(range) !== 'muted') placed.push(...placeRange(transcripts.get(range.source)!, range, offset, index, stretchOf(range)));
+    offset += playedLength(range);
   });
 
   if (placed.length === 0) {
     throw new Error(
-      'no range in this EDL kept a single word. Check the ranges are in SECONDS and that the ' +
-        'transcripts belong to these sources.',
+      ranges.some((range) => soundOf(range) === 'muted')
+        ? 'no range in this EDL that plays its sound kept a single word; the others play silent (muted, or at a speed ' +
+          'whose sound is silenced), and a silent range keeps no words.'
+        : 'no range in this EDL kept a single word. Check the ranges are in SECONDS and that the ' +
+          'transcripts belong to these sources.',
     );
   }
 
@@ -113,7 +121,7 @@ export function retime(ranges: SnappedRange[], loadTranscript: (id: string) => T
   // right, but counted rather than lost quietly. Counted by IDENTITY: a word two ranges both offered
   // is one word, and a word a repeated take placed twice is one word.
   const touched = new Set<string>();
-  for (const range of ranges) {
+  for (const range of ranges.filter((r) => soundOf(r) !== 'muted')) {
     transcripts.get(range.source)!.chunks.forEach((chunk, chunkIndex) => {
       chunk.words.forEach((word, wordIndex) => {
         if (touches(word.timestamp, range)) touched.add(`${range.source}#${chunkIndex}#${wordIndex}`);
@@ -126,27 +134,35 @@ export function retime(ranges: SnappedRange[], loadTranscript: (id: string) => T
 }
 
 /**
- * A transcript.json read back for arithmetic on its word times: the shape that arithmetic touches, checked
- * so a malformed file is named rather than crashing mid-word. Only the shape: a hosted transcript can
- * carry overlapping items that the local providers' validator refuses, and a reader must not be
- * stricter than the provider that wrote it.
+ * Where each source's transcript is read: the EDL's "transcripts" entry, located as its sources are, else where the
+ * transcribe command wrote that source's. The default is keyed by the video's name, so two sources of one name would
+ * share it, which is the collision the transcribe command already refuses.
  */
-export function readTranscript(path: string): Transcript {
-  const raw = readJsonFile(path) as { chunks?: unknown } | null;
-  const isWord = (w: unknown) => {
-    const word = w as { text?: unknown; timestamp?: unknown } | null;
-    return typeof word?.text === 'string' && Array.isArray(word.timestamp) && word.timestamp.length === 2
-      && word.timestamp.every((t) => typeof t === 'number' && Number.isFinite(t));
-  };
-  const chunks = raw?.chunks;
-  if (!Array.isArray(chunks) || chunks.some((c) => !Array.isArray((c as { words?: unknown } | null)?.words))) {
-    throw new Error(`${path} is not a transcript.json: expected chunks[] with words[] in each`);
+export function transcriptPathsOf(loaded: LoadedEdl, videos: ReadonlyMap<string, string>): Map<string, string> {
+  const declared = (id: string) => (Object.hasOwn(loaded.edl.transcripts ?? {}, id) ? loaded.edl.transcripts![id] : undefined);
+  const ids = [...videos.keys()];
+  const collision = collidingRunKey([...new Set(ids.filter((id) => declared(id) === undefined).map((id) => videos.get(id)!))]);
+  if (collision) {
+    throw new Error(
+      `sources ${collision.videos.map((v) => `"${v}"`).join(' and ')} share the run key "${collision.key}", so they would read ` +
+        'one transcript — point the EDL\'s "transcripts" map at each source\'s file.',
+    );
   }
-  if (chunks.some((c) => !(c as { words: unknown[] }).words.every(isWord))) {
-    throw new Error(`${path} is not a transcript.json: every word needs text and a [start, end] timestamp in seconds`);
-  }
-  return raw as Transcript;
+  return new Map(ids.map((id) => {
+    const named = declared(id);
+    return [id, named === undefined ? transcriptPathFor(videos.get(id)!) : locate(loaded, named).path];
+  }));
 }
+
+/** One line for each "transcripts" entry found somewhere other than beside the EDL. */
+export const relocatedTranscripts = (loaded: LoadedEdl): string[] =>
+  relocated(loaded, [], Object.entries(loaded.edl.transcripts ?? {}).map(([id, named]) => ({ what: `the transcript of "${id}"`, named })));
+
+/** The warning for words a cut edge split too finely to keep, or null when there are none. */
+export const droppedNote = (dropped: number): string | null => (dropped > 0
+  ? `${dropped} word(s) sat across a cut edge with too little of them left to keep. ` +
+    'Move that edge to a gap the speech probe found if any of them mattered.'
+  : null);
 
 export const usage = {
   summary: "Move existing per-word timings onto an EDL's timeline instead of transcribing again",
@@ -166,24 +182,15 @@ export function retimeTranscript(argv: string[]): number {
   const ids = sourceOrder(loaded.edl.ranges);
   const videos = new Map(ids.map((id) => [id, sourcePath(loaded, id)]));
   const ranges = snapRanges(loaded.edl.ranges, new Map(ids.map((id) => [id, probeFps(videos.get(id)!)])));
-
-  // An explicit `transcripts` entry may point anywhere; the default is where the transcribe command
-  // wrote this source's transcript, so the id stays a free label — and two sources with one basename
-  // would share that default, which is the collision the transcribe command already refuses.
-  const declaredPath = (id: string) => (Object.hasOwn(loaded.edl.transcripts ?? {}, id) ? loaded.edl.transcripts![id] : undefined);
-  const collision = collidingRunKey([...new Set(ids.filter((id) => declaredPath(id) === undefined).map((id) => videos.get(id)!))]);
-  if (collision) {
-    throw new Error(
-      `sources ${collision.videos.map((v) => `"${v}"`).join(' and ')} share the run key "${collision.key}", so they would read ` +
-        'one transcript — point the EDL\'s "transcripts" map at each source\'s file.',
-    );
-  }
+  const paths = transcriptPathsOf(loaded, videos);
 
   const load = (id: string): Transcript => {
-    const declared = declaredPath(id);
-    const path = declared === undefined ? transcriptPathFor(videos.get(id)!) : resolve(loaded.base, declared);
+    const path = paths.get(id)!;
     try {
-      return readTranscript(path);
+      const read = readTranscriptFile(path);
+      const note = mappedNote(path, read);
+      if (note) console.log(`  source "${id}": ${note}`);
+      return read.transcript;
     } catch (cause) {
       const missing = (cause as NodeJS.ErrnoException).code === 'ENOENT';
       throw new Error(
@@ -200,15 +207,12 @@ export function retimeTranscript(argv: string[]): number {
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify(result, null, 2));
 
-  if (droppedAtEdges > 0) {
-    console.warn(
-      `  ${droppedAtEdges} word(s) sat across a cut edge with too little of them left to keep. ` +
-        'Move that edge to a gap the speech probe found if any of them mattered.',
-    );
-  }
+  const dropped = droppedNote(droppedAtEdges);
+  if (dropped) console.warn(`  ${dropped}`);
   const duration = result.chunks.at(-1)?.timestamp[1] ?? 0;
   console.log(
-    `retimed ${wordCount(result)} words into ${result.chunks.length} chunks over ${duration.toFixed(3)}s -> ${outPath}`,
+    `retimed ${wordCount(result)} words into ${result.chunks.length} chunks over ${duration.toFixed(3)}s -> ${outPath}` +
+      [...relocated(loaded, ids), ...relocatedTranscripts(loaded)].map((line) => `\n  ${line}.`).join(''),
   );
   return 0;
 }

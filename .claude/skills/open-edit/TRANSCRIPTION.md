@@ -47,8 +47,10 @@ they can switch later. Never record `whisperx` with no tier.
   this project, and `uv tool uninstall whisperx` removes it again. Install it now?" On yes run
   `npx @veedstudio/openedit-cli install-whisperx` and stream its output.
 - **custom** → drive the user's service yourself (their MCP, CLI or API; their credentials, never handled
-  here) to get a Whisper-family JSON, then `npx @veedstudio/openedit-cli whisper <json> <video>` (one json
-  per video, in pairs for a batch). The whisper command is the shipped mapper; driving their service is yours.
+  here) to get its JSON with word times, then `npx @veedstudio/openedit-cli whisper <json> <video>` (one json
+  per video, in pairs for a batch). It maps Whisper's segments, a timed word list, whisper.cpp's offsets, fal's
+  whisper chunks, a voice's character timestamps and a `fal-result.json`, as they came. The whisper command is
+  the shipped mapper; driving their service is yours.
 
 OFFERING THE ALTERNATIVE, once and in these words:
 

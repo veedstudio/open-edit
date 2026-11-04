@@ -11,9 +11,13 @@ import { fromTo, listed, quoted, skippedFor } from './report.ts';
  * The smallest font size, as a fraction of the frame's shorter side: 4.5% is about 49 px on a 1080-wide 9:16 or a
  * 1080-high 16:9 frame, which is a phone's 17 pt body text when the video fills a screen whose short side is 375 pt,
  * turned to the video's orientation (375 / 1080 × 49 ≈ 17): the size text is read at with ease, not the least it can
- * be read at. The safe zone's minimum text size is this floor, so its defaults pass the check.
+ * be read at. The safe zone's minimum text size is this floor, so its defaults pass the check, and render raises text
+ * under it to it.
  */
 export const SIZE_FLOOR = 0.045;
+
+/** Text that is read has a letter or a digit in it; an icon, an arrow or a lone symbol is looked at, and keeps its size. */
+export const READ_TEXT = /[\p{L}\p{N}]/u;
 
 /**
  * The lowest contrast ratio, WCAG 2.2's 3:1 for large-scale text (SC 1.4.3), since text that clears SIZE_FLOOR is
@@ -297,7 +301,8 @@ export async function judgeText(video: string, { path, record }: Found<TextRecor
   const shorter = Math.min(record.width, record.height);
   const floor = SIZE_FLOOR * shorter;
   const small: Finding[] = [];
-  for (const run of runs) {
+  const read = runs.filter((run) => READ_TEXT.test(run.text) && !run.entries[0].svg);
+  for (const run of read) {
     // Judged at its largest, so an entrance that grows a text from nothing is not taken for small text.
     const largest = Math.max(...run.entries.map((e) => e.fontSize));
     if (largest < floor) {
@@ -344,7 +349,8 @@ export async function judgeText(video: string, { path, record }: Found<TextRecor
   }
   if (lines.length) return { verdict: 'found', lines, skipped };
   const contrast = measured ? `, and the ${measured} measured at least ${CONTRAST_FLOOR}:1 against what is behind them` : '';
-  lines.push(`all ${runs.length} text(s) at least ${floor.toFixed(0)}px${contrast}, over ${record.samples.length} sampled frames`);
+  const sized = read.length ? `all ${read.length} text(s) at least ${floor.toFixed(0)}px` : 'no text held to the size floor, only icons, symbols and SVG text';
+  lines.push(`${sized}${contrast}, over ${record.samples.length} sampled frames`);
   return { verdict: 'pass', lines, skipped };
 }
 

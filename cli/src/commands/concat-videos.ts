@@ -13,39 +13,23 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { FFMPEG, FFPROBE } from '../config.ts';
-import { converted, describeHdr, hdrKind, toSdr } from '../hdr.ts';
-import { colourTagsOf, probeSquareSize, type ColourReport, type ColourTags } from '../probe.ts';
+import { joinColour } from '../colour.ts';
+import { describeHdr, hdrKind, toSdr } from '../hdr.ts';
+import { decodedColourOf, probeSquareSize, type DecodedColour } from '../probe.ts';
 import { resolveVideoArg } from '../resolve-video.ts';
 import { asShown } from '../shown.ts';
-import { decideColour } from './apply-edl.ts';
+import { evenSize, parseCanvas, type Size } from '../size.ts';
 import { cropFor, describeShape, parseFit, planShape, shapeChain, type Fit } from './reframe.ts';
 
 const run = promisify(execFile);
-
-export interface Size {
-  width: number;
-  height: number;
-}
 
 export function aspectOf(size: Size): number {
   return size.width / size.height;
 }
 
-// Even dimensions: yuv420p chroma is subsampled 2x, and an odd width or height makes the encoder fail
-// with a message that says nothing about the real cause.
-export function evenSize(size: Size): Size {
-  return { width: Math.max(2, size.width - (size.width % 2)), height: Math.max(2, size.height - (size.height % 2)) };
-}
-
 export function largestByArea(sizes: Size[]): Size {
   if (sizes.length === 0) throw new Error('no inputs to size a canvas from');
   return evenSize(sizes.reduce((a, b) => (b.width * b.height > a.width * a.height ? b : a)));
-}
-
-export function parseCanvas(text: string): Size {
-  const m = /^(\d+)x(\d+)$/.exec(text.trim());
-  if (!m) throw new Error(`--canvas expects WIDTHxHEIGHT, got "${text}"`);
-  return evenSize({ width: Number(m[1]), height: Number(m[2]) });
 }
 
 // Per-input audio facts the concat needs: whether the clip HAS an audio track, and how long it runs so a
@@ -60,15 +44,15 @@ export interface InputMeta extends AudioTrack {
   size: Size;
   /** The pixel aspect it is stored in, 1 for square pixels. */
   sar: number;
-  colour: ColourReport;
+  colour: DecodedColour;
 }
 
 /**
  * One chain per input: its SDR conversion (`sdr[i]`), its cut to the canvas's shape (`shapes[i]`), then the fit,
- * where crop covers and letterbox pads what even pixels leave. `tags` labels every clip alike before the join,
- * which concat would otherwise take from the first clip and newer libavfilter would convert between.
+ * where crop covers and letterbox pads what even pixels leave. `colours[i]` brings every clip to one colour and labels
+ * it before the join, which concat would otherwise take from the first clip and newer libavfilter would convert between.
  */
-export function filterGraph(canvas: Size, fit: Fit, audio: AudioTrack[], sdr: (string | null)[] = [], tags?: ColourTags,
+export function filterGraph(canvas: Size, fit: Fit, audio: AudioTrack[], sdr: (string | null)[] = [], colours: string[][] = [],
   shapes: string[][] = []): string {
   const { width: W, height: H } = canvas;
   // Without force_original_aspect_ratio ffmpeg stretches and every face goes oval.
@@ -77,8 +61,7 @@ export function filterGraph(canvas: Size, fit: Fit, audio: AudioTrack[], sdr: (s
     : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black`;
   const parts: string[] = [];
   audio.forEach((track, i) => {
-    const label = tags ? `,setparams=color_primaries=${tags.primaries}:color_trc=${tags.transfer}:colorspace=${tags.space}` : '';
-    parts.push(`[${i}:v]${[sdr[i], ...(shapes[i] ?? []), fitTo].filter(Boolean).join(',')},setsar=1,fps=30${label}[v${i}]`);
+    parts.push(`[${i}:v]${[sdr[i], ...(shapes[i] ?? []), fitTo, 'setsar=1', 'fps=30', ...(colours[i] ?? [])].filter(Boolean).join(',')}[v${i}]`);
     // A clip with no audio track cannot be mapped as [i:a]; ffmpeg aborts the whole concat with an opaque
     // "Stream specifier :a matches no streams". Synthesise silence of the clip's own length instead, so
     // concat's a=1 always has a stream and a silent motion-graphics shot joins like any other.
@@ -92,12 +75,12 @@ export function filterGraph(canvas: Size, fit: Fit, audio: AudioTrack[], sdr: (s
   return parts.join(';');
 }
 
-export function ffmpegArgs(inputs: string[], out: string, canvas: Size, fit: Fit, audio: AudioTrack[], sdr: (string | null)[] = [], tags?: ColourTags,
+export function ffmpegArgs(inputs: string[], out: string, canvas: Size, fit: Fit, audio: AudioTrack[], sdr: (string | null)[] = [], colours: string[][] = [],
   shapes: string[][] = []): string[] {
   return [
     '-loglevel', 'error', '-y',
     ...inputs.flatMap((i) => ['-i', i]),
-    '-filter_complex', filterGraph(canvas, fit, audio, sdr, tags, shapes),
+    '-filter_complex', filterGraph(canvas, fit, audio, sdr, colours, shapes),
     '-map', '[v]', '-map', '[a]',
     '-c:v', 'libx264', '-crf', '20', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '192k',
@@ -124,7 +107,7 @@ export async function probeInput(file: string): Promise<InputMeta> {
     sar,
     hasAudio: streams.some((s) => s.codec_type === 'audio'),
     duration,
-    colour: colourTagsOf(file),
+    colour: decodedColourOf(file),
   };
 }
 
@@ -147,9 +130,8 @@ export async function concatVideos(inputs: string[], out: string, opts: ConcatOp
   // Planned before anything is encoded, so stale face boxes are refused up front.
   const plans = fit === 'crop' ? paths.map((p, i) => planShape(p, aspectOf(target), { label: inputs[i], ways: ', or join with --fit letterbox' })) : null;
   const sdr = metas.map((m, i) => (hdrKind(m.colour) ? toSdr(m.colour, inputs[i]) : null));
-  // A converted clip is BT.709, so the others must be too, as apply-edl decides it: a clip of another colour
-  // would otherwise be labelled with whichever clip came first.
-  const tags = sdr.some(Boolean) ? decideColour(inputs.map((id, i) => ({ id, colour: converted(metas[i].colour) }))).tags : undefined;
+  // Every clip is brought to the first clip's colour, as apply-edl brings the ranges of a cut.
+  const { stamps: colours } = joinColour(metas.map((m, i) => ({ id: inputs[i], colour: m.colour, sdr: sdr[i] !== null })));
   const work = mkdtempSync(join(tmpdir(), 'open-edit-concat-'));
   try {
     const shapes = metas.map((m, i) => {
@@ -159,7 +141,7 @@ export async function concatVideos(inputs: string[], out: string, opts: ConcatOp
       if (script) writeFileSync(join(work, script.file), script.text);
       return filters;
     });
-    await run(FFMPEG, ffmpegArgs(paths, resolve(out), target, fit, metas, sdr, tags, shapes), { cwd: work });
+    await run(FFMPEG, ffmpegArgs(paths, resolve(out), target, fit, metas, sdr, colours, shapes), { cwd: work });
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

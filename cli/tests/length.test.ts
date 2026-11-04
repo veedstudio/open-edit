@@ -6,26 +6,29 @@ import { test } from 'node:test';
 import type { LengthInput } from '../src/verify/checks.ts';
 import { measureLength, toleranceFor } from '../src/verify/length.ts';
 
-const judge = (duration: number, askedLength: LengthInput) =>
-  measureLength({ video: 'out.mp4', duration, transcript: { missing: 'none' }, askedLength, textRecord: { missing: 'none' } });
+// Asked with --length unless the case says where else.
+const judge = (duration: number, asked: { seconds: number; from?: string } | { missing: string }) => {
+  const askedLength: LengthInput = 'missing' in asked ? asked : { from: '--length', ...asked };
+  return measureLength({ video: 'out.mp4', duration, transcript: { missing: 'none' }, askedLength, textRecord: { missing: 'none' }, brief: { missing: 'none' } });
+};
 
 await test('a render shorter than the length asked for is reported with both durations', () => {
   const report = judge(20.8, { seconds: 25 });
   assert.equal(report.verdict, 'found');
-  assert.deepEqual(report.lines, ['the video is 20.80s, 4.20s shorter than the 25.00s asked for, more than the 1.25s allowed']);
+  assert.deepEqual(report.lines, ['the video is 20.80s, 4.20s shorter than the 25.00s asked for (--length), more than the 1.25s allowed']);
   assert.deepEqual(report.skipped, []);
 });
 
 await test('a render longer than the length asked for is reported too', () => {
   const report = judge(31, { seconds: 25 });
   assert.equal(report.verdict, 'found');
-  assert.match(report.lines[0], /^the video is 31\.00s, 6\.00s longer than the 25\.00s asked for/);
+  assert.match(report.lines[0], /^the video is 31\.00s, 6\.00s longer than the 25\.00s asked for \(--length\)/);
 });
 
 await test('a render within the tolerance passes, and says how close it came', () => {
   const report = judge(24, { seconds: 25 });
   assert.equal(report.verdict, 'pass');
-  assert.deepEqual(report.lines, ['on length: 24.00s against the 25.00s asked for, 1.00s off, within the 1.25s allowed']);
+  assert.deepEqual(report.lines, ['on length: 24.00s against the 25.00s asked for (--length), 1.00s off, within the 1.25s allowed']);
 });
 
 await test('the tolerance is a second on a short piece and 5% on a longer one, either way', () => {

@@ -4,13 +4,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { FFMPEG } from '../src/config.ts';
 import { chromePlatform, installedChrome } from '../src/render/browser.ts';
 import { FORMATS, formatNamed, minText, stylesheet, zoneFor, type Format, type Size } from '../src/commands/safe-zone.ts';
+import { facesScript, type FacesClip } from '../src/faces/page-script.ts';
 import { readRecord, recordPath } from '../src/render/text-record.ts';
 import { judgeText } from '../src/verify/text.ts';
 import { scratchDir } from './helpers/synth.ts';
@@ -102,6 +103,17 @@ test('safe-zone: shell spellings, apps posted in one shape, and apps posted in s
   assert.throws(() => zoneFor(formatNamed('tiktok', { canvas: SQUARE }), SQUARE), /a 1080x1080 canvas is not 9:16/);
   assert.throws(() => formatNamed('vine'), /"vine" names no safe-zone format, so a page of a shape with none \(2:3 or 21:9, say\) skips this step; the names are 9:16, 16:9, 4:3, 1:1, 4:5, tiktok/);
   for (const name of ['2:3', 'constructor', 'toString']) assert.throws(() => formatNamed(name), /names no safe-zone format/, name);
+});
+
+test('safe-zone: an app named with its shape is that shape\'s zone of the app, with no canvas needed', () => {
+  for (const [name, zone] of [['linkedin 16:9', 'linkedin 16:9'], ['Facebook 1x1', 'facebook 1:1'], ['instagram  4:5', 'instagram 4:5'],
+    ['instagram 9:16', 'reels'], ['youtube 9:16', 'shorts'], ['twitter 16:9', 'x'], ['tiktok 9:16', 'tiktok']]) {
+    assert.equal(formatNamed(name).name, zone, name);
+  }
+  assert.throws(() => formatNamed('tiktok 1:1'), /^Error: tiktok has no 1:1 zone: it is posted as 9:16$/);
+  // A canvas of another shape than the one named is refused where the zone is laid on it.
+  assert.throws(() => zoneFor(formatNamed('linkedin 1:1', { canvas: WIDE }), WIDE), /a 1920x1080 canvas is not 1:1/);
+  assert.throws(() => formatNamed('linkedin'), /or name linkedin with its shape \("linkedin 16:9", "linkedin 1:1" or "linkedin 4:5"\)/);
 });
 
 test('safe-zone: another canvas of the shape scales the zone and rounds it inward; another shape is refused', () => {
@@ -286,4 +298,138 @@ test('browser: boxes inside keep within the container unless they ask not to, a 
     return { wide: box('wide').width, free: box('free').width, img: [box('img').width, box('img').height], svg: box('svg').width, oneLine, apart };
   })()`);
   assert.deepEqual(got, { wide: 680, free: 900, img: [680, 340], svg: 1000, oneLine: true, apart: true });
+});
+
+/** A page with no safe-zone stylesheet: a 1080x1920 stage, black, its text white. */
+function bare(dir: string, name: string, body: string, style = '', script = ''): string {
+  const file = join(dir, name);
+  writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;background:#000}
+#stage{position:relative;width:1080px;height:1920px;background:#000;color:#fff;font-family:Arial,sans-serif}
+.at{position:absolute;left:100px}
+${style}</style></head><body><div id="stage">${body}</div>${script}</body></html>`);
+  return file;
+}
+
+const sizes = (out: string, frame: number) =>
+  Object.fromEntries(readRecord(recordPath(out)).samples.find((s) => s.frame === frame)!.texts.map((e) => [e.text, e.fontSize]));
+
+test('render: text under the floor is drawn at it, as a minimum, from the frame it appears in; --no-text-floor keeps the page\'s size', { skip }, async () => {
+  const dir = scratchDir('text-floor');
+  // A 32 px caption, a 64 px title, an arrow and an svg label under the floor, a line set in __seek, and one whose
+  // class grows it past the floor partway.
+  const page = bare(dir, 'floor.html',
+    '<div class="at" style="top:1500px;font-size:32px">A caption at 32 px</div><div class="at" style="top:300px;font-size:64px">A title at 64 px</div>'
+    + '<div class="at" style="top:500px;font-size:20px">→</div><div class="at" id="later" style="top:700px;font-size:30px"></div>'
+    + '<div class="at grow" style="top:900px">Grows</div>'
+    + '<svg style="position:absolute;left:100px;top:1100px" width="200" height="60"><text x="0" y="40" font-size="30" fill="#fff">svg label</text></svg>',
+    '.grow{font-size:30px}.grow.on{font-size:80px}',
+    '<script>window.__seek=(t)=>{document.getElementById(\'later\').textContent=t>=0.1?\'Set later\':\'\';document.querySelector(\'.grow\').classList.toggle(\'on\',t>=0.2);};</script>');
+  const out = join(dir, 'out.mp4');
+  const r = cli(['render', page, '--out', out, '--fps', '10', '--duration', '0.4']);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(sizes(out, 0), { 'A caption at 32 px': 49, 'A title at 64 px': 64, '→': 20, 'Grows': 49, 'svg label': 30 });
+  assert.deepEqual(sizes(out, 3), { 'A caption at 32 px': 49, 'A title at 64 px': 64, '→': 20, 'Set later': 49, 'Grows': 80, 'svg label': 30 });
+  assert.match(r.out, /\n {2}text: raised 3 element\(s\) to 49 px, the floor for this canvas: "A caption at 32 px", "Grows", "Set later"\n/);
+  const report = await judgeText(out, { path: recordPath(out), record: readRecord(recordPath(out)) });
+  assert.doesNotMatch(report.lines.join('\n'), /smaller than a phone's body text/, report.lines.join('\n'));
+
+  const kept = join(dir, 'kept.mp4');
+  const k = cli(['render', page, '--out', kept, '--fps', '10', '--duration', '0.4', '--no-text-floor']);
+  assert.equal(k.code, 0, k.err);
+  assert.equal(sizes(kept, 0)['A caption at 32 px'], 32);
+  assert.doesNotMatch(k.out, /text: raised/);
+  // A patch keeps the floor of the render it patches, so one asked without it is refused rather than spliced in.
+  const mixed = cli(['render', page, '--out', out, '--fps', '10', '--duration', '0.4', '--from', '0.2', '--no-text-floor']);
+  assert.equal(mixed.code, 2, mixed.err);
+  assert.match(mixed.err, /textFloor 49 → undefined/);
+});
+
+test('render: text whose transition covers font-size is held at the floor in every frame on every worker, and the page\'s own transitions still run', { skip }, () => {
+  const dir = scratchDir('text-floor-transition');
+  // One line twice, plain and under transition: all, caption words under one, and a line set in __seek under one. At
+  // 0.5 s the words fade in and a 60 px title grows by their own linear 0.3 s transitions.
+  const page = bare(dir, 'transition.html',
+    '<div class="at" id="plain" style="top:300px;font-size:32px">Held at the floor</div>'
+    + '<div class="at t" id="eased" style="top:600px;font-size:32px">Held at the floor</div>'
+    + '<div class="at" id="words" style="top:900px;font-size:32px"><span class="t">Word</span> <span class="t">by</span> <span class="t">word</span></div>'
+    + '<div class="at t" id="later" style="top:1200px;font-size:30px"></div><div class="at" id="big" style="top:1500px">Big</div>',
+    '.t{transition:all .3s linear}#words .t{opacity:.2}#words.on .t{opacity:1}#big{font-size:60px;transition:font-size .3s linear}#big.on{font-size:90px}',
+    '<script>window.__seek=(t)=>{document.getElementById(\'later\').textContent=t>=1.3?\'Set later\':\'\';'
+    + 'for(const id of [\'words\',\'big\'])document.getElementById(id).classList.toggle(\'on\',t>=0.5);};</script>');
+  const along = (f: number) => Math.min(Math.max(f - 5, 0) / 3, 1);
+  const want = (f: number) => [
+    '#plain 49 1', '#eased 49 1',
+    ...[1, 2, 3].map((k) => `#words>span:nth-child(${k}) 49 ${Math.round((0.2 + 0.8 * along(f)) * 100) / 100}`),
+    ...(f >= 13 ? ['#later 49 1'] : []), `#big ${60 + 30 * along(f)} 1`,
+  ].sort();
+  for (const workers of [1, 3]) {
+    const out = join(dir, `w${workers}.mp4`);
+    const r = cli(['render', page, '--out', out, '--fps', '10', '--duration', '3.6', '--workers', String(workers)]);
+    assert.equal(r.code, 0, r.err);
+    const record = readRecord(recordPath(out));
+    assert.deepEqual(record.samples.map((s) => s.texts.map((e) => `${e.selector} ${e.fontSize} ${e.opacity}`).sort()),
+      record.samples.map((s) => want(s.frame)), `${workers} worker(s)`);
+    // The record reads the style after the capture, so the picture is measured too: the eased line's ink as wide as
+    // the plain one's in every frame.
+    const band = 400;
+    const px = execFileSync(FFMPEG, ['-v', 'error', '-i', out, '-vf', `crop=1080:${band}:0:290`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 1 << 26 });
+    const ink = (f: number, y0: number) => {
+      let [left, right] = [1080, -1];
+      for (let y = y0; y < y0 + 90; y++) {
+        for (let x = 0; x < 1080; x++) if (px[(f * band + y) * 1080 + x] > 128) [left, right] = [Math.min(left, x), Math.max(right, x)];
+      }
+      return right - left + 1;
+    };
+    const frames = [...Array(px.length / (1080 * band)).keys()];
+    assert.equal(frames.length, 36);
+    assert.deepEqual(frames.map((f) => ink(f, 300)), frames.map((f) => ink(f, 0)), `${workers} worker(s)`);
+  }
+});
+
+test('render: a raised text that wraps or runs past its box is named', { skip }, () => {
+  const dir = scratchDir('text-floor-reflow');
+  const page = bare(dir, 'reflow.html',
+    '<div class="at" style="top:300px;width:300px;font-size:30px">Three short words</div>'
+    + '<div class="at" style="top:600px;width:150px;font-size:30px;white-space:nowrap">Unbroken</div>'
+    + '<div class="at" style="top:900px;font-size:30px">Room to spare</div>');
+  const r = cli(['render', page, '--out', join(dir, 'still'), '--stills', '0']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /text: raised 3 element\(s\) to 49 px, the floor for this canvas: "Three short words", "Unbroken", "Room to spare"; 1 now runs onto more lines: "Three short words"; 1 now runs past its box or the stage: "Unbroken"\n/);
+});
+
+test('render: a page that links no zone is given its stage shape\'s, text it places as it loads included; one that links its own keeps it', { skip }, () => {
+  const dir = scratchDir('zone-given');
+  // No face anywhere, so place() moves the red block only to bring it inside its bounds.
+  const clip: FacesClip = {
+    video: join(dir, 'clip.mp4'), name: 'clip.mp4', width: 1080, height: 1920, fps: 30, frameRate: '30', durationSec: 2,
+    model: 'blaze_face_full_range', every: 1, threshold: 10, confidence: 0.5, textMargin: 0, shots: [{ start: 0, end: 2, samples: [{ sec: 0.5, faces: [] }] }],
+  };
+  writeFileSync(join(dir, 'faces.js'), facesScript(clip));
+  const page = bare(dir, 'given.html',
+    '<div data-safe style="border:2px solid #00f"><p>Inside the zone</p></div><div class="at" id="red" style="left:300px;top:1700px;width:200px;height:60px;background:#f00"></div>',
+    '', '<script src="faces.js"></script><script>openeditFaces.place(document.getElementById(\'red\'), 0, 1);</script>');
+  const r = cli(['render', page, '--out', join(dir, 'still'), '--stills', '0']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /zone: the page links no safe-zone stylesheet, so its 1080x1920 stage was given the 9:16 zone \(TikTok, Instagram and Facebook Reels, and YouTube Shorts\)/);
+  const still = join(dir, 'still', 'f000000-0.000s.png');
+  assert.deepEqual(pixelBox(still, 1080, 1920, (red, green, blue) => blue > 200 && red < 40 && green < 40), [200, 240, 880, 1478]);
+  const [, , , bottom] = pixelBox(still, 1080, 1920, (red, green, blue) => red > 200 && green < 40 && blue < 40);
+  assert.equal(bottom, 1478, 'placed as the page loaded, it was moved up to the zone\'s bottom');
+
+  // With a brief that names the platform, the page is given that platform's zone, TikTok's narrower one here.
+  const briefed = join(dir, 'briefed');
+  mkdirSync(briefed);
+  writeFileSync(join(briefed, 'brief.json'), JSON.stringify({ platform: 'tiktok' }));
+  const tiktok = bare(briefed, 'given.html', '<div data-safe style="border:2px solid #00f"></div>');
+  const t = cli(['render', tiktok, '--out', join(briefed, 'still'), '--stills', '0']);
+  assert.equal(t.code, 0, t.err);
+  assert.match(t.out, /zone: the page links no safe-zone stylesheet, so its 1080x1920 stage was given the tiktok zone \(TikTok\)/);
+  assert.deepEqual(pixelBox(join(briefed, 'still', 'f000000-0.000s.png'), 1080, 1920, (red, green, blue) => blue > 200 && red < 40 && green < 40), [183, 240, 897, 1478]);
+
+  const own = zonePage(dir, 'own.html', formatNamed('tiktok'), TALL, '<div data-safe style="border:2px solid #00f"></div>');
+  const o = cli(['render', own, '--out', join(dir, 'own'), '--stills', '0']);
+  assert.equal(o.code, 0, o.err);
+  assert.doesNotMatch(o.out, /zone:/);
+  assert.deepEqual(pixelBox(join(dir, 'own', 'f000000-0.000s.png'), 1080, 1920, (red, green, blue) => blue > 200 && red < 40 && green < 40), [183, 240, 897, 1478]);
 });
