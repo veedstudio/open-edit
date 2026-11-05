@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { placeRange, regroup, retime, retimeTranscript } from '../src/commands/retime-transcript.ts';
 import type { Edl, EdlRange, SnappedRange } from '../src/edl.ts';
 import type { Transcript } from '../src/transcript/transcript-types.ts';
@@ -266,13 +267,29 @@ await test('a missing transcript and a file that is not one are named, with the 
     writeFileSync(join(root, 'not-a-transcript.json'), JSON.stringify({ text: 'hello' }));
     assert.throws(
       () => runCommand(root, { sources: { a: clip }, transcripts: { a: 'not-a-transcript.json' }, ranges: [{ source: 'a', start: 0, end: 1 }] }, 'shape'),
-      /transcript for source "a": .*is not a transcript\.json/,
+      /transcript for source "a": .*is not a transcript: expected a transcript\.json/,
     );
     writeFileSync(join(root, 'bad-word.json'), JSON.stringify({ text: 'x', chunks: [{ text: 'x', timestamp: [0, 1], words: [{ text: 'x' }] }] }));
     assert.throws(
       () => runCommand(root, { sources: { a: clip }, transcripts: { a: 'bad-word.json' }, ranges: [{ source: 'a', start: 0, end: 1 }] }, 'word'),
       /every word needs text and a \[start, end\] timestamp/,
     );
+  });
+});
+
+await test('a source\'s transcript in a speech-to-text format is mapped in memory, retimed, and named in one line', async () => {
+  const root = join(dir, 'root-mapped');
+  mkdirSync(root, { recursive: true });
+  const fal = fileURLToPath(new URL('./fixtures/transcripts/fal-whisper-words.json', import.meta.url));
+  await withRoot(root, () => {
+    const edl = join(root, 'mapped.json');
+    writeFileSync(edl, JSON.stringify({ sources: { a: clip }, transcripts: { a: fal }, ranges: [{ source: 'a', start: 0, end: 3 }] }));
+    const out = join(root, 'mapped.out.json');
+    const { out: printed } = captureConsole(() => retimeTranscript(['--edl', edl, '--out', out]));
+    assert.match(printed, new RegExp(`source "a": ${fal.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&')}: read as word chunks, mapped in memory \\(48 words\\)`));
+    const kept = (JSON.parse(readFileSync(out, 'utf8')) as Transcript).chunks.flatMap((c) => c.words.map((w) => w.text));
+    // "didn't." runs 2.97-3.49, so most of it is past the cut and it goes.
+    assert.deepEqual(kept, ['Nobody', 'wants', 'to', 'leave', 'their', 'family', 'a', 'bill.', 'I', 'sure']);
   });
 });
 
@@ -285,4 +302,22 @@ await test('words lost at a cut edge are reported on stderr, with the count', as
     const { err } = runCommand(root, { sources: { a: clip }, ranges: [{ source: 'a', start: 0, end: 1.5 }, { source: 'a', start: 1.5, end: 3 }] }, 'edge');
     assert.match(err, /1 word\(s\) sat across a cut edge/);
   });
+});
+
+await test('a range at another speed stretches its words with its picture, and a range that plays silent keeps none', () => {
+  const t = transcript(chunk('one two three four', 0, 4, [['one', 0, 0.5], ['two', 1.2, 1.6], ['three', 2.2, 2.6], ['four', 3.2, 3.6]]));
+  const out = retime(snapped([
+    { source: 'a', start: 0, end: 1 },
+    // 25 frames at half speed play 50: 2 s, and every word in them twice as long.
+    { source: 'a', start: 1, end: 2, speed: 0.5 },
+    { source: 'a', start: 2, end: 3, mute: true },
+    // Below half speed the sound is silenced, so its words go with it: 63 frames, 2.52 s.
+    { source: 'a', start: 3, end: 4, speed: 0.4 },
+    // 25 frames at double speed play 13, so the words shrink by 13/25, as the picture does.
+    { source: 'a', start: 3, end: 4, speed: 2 },
+  ]), () => t);
+  const placed = out.chunks.flatMap((c) => c.words).map((w) => [w.text, ...w.timestamp.map((x) => Math.round(x * 1000) / 1000)]);
+  assert.deepEqual(placed, [['one', 0, 0.5], ['two', 1.4, 2.2], ['four', 6.624, 6.832]]);
+  assert.throws(() => retime(snapped([{ source: 'a', start: 2, end: 3, mute: true }]), () => t),
+    /no range in this EDL that plays its sound kept a single word; the others play silent/);
 });

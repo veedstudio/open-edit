@@ -1,16 +1,18 @@
 // MUX AUDIO — put sound on a render. A render is picture only; this muxes a track onto it, levelled
 // to the delivery target. Deterministic; ffmpeg only.
 //
-//   openedit mux-audio --video <file> --audio <file> --out <file> [--no-loudnorm]
+//   openedit mux-audio --video <file> (--audio <file> | --music <file>) --out <file> [--no-loudnorm]
 //   OPENEDIT_FFMPEG  ffmpeg (default: the app-data install, else ffmpeg on PATH)
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, FFPROBE } from '../config.ts';
-import { hasAudioStream } from '../probe.ts';
-import { dropRecord, putRecord, takeRecord } from '../render/text-record.ts';
+import { hasAudioStream, streamStartOf } from '../probe.ts';
+import { dropRecord, footageStart, putRecord, takeRecord } from '../render/text-record.ts';
 import { channelLevels, describeBalance, oneSided, toStereo } from '../channels.ts';
+import { TAIL_SECONDS, soundSpanIn, type SoundSpan } from '../verify/dead-tail.ts';
+import { describeFit, fits, mix, musicSpans, type MixSpec } from './mix-audio.ts';
 
 class MuxError extends Error {
   constructor(msg: string, readonly code: number) { super(msg); }
@@ -21,15 +23,21 @@ export const usage = {
   summary: 'Mux an audio track onto a silent render at delivery loudness',
   flags: {
     video: { type: 'string', required: true, value: '<file>', help: 'The picture to mux onto' },
-    audio: { type: 'string', required: true, value: '<file>', help: 'The track to lay on it: the source clip, or a built soundtrack' },
+    audio: { type: 'string', value: '<file>', help: 'The track to lay on it: the source clip, or a built soundtrack' },
+    music: { type: 'string', value: '<file>', help: 'A music file to lay on it instead, run to the last frame' },
     out: { type: 'string', required: true, value: '<file>', help: 'Where to write the result' },
     'no-loudnorm': { type: 'boolean', help: 'Skip levelling to the delivery loudness' },
   },
   notes: [
+    'Give one of --audio and --music. A --music file runs to the picture\'s end as mix-audio runs a music bed: looped',
+    'from its first sound when its sound ends sooner (a piece that fades to silence early counts), joined by crossfades,',
+    'and faded out at the end; the command prints each loop it made.',
     'A source with its sound on one channel of two is centred in both channels, with or without --no-loudnorm;',
     'one leaning 12 dB or more to a side is named and left as it is.',
+    `What it wrote is measured as openedit review measures it, and a silent opening or ending longer than ${TAIL_SECONDS}s is printed.`,
     'The picture is copied unchanged, so the record of on-screen text render wrote beside --video (<video>.text.json)',
-    'is copied beside --out for openedit review; one already beside --out is removed when --video has none.',
+    'is copied beside --out for openedit review; one already beside --out is removed when --video has none. When',
+    '--audio is the clip that render laid under the page with --footage-at, its sound starts at that moment too.',
   ].join('\n'),
 } satisfies Usage;
 
@@ -48,13 +56,14 @@ export function muxAudio(argv: string[]): number {
 
 function run(argv: string[]): void {
   const { values } = parseUsage('mux-audio', usage, argv);
-  const { video: silent, audio: src, out: outPath } = values;
+  const { video: silent, music, out: outPath } = values;
+  const given = values.audio ?? music;
   const normalise = !values['no-loudnorm'];
-  if (!silent || !src || !outPath) {
-    throw new MuxError(`mux: pass --video, --audio and --out together\n${usageLine('mux-audio', usage)}`, 2);
+  if (!silent || !given || !outPath || (values.audio && music)) {
+    throw new MuxError(`mux: pass --video, --out and one of --audio or --music\n${usageLine('mux-audio', usage)}`, 2);
   }
   if (!existsSync(silent)) fail(`mux: no video at ${silent}`, 1);
-  if (!existsSync(src)) fail(`mux: no audio at ${src}`, 1);
+  if (!existsSync(given)) fail(`mux: no ${music ? 'music' : 'audio'} at ${given}`, 1);
 
   const probe = (args: string[]) => {
     try {
@@ -80,24 +89,80 @@ function run(argv: string[]): void {
   if (!vdur) fail(`mux: could not read the duration of ${silent}`, 1);
 
   // A named track with no audio in it is a mistake, and a silent deliverable that exits 0 hides it.
-  if (!hasAudioStream(src)) fail(`mux: ${src} has no audio stream — nothing to lay on the render`, 1);
+  if (!hasAudioStream(given)) fail(`mux: ${given} has no audio stream — nothing to lay on the render`, 1);
   // A source with its sound on one of two channels (a narration on one input of a two-channel recorder)
   // would play in one ear. It is centred, and measured for loudness as it will be heard.
   let levels: number[];
   try {
-    levels = channelLevels(src);
+    levels = channelLevels(given);
   } catch (error) {
     throw new MuxError(`mux: ${(error as Error).message}`, 1);
   }
-  const centre = oneSided(levels) ? toStereo(levels) : null;
   const balance = describeBalance(levels);
-  if (balance) console.log(`mux: ${src} ${balance}`);
+  if (balance) console.log(`mux: ${given} ${balance}`);
+  // A music file is fitted to the picture first, as mix-audio fits a bed, and that bed is what is levelled and laid on.
+  const bed = music ? join(dirname(outPath), `.${basename(outPath, extname(outPath))}.${process.pid}.music.wav`) : null;
+  try {
+    const src = bed ? fitMusic(music!, Number(vdur), levels, bed) : given;
+    lay(silent, src, outPath, tmp, vdur, normalise, bed ? null : (oneSided(levels) ? toStereo(levels) : null));
+  } finally {
+    if (bed) rmSync(bed, { force: true });
+  }
+  printSilence(outPath, Number(vdur));
+}
+
+/** `music` run to `durationSec` as mix-audio runs a bed, written to `bed`; says so when it was looped. */
+function fitMusic(music: string, durationSec: number, levels: number[], bed: string): string {
+  const spec: MixSpec = { durationSec, tracks: [{ path: resolve(music), atSec: 0, role: 'music' }] };
+  try {
+    const fitted = fits(spec, musicSpans(dirname(bed), spec));
+    const said = fitted[0] && describeFit(music, fitted[0]);
+    if (said) console.log(`mux: ${said}`);
+    return mix(dirname(bed), spec, bed, [levels], [undefined], [undefined], fitted);
+  } catch (error) {
+    throw new MuxError(`mux: could not fit ${music} to the picture: ${(error as Error).message.replace(/^mix-audio: /, '')}`, 1);
+  }
+}
+
+/**
+ * A silent opening or ending longer than the beat the dead-tail check allows, measured on the file as written and on
+ * its picture's timeline, so the line agrees with what openedit review will find.
+ */
+export function silenceLine(file: string, durationSec: number, span: SoundSpan | null): string | null {
+  const s = (v: number) => `${v.toFixed(2)}s`;
+  if (!span) return `mux: ${file} is silent for all of its ${s(durationSec)}: nothing in it is loud enough to count as sound`;
+  const head = span.start;
+  const tail = durationSec - span.end;
+  const parts = [
+    ...(head > TAIL_SECONDS ? [`its first ${s(head)}`] : []),
+    ...(tail > TAIL_SECONDS ? [`its last ${s(tail)}, after ${s(span.end)}`] : []),
+  ];
+  return parts.length ? `mux: ${file} is silent for ${parts.join(', and ')}` : null;
+}
+
+function printSilence(outPath: string, durationSec: number): void {
+  try {
+    const said = silenceLine(outPath, durationSec, soundSpanIn(outPath, streamStartOf(outPath, 'a:0') - streamStartOf(outPath, 'v:0')));
+    if (said) console.log(said);
+  } catch {
+    // The file is written and whole; a measurement that cannot run only leaves the silence unsaid, as the review still reads it.
+  }
+}
+
+function lay(silent: string, src: string, outPath: string, tmp: string, vdur: string, normalise: boolean, centre: string | null): void {
   // Camera audio commonly lands several decibels under the delivery target and plays quieter than its
   // neighbours in a feed; the track is re-encoded here anyway, so the correction costs one measurement
   // pass. --no-loudnorm keeps the source level for one chapter of a longer piece, whose level belongs
   // to the whole film.
   const loudness: Loudnorm = normalise ? loudnormFilter(src, centre) : { mode: 'none', filter: null, why: 'not requested' };
-  const af = [centre, loudness.filter].filter(Boolean).join(',');
+  // The picture is copied as it is, so the render's record of it still describes it. It is read before anything moves,
+  // as --out may be --video.
+  const record = takeRecord(silent);
+  // The clip a render laid from --footage-at keeps its sound under its own frames. The delay goes first: placed after
+  // loudnorm, it came out as a gap in the timestamps, which a decoder plays straight through, rather than as silence.
+  const start = footageStart(record, src);
+  if (start > 0) console.log(`mux: ${src} is the footage the render laid from ${start.toFixed(3)} s; its sound starts there too`);
+  const af = [start > 0 ? `adelay=delays=${(start * 1000).toFixed(3)}:all=1` : null, centre, loudness.filter].filter(Boolean).join(',');
   if (normalise && loudness.mode !== 'measured') {
     console.log(`mux: loudness ${loudness.mode === 'dynamic' ? 'corrected dynamically' : 'left as recorded'} — ${loudness.why}`);
   }
@@ -115,10 +180,8 @@ function run(argv: string[]): void {
     rmSync(tmp, { force: true });
     fail('', 1);
   }
-  // The picture is copied as it is, so the render's record of its on-screen text still describes it. It is read
-  // before anything moves, as --out may be --video; the output's own record goes before the output is replaced, so a
-  // failure in between never leaves it describing the old picture.
-  const record = takeRecord(silent);
+  // The output's own record goes before the output is replaced, so a failure in between never leaves it describing the
+  // old picture.
   dropRecord(outPath);
   renameSync(tmp, outPath);
   if (record !== null) putRecord(outPath, record);

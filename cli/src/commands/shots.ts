@@ -23,7 +23,6 @@ import { FFMPEG, runsDir } from '../config.ts';
 import { facesPathFor, ownFaces, sameFile } from '../faces/folder.ts';
 import type { FacesClip } from '../faces/page-script.ts';
 import { CLOSE_UP_MIN, MEDIUM_MIN, shotSizeOf, type SizeReading } from '../faces/shot-size.ts';
-import { readJsonFile } from '../json-file.ts';
 import {
   audioDurationOf, hasAudioStream, ownVideoDurationOf, probeDisplaySize, probeFrameRate, probeSquareSize, probeVideoSpan,
 } from '../probe.ts';
@@ -33,6 +32,7 @@ import { shellArg } from '../shell-arg.ts';
 import {
   LEASE_MS, MAX_SHEETS, SHEET_SIDE, startStoryboard, sweepStoryboards, THREE_FRAMES_FROM_SEC, writeStoryboard, type StoryboardResult,
 } from '../storyboard.ts';
+import { readTranscriptFile, type TranscriptRead } from '../transcript/read-transcript.ts';
 import { transcriptPathFor } from '../transcript/transcript-cache.ts';
 import type { Transcript } from '../transcript/transcript-types.ts';
 import { notFacesOf, readFaces } from './faces.ts';
@@ -107,7 +107,9 @@ export type Shot = {
   // shotSize and faceShare are both null when there is no usable faces.json, or no sample falls in the shot.
 } & (SizeReading | { shotSize: null; faceShare: null });
 
-export type Source = { path: string } | { path: null; why: string };
+export type Source =
+  | { path: string; /** The format it was mapped from, when it was not a transcript.json. */ mappedFrom?: string }
+  | { path: null; why: string };
 
 export interface ShotList {
   video: string;
@@ -331,7 +333,13 @@ function speechSource(video: string, pictureEnd: number): { source: Source; tran
       },
     };
   }
-  const transcript = readJsonFile(path) as Transcript;
+  let read: TranscriptRead;
+  try {
+    read = readTranscriptFile(path);
+  } catch (error) {
+    return { source: { path: null, why: `${(error as Error).message}. Speech is not listed` } };
+  }
+  const { transcript } = read;
   // reduce, not a spread: one argument per word throws RangeError on an hour-long transcript.
   const lastWord = transcript.chunks.reduce((t, c) => c.words.reduce((u, w) => Math.max(u, w.timestamp[1]), t), 0);
   // A recording whose header holds no lengths (a browser's, for one) leaves the picture's end to hold it to.
@@ -351,7 +359,7 @@ function speechSource(video: string, pictureEnd: number): { source: Source; tran
       },
     };
   }
-  return { source: { path }, transcript };
+  return { source: read.mapped ? { path, mappedFrom: read.format } : { path }, transcript };
 }
 
 export function shotList(videoArg: string, o: { threshold: number; minShotSec: number; faces?: string }): ShotList {
@@ -479,7 +487,8 @@ export async function shots(argv: string[], draw = writeStoryboard): Promise<num
       `${size.padEnd(14)}  ${said}`).trimEnd());
   }
   const speech = list.sources.speech;
-  console.log(speech.path === null ? `  speech: none listed: ${speech.why}` : `  speech: ${speech.path}`);
+  console.log(speech.path === null ? `  speech: none listed: ${speech.why}`
+    : `  speech: ${speech.path}${speech.mappedFrom ? `, read as ${speech.mappedFrom}, mapped in memory` : ''}`);
   if (boxes.path === null) console.log(`  shot size: none listed: ${boxes.why}`);
   else {
     const bars = list.pictureHeight < list.height

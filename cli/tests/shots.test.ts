@@ -392,6 +392,15 @@ test('shots: speech comes from the transcript on disk, word by word into the sho
   assert.deepEqual(list.shots.map((s) => s.speech), ['One and', 'two', 'three. Four', 'five', null, null]);
 });
 
+test('shots: speech comes from a speech-to-text JSON left as the transcript too, mapped in memory', async () => {
+  const path = join(dir, 'mapped-transcript', 'runs', 'reference', 'transcript.json');
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, readFileSync(new URL('./fixtures/transcripts/typed-words.json', import.meta.url)));
+  const list = await listIn('mapped-transcript');
+  assert.deepEqual(list.sources.speech, { path, mappedFrom: 'a timed word list' });
+  assert.equal(list.shots.flatMap((s) => s.speech ?? []).join(' '), 'Give your family peace of mind, not a bill. Check your rate in two minutes.');
+});
+
 test('shots: with no transcript the list says why speech is missing, and never transcribes', async () => {
   const list = await listIn('no-transcript');
   const speech = list.sources.speech as { path: null; why: string };

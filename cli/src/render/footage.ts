@@ -8,8 +8,10 @@ import { FFMPEG, FFPROBE } from '../config.ts';
 import { hdrKind, toSdr } from '../hdr.ts';
 import { colourTagsOf, probeSquareSize, type ColourReport } from '../probe.ts';
 import { asShown } from '../shown.ts';
-import { countFrames, overlayGraph, type Overlay } from './encode.ts';
-import { fpsLabel, type Fps } from './timing.ts';
+import { runBuffered } from './children.ts';
+import { countFrames, overlayGraph, type Overlay, type SegmentFootage } from './encode.ts';
+import { BUDGET_MS } from './lead.ts';
+import { fpsLabel, type Fps, type Segment } from './timing.ts';
 
 export interface Footage {
   file: string;
@@ -90,19 +92,32 @@ export function seekArgs(start: number, fps: Fps, offset = 0): string[] {
 export const overlayFor = (f: Footage, canvas: { width: number; height: number }, fps: Fps): Overlay =>
   ({ width: canvas.width, height: canvas.height, fps, matrix: f.matrix, sdr: hdrKind(f.colour) ? toSdr(f.colour) : undefined, ...(f.turned ? { shown: asShown(f) } : {}) });
 
-/** The page's still at `frame`, laid over the footage's frame of the same index: an opaque PNG. */
-export function composeStill(f: Footage, frame: number, fps: Fps, canvas: { width: number; height: number }, png: Buffer): Buffer {
-  const args = ['-v', 'error', ...seekArgs(frame, fps, f.offset), '-i', f.file, '-f', 'image2pipe', '-framerate', fpsLabel(fps), '-c:v', 'png', '-i', 'pipe:0',
-    '-filter_complex', `${overlayGraph(overlayFor(f, canvas, fps))},format=rgb24[out]`, '-map', '[out]', '-frames:v', '1',
+/**
+ * What a segment is laid over: the footage from the first of its frames the footage reaches, with black before the
+ * footage's first frame and after its last, or black alone when the footage lies wholly outside it. `at` is the
+ * render frame the footage's first frame lands on.
+ */
+export function underSegment(f: Footage, at: number, seg: Segment, fps: Fps, overlay: Overlay): SegmentFootage {
+  const end = seg.start + seg.frames;
+  const from = Math.max(seg.start, at);
+  const to = Math.min(end, at + f.frames);
+  if (to <= from) return { file: f.file, seek: [], overlay: { ...overlay, bare: true }, frames: seg.frames };
+  return { file: f.file, seek: seekArgs(from - at, fps, f.offset), overlay: { ...overlay, before: from - seg.start, after: end - to }, frames: seg.frames };
+}
+
+/**
+ * The page's still at `frame`, laid over the footage's frame under it, or over black where the footage does not reach:
+ * an opaque PNG. Run without blocking, so a render answers a signal while ffmpeg works, and bounded by the budget of
+ * any single wait.
+ */
+export async function composeStill(f: Footage, at: number, frame: number, fps: Fps, canvas: { width: number; height: number }, png: Buffer): Promise<Buffer> {
+  const under = underSegment(f, at, { index: 0, start: frame, frames: 1 }, fps, overlayFor(f, canvas, fps));
+  const footage = under.overlay.bare ? [] : [...under.seek, '-i', f.file];
+  const args = ['-v', 'error', ...footage, '-f', 'image2pipe', '-framerate', fpsLabel(fps), '-c:v', 'png', '-i', 'pipe:0',
+    '-filter_complex', `${overlayGraph(under.overlay)},format=rgb24[out]`, '-map', '[out]', '-frames:v', '1',
     '-f', 'image2pipe', '-c:v', 'png', 'pipe:1'];
-  let still: Buffer;
-  try {
-    still = execFileSync(FFMPEG, args, { input: png, maxBuffer: 1 << 28, stdio: ['pipe', 'pipe', 'pipe'] });
-  } catch (e) {
-    const stderr = (e as { stderr?: Buffer }).stderr?.toString().trim();
-    throw new Error(`laying frame ${frame} over the footage failed: ${stderr || (e as Error).message}`);
-  }
+  const still = await runBuffered(FFMPEG, args, { input: png, timeoutMs: BUDGET_MS, what: `laying frame ${frame} over the footage` });
   // A seek past the last frame ffmpeg can decode exits 0 with nothing written.
-  if (!still.length) throw new Error(`the footage has no frame ${frame} to lay the page over: it decodes to fewer frames than its ${f.frames} packets`);
+  if (!still.length) throw new Error(`the footage has no frame ${frame - at} to lay the page over: it decodes to fewer frames than its ${f.frames} packets`);
   return still;
 }

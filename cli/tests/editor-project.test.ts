@@ -1,18 +1,22 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { crc32, deflateSync } from 'node:zlib';
-import { scanFrames, uploadCopy } from '../src/commands/veed-project.ts';
+import { scanFrames, uploadCopy, veedProject } from '../src/commands/veed-project.ts';
 import {
   BOOKMARKLET, BUNDLE_VERSION, PULL_BOOKMARKLET, PlanError, audioItem, bookmarkletUrl, captionCues, captionItems, checkPlan, edlParts, encodeBundle, imageItem, isVeedId,
   mixParts, movedBox, place, planFromPulled, previewSafeSize, textItem, veedMediaUrl, videoItem, visibleSpans, type Bundle, type Plan, type PulledItem,
 } from '../src/veed/editor-project.ts';
+import { fits, LOOP_CROSSFADE_SEC, MUSIC_FADE_OUT_SEC, type MixSpec } from '../src/commands/mix-audio.ts';
 import { assertConverted, hdrClip, lumaOf } from './helpers/hdr.ts';
-import { probeStream, scratchDir, synthClip, TESTSRC } from './helpers/synth.ts';
+import { captureConsoleAsync, probeStream, scratchDir, synthClip, TESTSRC } from './helpers/synth.ts';
 
+const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const W = 1920, H = 1080;
 const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -78,6 +82,23 @@ test('veed-project: an EDL\'s ranges are laid end to end from the part\'s start'
   assert.deepEqual(parts.map((p) => [p.file, p.at, p.in, p.out, p.name, p.volume]), [['/media/a.mp4', 2, 10, 12.5, 'intro', 0.5], ['/media/a.mp4', 4.5, 20, 21, 'cut 2', 0.5]]);
 });
 
+test('veed-project: a muted range of an EDL is laid at no volume, as apply-edl plays it', () => {
+  const parts = edlParts({ type: 'edl', file: 'e.json', at: 0, volume: 0.5 }, [
+    { source: 'a', start: 0, end: 1, fps: 25, mute: true }, { source: 'a', start: 1, end: 2, fps: 25 },
+  ], (id) => `/media/${id}.mp4`);
+  assert.deepEqual(parts.map((p) => p.volume), [0, 0.5]);
+});
+
+test('veed-project: an EDL with a range at another speed is refused before anything is made, naming the range', async () => {
+  const dir = scratchDir('veed-edl-speed');
+  synthClip(dir, 'a.mp4', { video: TESTSRC, seconds: 2 });
+  writeFileSync(join(dir, 'edl.json'), JSON.stringify({ sources: { a: 'a.mp4' }, ranges: [{ source: 'a', start: 0, end: 1 }, { source: 'a', start: 1, end: 2, speed: 0.5 }] }));
+  writeFileSync(join(dir, 'plan.json'), JSON.stringify({ name: 'sped', width: 320, height: 240, parts: [{ type: 'edl', file: 'edl.json', at: 0 }] }));
+  const { result, err } = await captureConsoleAsync(() => veedProject([join(dir, 'plan.json')]));
+  assert.equal(result, 2);
+  assert.match(err, /edl\.json: range 1 plays at 0\.5x, and an EDL's ranges are laid at the speed they were filmed; hand off the cut apply-edl assembled from it/);
+});
+
 test('veed-project: a mix spec\'s tracks play as mix-audio plays them', () => {
   const lengths: Record<string, number> = { 'voice.wav': 8, 'music.wav': 180, 'sting.wav': 1 };
   const { parts, notes } = mixParts({
@@ -95,6 +116,27 @@ test('veed-project: a mix spec\'s tracks play as mix-audio plays them', () => {
   assert.deepEqual([music.volume, music.out, music.fadeOut, music.name], [0.501, 30, 2, 'music: music.wav'], 'the bed stops and fades where the film does');
   assert.deepEqual([sting.volume, sting.out, sting.fadeOut], [1.995, 1, undefined], 'a track over before the film\'s fade is not faded');
   assert.deepEqual(notes, ['music.wav: ducking under the voice is not carried; it plays at its own gain']);
+});
+
+test('veed-project: a bed mix-audio loops to the film\'s end is one item per repeat, crossfaded, and an endSec is where a track stops', () => {
+  const spec: MixSpec = {
+    durationSec: 30,
+    tracks: [
+      { path: 'music.wav', atSec: 0, gainDb: -6, fadeInSec: 0.5, role: 'music' },
+      { path: 'sting.wav', atSec: 10, endSec: 10.5, fadeOutSec: 0.2 },
+    ],
+  };
+  const lengths: Record<string, number> = { 'music.wav': 12, 'sting.wav': 3 };
+  const fitted = fits(spec, [{ start: 0.5, end: 10 }, undefined]);
+  const { parts } = mixParts(spec, (p) => lengths[p], () => [-20, -20], [], fitted);
+  const c = LOOP_CROSSFADE_SEC;
+  assert.deepEqual(parts.map((p) => [p.file, p.at, p.in, p.out, p.fadeIn, p.fadeOut, p.volume]), [
+    ['music.wav', 0, 0, 10, 0.5, c, 0.501],
+    ['music.wav', 9, 0.5, 10, c, c, 0.501],
+    ['music.wav', 17.5, 0.5, 10, c, c, 0.501],
+    ['music.wav', 26, 0.5, 4.5, c, MUSIC_FADE_OUT_SEC, 0.501],
+    ['sting.wav', 10, 0, 0.5, undefined, 0.2, 1],
+  ], 'the bed runs to 30 s and fades there; the sting stops at its endSec and fades before it');
 });
 
 test('veed-project: music and effects that mix-audio ducks by default are named as not carried; ones that opted out are not', () => {
@@ -144,6 +186,18 @@ test('veed-project: long transcript chunks become short captions, broken at paus
   assert.deepEqual(cues[1].timestamp, [0.7, 1.4]);
   const items = captionItems({ type: 'captions', transcript: 't.json' }, { chunks: [{ text: 'hello there', timestamp: [0, 1] }, { text: ' ', timestamp: [1, 2] }] }, W, H);
   assert.deepEqual(items.map((i) => [i.name, i.zIndex, i.translationY]), [['caption 1', 50, 0.85]], 'a blank cue is dropped; captions sit low, above the rest');
+});
+
+test('veed-project: captions take a transcript in any format whisper maps, mapped in memory and named in one line', () => {
+  const dir = scratchDir('veed-project-captions');
+  copyFileSync(fileURLToPath(new URL('./fixtures/transcripts/whisper-segments.json', import.meta.url)), join(dir, 'upload.json'));
+  writeFileSync(join(dir, 'plan.json'), JSON.stringify({ name: 'p', width: 1080, height: 1920, parts: [{ type: 'captions', transcript: 'upload.json' }] }));
+  // --local makes nothing in VEED: the plan's files are only read.
+  const r = spawnSync(process.execPath, ['--import', 'tsx', CLI, 'veed-project', join(dir, 'plan.json'), '--local'], {
+    encoding: 'utf8', env: { ...process.env, OPEN_EDIT_ROOT: dir },
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^veed-project: upload\.json: read as Whisper segments with word times, mapped in memory \(16 words\)$/m);
 });
 
 test('veed-pull: a project read back from the editor is the plan that made it', () => {

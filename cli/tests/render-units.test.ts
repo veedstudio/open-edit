@@ -23,7 +23,7 @@ import { extractZip } from '../src/render/unzip.ts';
 import { CHROME, chromePlatform, installChrome } from '../src/render/browser.ts';
 import { hidden, hiddenOnDisk, requestedFile, startPageServer, unsafeRoot } from '../src/render/server.ts';
 import { drawnSize, imageSize, launchProxy, newTimings, sandboxRefused, timed, withSandbox } from '../src/render/session.ts';
-import { acquireLock, breakdown, defaultWorkers, pageRoots } from '../src/commands/render.ts';
+import { acquireLock, breakdown, cpuCount, defaultWorkers, firstSkip, pageRoots } from '../src/commands/render.ts';
 import { scratchDir } from './helpers/synth.ts';
 
 const scratch = (prefix: string) => scratchDir(`render-${prefix}`);
@@ -91,6 +91,28 @@ test('render: work is split into contiguous runs of near-equal length, with a wo
   assert.equal(workersFor(960, 6, 12), 6, 'never more than asked for');
 });
 
+test('render: the CPU count is the machine\'s, or a container\'s CPU quota where one is set, rounded up', () => {
+  const files = (map: Record<string, string>) => (f: string) => {
+    if (!(f in map)) throw Object.assign(new Error(`ENOENT: ${f}`), { code: 'ENOENT' });
+    return map[f];
+  };
+  assert.equal(cpuCount(16, files({})), 16, 'no cgroup files: the machine\'s');
+  assert.equal(cpuCount(16, files({ '/sys/fs/cgroup/cpu.max': 'max 100000\n' })), 16, 'cgroup v2 without a quota');
+  assert.equal(cpuCount(16, files({ '/sys/fs/cgroup/cpu.max': '400000 100000\n' })), 4, 'cgroup v2: 4 CPUs');
+  assert.equal(cpuCount(16, files({ '/sys/fs/cgroup/cpu.max': '150000 100000\n' })), 2, 'a CPU and a half is two workers');
+  assert.equal(cpuCount(2, files({ '/sys/fs/cgroup/cpu.max': '800000 100000\n' })), 2, 'never more than the machine has');
+  assert.equal(cpuCount(16, files({ '/sys/fs/cgroup/cpu/cpu.cfs_quota_us': '200000\n', '/sys/fs/cgroup/cpu/cpu.cfs_period_us': '100000\n' })), 2, 'cgroup v1');
+  assert.equal(cpuCount(16, files({ '/sys/fs/cgroup/cpu/cpu.cfs_quota_us': '-1\n', '/sys/fs/cgroup/cpu/cpu.cfs_period_us': '100000\n' })), 16, 'cgroup v1 without a quota');
+  assert.equal(cpuCount(16, files({ '/sys/fs/cgroup/cpu.max': '50000 100000\n' })), 1, 'at least one');
+});
+
+test('render: the frame a stateless probe checks is the earliest any worker reaches by skipping frames', () => {
+  assert.equal(firstSkip([[{ from: 0, to: 33 }], [{ from: 33, to: 67 }], [{ from: 67, to: 100 }]]), 33);
+  assert.equal(firstSkip([[{ from: 0, to: 100 }]]), null, 'one worker from frame 0 skips nothing');
+  assert.equal(firstSkip([[{ from: 0, to: 10 }, { from: 40, to: 50 }]]), 40, 'a gap inside one worker\'s runs is a skip');
+  assert.equal(firstSkip([[{ from: 75, to: 76 }], [{ from: 36, to: 37 }]]), 36, 'a still is reached by a skip from frame 0');
+});
+
 function png(filter: string, pixFmt: string): Buffer {
   return execFileSync(FFMPEG, ['-v', 'error', '-f', 'lavfi', '-i', filter, '-frames:v', '1', '-pix_fmt', pixFmt, '-pred', 'mixed', '-f', 'image2pipe', '-c:v', 'png', '-']);
 }
@@ -147,12 +169,12 @@ test('render: a page that turns fully opaque over footage keeps covering it, fra
   assert.ok(green.every((g) => g < 20), `the footage showed through: green per frame ${green.map(Math.round).join(' ')}`);
 });
 
-test('render: a still past the last frame the footage decodes fails instead of writing an empty file', () => {
+test('render: a still past the last frame the footage decodes fails instead of writing an empty file', async () => {
   const dir = scratch('footage-short');
   const clip = join(dir, 'clip.mp4');
   execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=green:s=64x32:r=30', '-frames:v', '10', '-pix_fmt', 'yuv420p', clip]);
   const page = png('color=c=black@0:s=64x32,format=rgba', 'rgba');
-  assert.throws(() => composeStill({ ...probeFootage(clip), frames: 99 }, 50, parseFps('30'), { width: 64, height: 32 }, page), /has no frame 50/);
+  await assert.rejects(composeStill({ ...probeFootage(clip), frames: 99 }, 0, 50, parseFps('30'), { width: 64, height: 32 }, page), /has no frame 50/);
 });
 
 test('render: footage is probed for its exact rate, its frames and the matrix it decodes with, and seeks land half a frame early', () => {
@@ -802,7 +824,9 @@ test('render: every flag refusal comes before Chrome is needed, with exit 2 and 
     [[page, '--out', out, '--frames', '3', '--footage', join(dir, 'missing.mp4')], /--footage .* is not a file/],
     [[page, '--out', out, '--frames', '3', '--footage', page], /could not be read as video|holds no video stream/],
     [[page, '--out', out, '--frames', '3', '--footage', clip, '--fps', '25'], /footage runs at 30 fps and --fps is 25: pass --fps 30/],
-    [[page, '--out', out, '--frames', '11', '--footage', clip], /footage holds 10 frames \(0\.333 s at 30 fps\) and the render is 11 \(0\.367 s\)/],
+    [[page, '--out', out, '--frames', '3', '--footage', clip, '--footage-at', '0.1'], /--footage-at 0\.1 is at or past the end \(0\.100 s\), so the footage would never show/],
+    [[page, '--out', out, '--frames', '3', '--footage-at', '1'], /--footage-at says when the --footage clip starts; give --footage too/],
+    [[page, '--out', out, '--frames', '3', '--footage', clip, '--footage-at=-1'], /--footage-at wants seconds/],
     [[page, '--out', join(dir, 'out.mov'), '--frames', '3', '--footage', clip, '--transparent'], /--footage or --transparent, not both/],
     [[page, '--out', out, '--frames', '3', '--footage', clip, '--capture', 'jpeg'], /--footage lays the page over the clip by its alpha, which a JPEG cannot carry/],
     [[page, '--out', out, '--frames', '3', '--draft'], /--draft writes a quick look, not the deliverable, so its --out must end in \.draft\.mp4.*pass --out \S*out\.draft\.mp4/],

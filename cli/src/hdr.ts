@@ -40,9 +40,12 @@ const chains = new Map<string, string>();
  * The matrices swscale decodes, by ffprobe's name, as swscale names them; `gbr` is an RGB picture, which no
  * matrix touches. The rest (bt2020c, ictcp, ycgco, ...) are refused, since ffmpeg cannot read them as RGB.
  */
-const MATRICES: Readonly<Record<string, string>> = {
+export const MATRICES: Readonly<Record<string, string>> = {
   bt709: 'bt709', smpte170m: 'bt601', bt470bg: 'bt601', bt2020nc: 'bt2020', fcc: 'fcc', smpte240m: 'smpte240m', gbr: 'bt2020',
 };
+
+/** swscale's name for a YUV picture's matrix, by ffprobe's name, or undefined for one swscale cannot read as RGB. */
+export const yuvMatrix = (space: string): string | undefined => (space !== 'gbr' && Object.hasOwn(MATRICES, space) ? MATRICES[space] : undefined);
 
 /** Refuses, by `name`, an HDR source coded with a matrix ffmpeg cannot decode, rather than converting it wrongly. */
 export function assertConvertible(colour: ColourReport, name: string): void {

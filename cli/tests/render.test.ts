@@ -3,13 +3,16 @@
 // browser is not installed (`openedit install-browser`), unless OPENEDIT_REQUIRE_BROWSER is set.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FFMPEG, FFPROBE } from '../src/config.ts';
 import { chromePlatform, installedChrome } from '../src/render/browser.ts';
+import { cpuCount, defaultWorkers, MIN_FRAMES_PER_WORKER } from '../src/commands/render.ts';
+import { facesScript } from '../src/faces/page-script.ts';
+import { readRecord, recordPath } from '../src/render/text-record.ts';
 import { assertConverted, hdr10Data, hdrClip, lumaOf, type Transfer } from './helpers/hdr.ts';
 import { scratchDir } from './helpers/synth.ts';
 
@@ -22,9 +25,27 @@ const skip = missing ?? false;
 const W = 320;
 const H = 180;
 
+/** The workspace a render writes its copies under: beside its --out, so a test finds only the copies it made. */
+function renderEnv(args: string[], env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const at = args.indexOf('--out');
+  return { ...process.env, ...(at >= 0 ? { OPEN_EDIT_ROOT: dirname(resolve(args[at + 1])) } : {}), ...env };
+}
+
 function render(args: string[], env: NodeJS.ProcessEnv = {}): { code: number | null; out: string; err: string } {
-  const r = spawnSync(process.execPath, ['--import', 'tsx', CLI, 'render', ...args], { encoding: 'utf8', timeout: 240_000, env: { ...process.env, ...env } });
+  const r = spawnSync(process.execPath, ['--import', 'tsx', CLI, 'render', ...args], { encoding: 'utf8', timeout: 240_000, env: renderEnv(args, env) });
   return { code: r.status, out: r.stdout, err: r.stderr };
+}
+
+/** render(), without waiting for it: renders started together run at the same time. */
+function renderAsync(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; err: string }> {
+  return new Promise((done) => {
+    const p = spawn(process.execPath, ['--import', 'tsx', CLI, 'render', ...args], { env: renderEnv(args, env) });
+    let out = '';
+    let err = '';
+    p.stdout.on('data', (d) => (out += d));
+    p.stderr.on('data', (d) => (err += d));
+    p.on('exit', (code) => done({ code, out, err }));
+  });
 }
 
 function page(dir: string, name: string, body: string, style = '', stageAttrs = ''): string {
@@ -79,6 +100,9 @@ test('render: a CSS animation lands on the exact frame, and the count is what wa
   for (const i of [0, 15, 31, 45, 74]) near(edge(frames[i], 90), Math.round((100 * i) / 30), `box edge at frame ${i}`);
   assert.match(r.out, /75 frames at 30 fps = 2\.500 s, 320x180/);
   assert.match(r.out, /segments: 3 rendered, 0 reused/);
+  // A picture that opens on something and moves throughout has nothing said about it.
+  assert.match(r.out, /picture scanned in \d+\.\d s/);
+  assert.doesNotMatch(r.out, /picture: /);
 });
 
 /** Frame 0 of a video as yuv420p planes. */
@@ -324,39 +348,46 @@ test('render: a page marked data-stateless renders the same on 1 and 3 workers, 
   assert.deepEqual(hashes(three, true), hashes(one, true), 'three workers write the same bytes as one');
 });
 
-test('render: the data-stateless mark is trusted: what follows from t alone still matches across workers, and state carried between frames does not', { skip }, () => {
-  // The mark is the author's word, since the page cannot be inspected for state: a page marked wrongly
-  // renders differently per worker count, and this pins down exactly what a jump keeps and what it loses.
+test('render: the data-stateless check runs under a JPEG capture and a draft as under PNG', { skip }, () => {
+  const dir = scratchDir('render-stateless-jpeg');
+  const file = page(dir, 'stateless.html', STATELESS_BODY, CSS_STYLE, STATELESS);
+  for (const [out, flags] of [['jpeg.mp4', ['--capture', 'jpeg']], ['quick.draft.mp4', ['--draft']]] as const) {
+    const r = render([file, '--out', join(dir, out), '--fps', '30', '--frames', '100', '--workers', '3', '--segment', '0.5', ...flags]);
+    assert.equal(r.code, 0, `${flags.join(' ')}: ${r.err}`);
+    assert.match(r.out, /data-stateless mark checked in [\d.]+ s/, flags.join(' '));
+  }
+});
+
+test('render: a page marked data-stateless that carries state between frames is caught on one frame and renders as one worker would', { skip }, () => {
+  // A rAF counter, and a page whose __seek counts its calls and whose timers accumulate: each draws its first skipped
+  // frame otherwise when jumped to, so the render says what differs there and steps every worker through the frames before its own.
   const dir = scratchDir('render-stateless-wrong');
   const counter = page(dir, 'counter.html', RAF_BODY, '', STATELESS);
   const c1 = render([counter, '--out', join(dir, 'c1.mp4'), '--fps', '30', '--frames', '100', '--workers', '1', '--segment', '0.5']);
   assert.equal(c1.code, 0, c1.err);
+  assert.doesNotMatch(c1.err, /marked data-stateless, but/, 'one worker from frame 0 skips nothing, so there is nothing to check');
   const c3 = render([counter, '--out', join(dir, 'c3.mp4'), '--fps', '30', '--frames', '100', '--workers', '3', '--segment', '0.5']);
   assert.equal(c3.code, 0, c3.err);
-  assert.doesNotMatch(c3.out, PREROLL);
-  assert.notDeepEqual(hashes(join(dir, 'c3.mp4'), true), hashes(join(dir, 'c1.mp4'), true), 'a rAF counter marked stateless differs between 1 and 3 workers');
-  const cf = grayFrames(join(dir, 'c3.mp4'));
-  near(edge(cf[44], 30), Math.round((100 * 44) / 30), 'the box driven by the clock still lands on its frame');
-  near(edge(cf[44], 90), 3 * (44 - 33 + 1), 'the counter box counts from the second worker\'s first frame, 33, not from 0');
+  assert.match(c3.err, /render: the page is marked data-stateless, but frame 33 \(1\.100 s\) comes out differently when jumped to than after stepping through the 30 frame\(s\) before it \([\d.]+% of its pixels, within \d+x\d+ at \d+,\d+; twice\): it draws more than the time into a frame, so every worker steps through the frames before its own/);
+  assert.match(c3.out, PREROLL, 'the workers stepped through the frames before their own');
+  assert.match(c3.out, /data-stateless mark checked in [\d.]+ s/);
+  assert.deepEqual(hashes(join(dir, 'c3.mp4'), true), hashes(join(dir, 'c1.mp4'), true), 'three workers write the same bytes as one');
 
   const clock = page(dir, 'clock.html', CLOCK_BODY, CLOCK_STYLE, STATELESS);
   const k1 = render([clock, '--out', join(dir, 'k1.mp4'), '--frames', '60', '--workers', '1', '--segment', '0.5']);
   assert.equal(k1.code, 0, k1.err);
   const k3 = render([clock, '--out', join(dir, 'k3.mp4'), '--frames', '60', '--workers', '3', '--segment', '0.5']);
   assert.equal(k3.code, 0, k3.err);
-  assert.doesNotMatch(k3.out, PREROLL);
-  const kf = grayFrames(join(dir, 'k3.mp4'));
-  // The third worker starts at frame 40; its __seek has been called 6 times by frame 45, and the CSS
-  // animation __seek starts at 1 s is first seen there, so it is dated from frame 40 rather than 30.
-  const jumped = (40 * 1000) / 30;
-  for (const i of [45, 59]) {
-    const t = (i * 1000) / 30;
-    near(edge(kf[i], 40), 10 * Math.floor(t / 100), `setInterval ticks at frame ${i}: timers fire in order at their virtual times`);
-    near(edge(kf[i], 70), Math.round(t / 10), `Date.now at frame ${i}`);
-    near(edge(kf[i], 100), Math.round((200 * (t - 1000)) / 1000), `element.animate() made by a timer at 1 s, at frame ${i}: dated from the timer`);
-    near(edge(kf[i], 130), Math.round((t / 1000) * 60), `gsap.globalTimeline.seek at frame ${i}`);
-    near(edge(kf[i], 10), 3 * (i - 40 + 1), `__seek call count at frame ${i}: counted from the jump`);
-    near(edge(kf[i], 160), Math.round((200 * (t - jumped)) / 1000), `CSS animation __seek starts at 1 s, at frame ${i}: dated from the jump`);
+  assert.match(k3.err, /marked data-stateless, but frame 20 \(0\.667 s\) comes out differently when jumped to/);
+  assert.deepEqual(hashes(join(dir, 'k3.mp4'), true), hashes(join(dir, 'k1.mp4'), true), 'three workers write the same bytes as one');
+  // Stills skip every frame before their own, so the probe runs on the first, whatever the worker count.
+  const stills = render([counter, '--out', join(dir, 'stills'), '--stills', '1.5,3', '--workers', '2']);
+  assert.equal(stills.code, 0, stills.err);
+  assert.match(stills.err, /marked data-stateless, but frame 45 \(1\.500 s\) comes out differently when jumped to than after stepping through the 30 frame\(s\) before it/);
+  const unmarked = render([page(dir, 'counter-unmarked.html', RAF_BODY), '--out', join(dir, 'unmarked'), '--stills', '1.5,3', '--workers', '2']);
+  assert.equal(unmarked.code, 0, unmarked.err);
+  for (const f of ['f000045-1.500s.png', 'f000090-3.000s.png']) {
+    assert.ok(readFileSync(join(dir, 'stills', f)).equals(readFileSync(join(dir, 'unmarked', f))), `${f} is what the unmarked page draws`);
   }
 });
 
@@ -463,28 +494,85 @@ test('render: a <video> shows the picture for each frame, from a long-GOP source
   const frames = grayFrames(out);
   assert.deepEqual(frames.map((f) => Math.round(edge(f, 90) / 4)), Array.from({ length: 45 }, (_, i) => i));
 
-  // Stills step through every earlier frame too, so they read the all-intra copy as well.
+  // Stills step through every earlier frame too, so they read the all-intra copy as well: the one the render made.
   const stills = join(dir, 'stills');
   const s = render([file, '--out', stills, '--stills', '1.2']);
   assert.equal(s.code, 0, s.err);
-  assert.match(s.err, /all-intra copy of clip\.mp4/);
+  assert.doesNotMatch(s.err, /all-intra copy/, 'the render\'s copy is reused');
   assert.equal(Math.round(edge(grayPng(join(stills, 'f000036-1.200s.png')), 90) / 4), 36);
 
-  // A copy is kept for the next render, and dropped once its source has changed.
-  const media = join(`${out}.render`, 'media');
-  const kept = readdirSync(media);
+  // A copy is kept for the next render, a file touched but not changed keeps it, and one whose bytes change gets a new one.
+  const kept = copiesIn(dir);
   assert.equal(kept.length, 1);
   const again = render([file, '--out', out, '--fps', '30', '--frames', '45', '--workers', '2', '--segment', '1']);
   assert.equal(again.code, 0, again.err);
   assert.doesNotMatch(again.err, /all-intra copy/, 'the kept copy is reused');
-  assert.deepEqual(readdirSync(media), kept, 'the same copy, not a new one');
+  assert.deepEqual(copiesIn(dir), kept, 'the same copy, not a new one');
   assert.deepEqual(grayFrames(out).map((f) => Math.round(edge(f, 90) / 4)), Array.from({ length: 45 }, (_, i) => i), 'and it still seeks frame-exact');
   const later = new Date(Date.now() + 5000);
   utimesSync(join(dir, 'clip.mp4'), later, later);
+  const touched = render([file, '--out', out, '--fps', '30', '--frames', '45', '--workers', '2', '--segment', '1']);
+  assert.equal(touched.code, 0, touched.err);
+  assert.doesNotMatch(touched.err, /all-intra copy/, 'its bytes are what they were');
+  barClip(dir, 'clip.mp4', { frames: 90, gop: 50 });
   const changed = render([file, '--out', out, '--fps', '30', '--frames', '45', '--workers', '2', '--segment', '1']);
   assert.equal(changed.code, 0, changed.err);
   assert.match(changed.err, /all-intra copy of clip\.mp4/);
-  assert.equal(readdirSync(media).length, 1, 'the stale copy is removed');
+  assert.match(changed.err, /media cache .*runs\/\.media: 2 copies, 0\.0 GB/, 'the render says what the cache holds');
+  assert.equal(copiesIn(dir).length, 2, 'the old copy stays until the cache needs its room');
+});
+
+test('render: stills into two directories, and a video render after them, share one copy of the source, and a changed source gets its own', { skip }, () => {
+  const dir = scratchDir('render-shared-copy');
+  barClip(dir, 'clip.mp4', { frames: 90 });
+  const file = page(dir, 'video.html', '<video src="clip.mp4" muted playsinline style="position:absolute;left:0;top:0;width:320px;height:180px"></video>');
+  const first = render([file, '--out', join(dir, 'stills-a'), '--stills', '1.2']);
+  assert.equal(first.code, 0, first.err);
+  assert.match(first.err, /made an all-intra copy of clip\.mp4/);
+  const [copy] = copiesIn(dir);
+  assert.equal(copiesIn(dir).length, 1);
+  const inode = statSync(copy).ino;
+
+  const second = render([file, '--out', join(dir, 'stills-b'), '--stills', '0.5,2']);
+  assert.equal(second.code, 0, second.err);
+  assert.doesNotMatch(second.err, /all-intra copy/, 'another stills directory finds the copy');
+  assert.deepEqual(copiesIn(dir), [copy]);
+  assert.equal(statSync(copy).ino, inode, 'the copy was not made again');
+  assert.equal(Math.round(edge(grayPng(join(dir, 'stills-b', 'f000060-2.000s.png')), 90) / 4), 60);
+  assert.ok(!existsSync(join(dir, 'stills-a.render')) && !existsSync(join(dir, 'stills-b.render')), 'no copy kept beside the stills');
+
+  const out = join(dir, 'out.mp4');
+  const video = render([file, '--out', out, '--fps', '30', '--frames', '45', '--workers', '2', '--segment', '1']);
+  assert.equal(video.code, 0, video.err);
+  assert.doesNotMatch(video.err, /all-intra copy/, 'a video render finds the copy the stills made');
+  assert.equal(statSync(copy).ino, inode);
+  assert.deepEqual(grayFrames(out).map((f) => Math.round(edge(f, 90) / 4)), Array.from({ length: 45 }, (_, i) => i));
+
+  // Another picture in the same file: the bar one frame later, so a still from the old copy would show.
+  barClip(dir, 'clip.mp4', { frames: 90, from: 1 });
+  const changed = render([file, '--out', join(dir, 'stills-a'), '--stills', '1.2']);
+  assert.equal(changed.code, 0, changed.err);
+  assert.match(changed.err, /made an all-intra copy of clip\.mp4/);
+  assert.equal(copiesIn(dir).length, 2);
+  assert.equal(Math.round(edge(grayPng(join(dir, 'stills-a', 'f000036-1.200s.png')), 90) / 4), 37, 'the still shows the new picture');
+});
+
+test('render: two stills renders at once into different directories leave one whole copy, and both land on the exact frame', { skip }, async () => {
+  const dir = scratchDir('render-copy-race');
+  barClip(dir, 'clip.mp4', { frames: 90 });
+  const file = page(dir, 'video.html', '<video src="clip.mp4" muted playsinline style="position:absolute;left:0;top:0;width:320px;height:180px"></video>');
+  const [a, b] = await Promise.all([
+    renderAsync([file, '--out', join(dir, 'stills-a'), '--stills', '1.2']),
+    renderAsync([file, '--out', join(dir, 'stills-b'), '--stills', '2']),
+  ]);
+  assert.equal(a.code, 0, a.err);
+  assert.equal(b.code, 0, b.err);
+  const cache = join(dir, 'runs', '.media');
+  const [copy] = copiesIn(dir);
+  assert.deepEqual(readdirSync(cache).filter((n) => n !== 'versions'), [basename(copy)], 'one copy, and nothing half-written beside it');
+  assert.equal(probe(copy, 'stream=nb_read_packets'), '90', 'the copy is whole');
+  assert.equal(Math.round(edge(grayPng(join(dir, 'stills-a', 'f000036-1.200s.png')), 90) / 4), 36);
+  assert.equal(Math.round(edge(grayPng(join(dir, 'stills-b', 'f000060-2.000s.png')), 90) / 4), 60);
 });
 
 test('render: a stateless page with a <video> seeks straight to each worker\'s first frame, and a late still steps through nothing', { skip }, () => {
@@ -501,8 +589,9 @@ test('render: a stateless page with a <video> seeks straight to each worker\'s f
   // The second worker's first frame is a seek from 0 straight to its time, and must wait for that picture.
   assert.deepEqual(grayFrames(out).map((f) => Math.round(edge(f, 90) / 4)), Array.from({ length: 45 }, (_, i) => i));
 
+  // In a workspace of their own, so the stills make the copy the render already made in this one.
   const stills = join(dir, 'stills');
-  const s = render([file, '--out', stills, '--stills', '2.5,1.2', '--workers', '2']);
+  const s = render([file, '--out', stills, '--stills', '2.5,1.2', '--workers', '2'], { OPEN_EDIT_ROOT: scratchDir('render-stateless-stills') });
   assert.equal(s.code, 0, s.err);
   assert.match(s.err, /all-intra copy of clip\.mp4/, 'the still is frame-exact only from the copy');
   assert.doesNotMatch(s.out, PREROLL, 'a still at 2.5 s steps through none of the 75 frames before it');
@@ -578,13 +667,24 @@ function bigClip(dir: string, gop: number): string {
   return clip;
 }
 
-/** The one copy under a render's media directory, and its size. */
-function theCopy(media: string): { path: string; size: string } {
-  const names = readdirSync(media);
-  assert.equal(names.length, 1, `one copy in ${media}: ${names.join(', ')}`);
-  const path = join(media, names[0]);
-  return { path, size: probe(path, 'stream=width,height') };
+/** The copies in the media cache of renders whose --out is in `dir`, oldest first. */
+function copiesIn(dir: string): string[] {
+  const cache = join(dir, 'runs', '.media');
+  if (!existsSync(cache)) return [];
+  return readdirSync(cache).filter((n) => /^[0-9a-f]{20}\.(mp4|webm)$/.test(n)).map((n) => join(cache, n)).sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs);
 }
+
+const sizeOf = (copy: string) => probe(copy, 'stream=width,height');
+
+/** The one copy in the media cache of renders in `dir`, and its size. */
+function theCopy(dir: string): { path: string; size: string } {
+  const copies = copiesIn(dir);
+  assert.equal(copies.length, 1, `one copy: ${copies.join(', ')}`);
+  return { path: copies[0], size: sizeOf(copies[0]) };
+}
+
+/** The size of the copy a render in `dir` used last: a copy found is marked used, one made is new. */
+const lastUsedSize = (dir: string) => sizeOf(copiesIn(dir).at(-1)!);
 
 test('render: a <video> shown at half its size is served from a copy at the shown size, and still lands on the exact frame', { skip }, () => {
   const dir = scratchDir('render-shown-size');
@@ -595,8 +695,7 @@ test('render: a <video> shown at half its size is served from a copy at the show
   const r = render([cover, '--out', out, '--fps', '30', '--frames', '45', '--workers', '2', '--segment', '1']);
   assert.equal(r.code, 0, r.err);
   assert.match(r.err, /all-intra copy of clip\.mp4 at 320x180 \(shown at that size; the source is 640x360, with keyframes up to \d+ frames apart\)/);
-  const media = join(`${out}.render`, 'media');
-  assert.equal(theCopy(media).size, '320,180');
+  assert.equal(theCopy(dir).size, '320,180');
   assert.deepEqual(grayFrames(out).map((f) => Math.round(edge(f, 90) / 2)), Array.from({ length: 45 }, (_, i) => i));
 
   // Keyframes close together: a copy is still worth it for the size alone.
@@ -607,15 +706,16 @@ test('render: a <video> shown at half its size is served from a copy at the show
   const s = render([plain, '--out', stills, '--stills', '1']);
   assert.equal(s.code, 0, s.err);
   assert.match(s.err, /all-intra copy of clip\.mp4 at 320x180 \(shown at that size; the source is 640x360\) for frame-exact seeks/);
-  assert.equal(theCopy(join(`${stills}.render`, 'media')).size, '320,180');
+  assert.equal(theCopy(short).size, '320,180');
   assert.equal(Math.round(edge(grayPng(join(stills, 'f000030-1.000s.png')), 90) / 2), 30);
 
-  // Drawn at full size now (the stage clips it): a full-size copy replaces the small one.
+  // Drawn at full size now (the stage clips it): a full-size copy is served in place of the small one.
   writeFileSync(cover, readFileSync(cover, 'utf8').replace(`width:${W}px;height:${H}px;object-fit:cover`, `width:${2 * W}px;height:${2 * H}px`));
   const full = render([cover, '--out', out, '--fps', '30', '--frames', '45', '--workers', '2', '--segment', '1']);
   assert.equal(full.code, 0, full.err);
   assert.match(full.err, /all-intra copy of clip\.mp4 \(keyframes up to \d+ frames apart\)/);
-  assert.equal(theCopy(media).size, '640,360', 'the small copy is gone');
+  assert.equal(lastUsedSize(dir), '640,360');
+  assert.deepEqual(copiesIn(dir).map(sizeOf), ['320,180', '640,360'], 'the small copy stays until the cache needs its room');
   assert.deepEqual(grayFrames(out).map((f) => Math.round(edge(f, 90) / 4)), Array.from({ length: 45 }, (_, i) => i));
 });
 
@@ -629,7 +729,7 @@ test('render: under --scale a <video> is copied at the size it is captured at, a
   assert.equal(r.code, 0, r.err);
   assert.match(r.err, /all-intra copy of clip\.mp4 at 160x90/);
   assert.doesNotMatch(r.err, /rendering again from full-size copies/);
-  assert.equal(theCopy(join(`${out}.render`, 'media')).size, '160,90');
+  assert.equal(theCopy(dir).size, '160,90');
   grayFramesOf(out, W / 2, H / 2).forEach((f, i) => {
     const x = f.subarray(45 * (W / 2), 46 * (W / 2)).findIndex((v) => v > 128);
     near(x, i, `the bar at frame ${i}`);
@@ -652,7 +752,7 @@ ${CANVAS_OF_V}`);
   const r = render([file, '--out', out, '--frames', '30']);
   assert.equal(r.code, 0, r.err);
   assert.match(r.err, /all-intra copy of clip\.mp4 \(keyframes up to \d+ frames apart\)/);
-  assert.equal(theCopy(join(`${out}.render`, 'media')).size, '640,360');
+  assert.equal(theCopy(dir).size, '640,360');
   const frames = grayFrames(out);
   for (const i of [10, 20, 29]) assert.equal(Math.round(edge(frames[i], 90) / 4), i, `canvas drawn at the source's size at frame ${i}`);
 });
@@ -666,7 +766,7 @@ ${CANVAS_OF_V}`);
     const out = join(dir, 'out.mp4');
     const r = render([file, '--out', out, '--frames', '30']);
     assert.equal(r.code, 0, `${name}: ${r.err}`);
-    assert.equal(theCopy(join(`${out}.render`, 'media')).size, '640,360', name);
+    assert.equal(theCopy(dir).size, '640,360', name);
     const frames = grayFrames(out);
     for (const i of [10, 20, 29]) assert.equal(Math.round(edge(frames[i], 90) / 4), i, `${name}: canvas drawn at the source's size at frame ${i}`);
   }
@@ -682,7 +782,7 @@ ${CANVAS_OF_V}`);
   const out = join(dir, 'out.mp4');
   const r = render([file, '--out', out, '--frames', '30']);
   assert.equal(r.code, 0, r.err);
-  assert.equal(theCopy(join(`${out}.render`, 'media')).size, '640,360');
+  assert.equal(theCopy(dir).size, '640,360');
   const frames = grayFrames(out);
   for (const i of [10, 20, 29]) assert.equal(Math.round(edge(frames[i], 90) / 4), i, `canvas drawn at the source's size at frame ${i}`);
 });
@@ -703,12 +803,11 @@ test('render: a <video> the page grows past the size it showed on load is render
   bigClip(dir, 60);
   const file = page(dir, 'grow.html', GROWING);
   const out = join(dir, 'out.mp4');
-  const media = join(`${out}.render`, 'media');
   const r = render([file, '--out', out, '--fps', '30', '--frames', '45', '--workers', '2', '--segment', '1']);
   assert.equal(r.code, 0, r.err);
   assert.match(r.err, /all-intra copy of clip\.mp4 at 160x90/);
   assert.match(r.err, RETRIED);
-  assert.equal(theCopy(media).size, '640,360', 'the small copy is gone');
+  assert.equal(lastUsedSize(dir), '640,360', 'the second attempt served the full-size copy');
   const frames = grayFrames(out);
   for (const i of [30, 37, 44]) assert.equal(Math.round(edge(frames[i], 90) / 2), i, `the whole stage at frame ${i}`);
 
@@ -718,7 +817,8 @@ test('render: a <video> the page grows past the size it showed on load is render
   assert.equal(patch.code, 0, patch.err);
   assert.match(patch.err, RETRIED);
   assert.match(patch.out, /segments: 1 rendered, 1 reused/);
-  assert.equal(theCopy(media).size, '640,360');
+  assert.equal(lastUsedSize(dir), '640,360');
+  assert.deepEqual(copiesIn(dir).map(sizeOf), ['160,90', '640,360'], 'both copies found again, neither made again');
   assert.deepEqual(hashes(out, true), before, 'the patched segment is the one the full-size copy made');
 
   const stills = join(dir, 'stills');
@@ -750,7 +850,7 @@ test('render: a grown <video> with keyframes close together is served from its o
   assert.match(r.err, /all-intra copy of clip\.mp4 at 160x90/);
   assert.match(r.err, RETRIED);
   assert.doesNotMatch(r.err, /could not be played|failed to load/);
-  assert.deepEqual(readdirSync(join(`${out}.render`, 'media')), [], 'no copy is needed at full size, and the small one is gone');
+  assert.deepEqual(copiesIn(dir).map(sizeOf), ['160,90'], 'no copy is made at full size: the second attempt serves the file itself');
   const frames = grayFrames(out);
   for (const i of [30, 37, 44]) assert.equal(Math.round(edge(frames[i], 90) / 2), i, `the whole stage at frame ${i}`);
 
@@ -760,6 +860,41 @@ test('render: a grown <video> with keyframes close together is served from its o
   assert.match(s.err, RETRIED);
   assert.equal(Math.round(edge(grayPng(join(stills, 'f000036-1.200s.png')), 90) / 2), 36);
   assert.ok(sharpAt36(join(stills, 'f000036-1.200s.png')), 'drawn from the source, not the small copy the first attempt loaded');
+});
+
+test('render: a video render names a first frame that makes a poor cover and a still held past its words, and a patch only near what it re-rendered', { skip }, () => {
+  const dir = scratchDir('render-picture');
+  // A fade in from black over the first second, then a card of six words that comes up at 2 s and holds to the end.
+  const style = `${CSS_STYLE}#stage{background:#4a6a8a}
+#card{position:absolute;inset:0;background:#f0e0c8;color:#222;font:bold 28px sans-serif;padding:20px;opacity:0;animation:show .1s linear 2s forwards}
+@keyframes show{to{opacity:1}}
+#fade{position:absolute;inset:0;background:#000;animation:fade 1s linear forwards}
+@keyframes fade{to{opacity:0}}`;
+  const file = page(dir, 'card.html', `${CSS_BODY}<div id="card">See you at the grand opening</div><div id="fade"></div>`, style, STATELESS);
+  const out = join(dir, 'out.mp4');
+  const args = [file, '--out', out, '--fps', '30', '--duration', '8', '--segment', '1'];
+  const notes = (r: { out: string }) => r.out.split('\n').filter((line) => line.startsWith('  picture: '));
+  const COVER = /^ {2}picture: frame 0 is blank, flat black, fading in until (0\.9\d|1\.0\d) s; platforms show it as the cover$/;
+  // Each one-second segment is encoded on its own, so a keyframe nudges the held card every second without unfreezing it.
+  const CARD = /^ {2}picture: frozen 2\.[01]-8\.0 s \(5\.[89] s, over the 4\.2 s its 6 words allow\)$/;
+
+  const full = render(args);
+  assert.equal(full.code, 0, full.err);
+  const said = notes(full);
+  assert.equal(said.length, 2, said.join('\n'));
+  assert.match(said[0], COVER);
+  assert.match(said[1], CARD);
+
+  // Re-rendering the opening looks at the first frame, and not at the card well after it.
+  const opening = render([...args, '--from', '0', '--to', '1']);
+  assert.equal(opening.code, 0, opening.err);
+  assert.equal(notes(opening).length, 1);
+  assert.match(notes(opening)[0], COVER);
+  // Re-rendering part of the card measures the whole of it, and leaves the first frame alone.
+  const card = render([...args, '--from', '6', '--to', '7']);
+  assert.equal(card.code, 0, card.err);
+  assert.equal(notes(card).length, 1);
+  assert.match(notes(card)[0], CARD);
 });
 
 test('render: a patch re-renders only the segments it touches and leaves the rest bit-identical', { skip }, () => {
@@ -1138,13 +1273,14 @@ test('render: stills render only the named moments, with a contact sheet', { ski
   assert.equal(existsSync(`${outDir}.render`), false, 'no video cache: stills render no video');
 });
 
-/** A clip whose frame n has a bright bar at x = scale·n, `bar` px wide, with keyframes 60 frames apart. */
-function barClip(dir: string, name: string, o: { frames: number; width?: number; height?: number; scale?: number; bar?: number }): string {
+/** A clip whose frame n has a bright bar at x = scale·(n + from), `bar` px wide, with keyframes `gop` (60) frames apart. */
+function barClip(dir: string, name: string, o: { frames: number; width?: number; height?: number; scale?: number; bar?: number; gop?: number; from?: number; rate?: string }): string {
   const file = join(dir, name);
-  const { width = W, height = H, scale = 4, bar = 4 } = o;
+  const { width = W, height = H, scale = 4, bar = 4, gop = 60, from = 0, rate = '30' } = o;
+  const x = `${scale}*(N+${from})`;
   execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
-    `color=c=black:s=${width}x${height}:r=30:d=${(o.frames / 30).toFixed(4)},format=yuv420p,geq=lum='if(between(X\\,${scale}*N\\,${scale}*N+${bar - 1})\\,235\\,16)':cb=128:cr=128`,
-    '-frames:v', String(o.frames), '-c:v', 'libx264', '-g', '60', '-pix_fmt', 'yuv420p', file]);
+    `color=c=black:s=${width}x${height}:r=${rate},format=yuv420p,geq=lum='if(between(X\\,${x}\\,${x}+${bar - 1})\\,235\\,16)':cb=128:cr=128`,
+    '-frames:v', String(o.frames), '-c:v', 'libx264', '-g', String(gop), '-pix_fmt', 'yuv420p', file]);
   return file;
 }
 
@@ -1165,6 +1301,7 @@ test('render: --footage lays the page over the clip in ffmpeg, frame-exact acros
   // two workers' frames and a whole one each start where the footage does.
   const r = render([file, '--out', out, '--fps', '30', '--frames', '45', '--workers', '2', '--segment', '1', '--footage', clip]);
   assert.equal(r.code, 0, r.err);
+  assert.deepEqual(readRecord(recordPath(out)).footage, { file: clip, frame: 0, time: 0 }, 'the text record names the clip under the page, for the review\'s graphics check');
   assert.match(r.out, /2 worker\(s\), segments: 2 rendered/);
   assert.doesNotMatch(r.err, /all-intra|failed to load|no source|warning/, 'the stood-down video is neither copied nor reported');
   assert.equal(probe(out, 'stream=pix_fmt,nb_read_packets'), 'yuv420p,45');
@@ -1198,6 +1335,84 @@ test('render: --footage lays the page over the clip in ffmpeg, frame-exact acros
   const changed = render([file, '--out', out, '--fps', '30', '--frames', '45', '--segment', '1', '--footage', clip, '--from', '0.2', '--to', '0.4']);
   assert.equal(changed.code, 2);
   assert.match(changed.err, /made differently \(footage "\S*clip\.mp4 \(\d+ bytes, modified [^"]+" → "\S*clip\.mp4 \(\d+ bytes, modified/);
+});
+
+/** Each frame's time in seconds, in display order. */
+function frameTimes(video: string): number[] {
+  const [n, d] = probe(video, 'stream=time_base').split('/').map(Number);
+  return execFileSync(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts', '-of', 'csv=p=0', video], { encoding: 'utf8' })
+    .trim().split('\n').map((t) => (Number(t) * n) / d).sort((a, b) => a - b);
+}
+
+test('render: over 24000/1001 footage every frame of the joined video is one frame after the last, across every segment join', { skip }, () => {
+  const dir = scratchDir('render-footage-joins');
+  const clip = barClip(dir, 'clip.mp4', { frames: 72, rate: '24000/1001' });
+  const out = join(dir, 'out.mp4');
+  // Three 1 s segments on two workers: two joins, where ffmpeg 7 set each next segment a frame early.
+  const r = render([page(dir, 'over.html', OVER_FOOTAGE, CLEAR), '--out', out, '--fps', '24000/1001', '--frames', '72', '--segment', '1', '--workers', '2', '--footage', clip]);
+  assert.equal(r.code, 0, r.err);
+  const times = frameTimes(out);
+  assert.equal(times.length, 72);
+  const off = times.map((t, i) => ({ i, t })).filter(({ i, t }) => Math.abs(t - (i * 1001) / 24000) > 1e-4);
+  assert.deepEqual(off.slice(0, 2), [], `frames off their time: ${off.slice(0, 2).map(({ i, t }) => `frame ${i} at ${t.toFixed(4)} s`).join(', ')}`);
+  assert.equal(Number(probe(out, 'stream=duration')).toFixed(3), '3.003');
+  assert.deepEqual(grayFrames(out).map(footageFrame), Array.from({ length: 72 }, (_, i) => i), 'footage frame n under page frame n');
+});
+
+test('render: --footage without --fps or --duration renders at the clip\'s exact rate for every frame it holds, and says so', { skip }, () => {
+  const dir = scratchDir('render-footage-defaults');
+  const clip = barClip(dir, 'clip.mp4', { frames: 50, rate: '30000/1001' });
+  const out = join(dir, 'out.mp4');
+  const r = render([page(dir, 'over.html', OVER_FOOTAGE, CLEAR), '--out', out, '--footage', clip, '--segment', '1']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /render: --fps 30000\/1001 and --frames 50 \(1\.668 s\) from the footage clip\.mp4/);
+  assert.equal(probe(out, 'stream=r_frame_rate,nb_read_packets'), '30000/1001,50');
+  assert.deepEqual(grayFrames(out).map(footageFrame), Array.from({ length: 50 }, (_, i) => i));
+  // A length given is kept, with the rate still the clip's; a rate given must be the clip's.
+  const short = render([page(dir, 'over.html', OVER_FOOTAGE, CLEAR), '--out', join(dir, 'short.mp4'), '--footage', clip, '--duration', '1']);
+  assert.equal(short.code, 0, short.err);
+  assert.match(short.err, /render: --fps 30000\/1001 from the footage clip\.mp4/);
+  assert.equal(probe(join(dir, 'short.mp4'), 'stream=r_frame_rate,nb_read_packets'), '30000/1001,30');
+  const wrong = render([page(dir, 'over.html', OVER_FOOTAGE, CLEAR), '--out', join(dir, 'wrong.mp4'), '--footage', clip, '--fps', '30']);
+  assert.equal(wrong.code, 2);
+  assert.match(wrong.err, /the footage runs at 30000\/1001 fps and --fps is 30: pass --fps 30000\/1001, the footage's own rate, or leave --fps out/);
+});
+
+test('render: without --workers a page that jumps to its frames, or plays no video for Chrome, gets a worker per CPU, and one that seeks a <video> the default', { skip }, () => {
+  const dir = scratchDir('render-workers');
+  const cpus = cpuCount();
+  // Enough frames for a worker per CPU, and for more workers than the default.
+  const frames = MIN_FRAMES_PER_WORKER * Math.max(cpus, defaultWorkers() + 1);
+  const workers = (r: { out: string }) => Number(/(\d+) worker\(s\)/.exec(r.out)?.[1]);
+  const jumps = render([page(dir, 'css.html', CSS_BODY, CSS_STYLE, STATELESS), '--out', join(dir, 'css.mp4'), '--frames', String(frames)]);
+  assert.equal(jumps.code, 0, jumps.err);
+  assert.equal(workers(jumps), cpus, jumps.out);
+  const clip = barClip(dir, 'clip.mp4', { frames });
+  const over = render([page(dir, 'over.html', OVER_FOOTAGE, CLEAR), '--out', join(dir, 'over.mp4'), '--footage', clip]);
+  assert.equal(over.code, 0, over.err);
+  assert.equal(workers(over), cpus, 'the page\'s only <video> is the footage, which Chrome never plays');
+  const seeks = render([page(dir, 'video.html', OVER_FOOTAGE, CLEAR), '--out', join(dir, 'video.mp4'), '--frames', String(frames)]);
+  assert.equal(seeks.code, 0, seeks.err);
+  assert.equal(workers(seeks), Math.min(defaultWorkers(), Math.floor(frames / MIN_FRAMES_PER_WORKER)), 'each worker steps its <video> through every earlier frame');
+});
+
+test('render: OPENEDIT_CHROME names the browser when --chrome is not given, and --chrome wins over it', {
+  skip: skip || (process.platform === 'win32' && 'a shell-script stand-in cannot run on Windows'),
+}, () => {
+  const dir = scratchDir('render-chrome-env');
+  const chrome = join(dir, 'chrome');
+  writeFileSync(chrome, `#!/bin/sh\nexec "${installedChrome(platform!)}" "$@"\n`, { mode: 0o755 });
+  const out = join(dir, 'out.mp4');
+  const file = page(dir, 'css.html', CSS_BODY, CSS_STYLE);
+  const r = render([file, '--out', out, '--frames', '3'], { OPENEDIT_CHROME: chrome });
+  assert.equal(r.code, 0, r.err);
+  const manifest = JSON.parse(readFileSync(join(`${out}.render`, 'manifest.json'), 'utf8')) as { params: { browser: string } };
+  assert.ok(manifest.params.browser.includes(`(${chrome}, `), `the cache records the build OPENEDIT_CHROME named: ${manifest.params.browser}`);
+  const gone = render([file, '--out', out, '--frames', '3'], { OPENEDIT_CHROME: join(dir, 'nope') });
+  assert.notEqual(gone.code, 0);
+  assert.match(gone.err, /OPENEDIT_CHROME \S*nope is not a file/);
+  const flag = render([file, '--out', out, '--frames', '3', '--chrome', join(dir, 'flag')], { OPENEDIT_CHROME: chrome });
+  assert.match(flag.err, /--chrome \S*flag is not a file/);
 });
 
 test('render: a --footage draft lays the half-size page over the footage scaled to match, frame-exact, captured as PNG', { skip }, () => {
@@ -1254,9 +1469,140 @@ test('render: --footage stills are laid over the footage\'s frame, scaled to fil
   const bare = render([page(dir, 'bare.html', OVER_FOOTAGE.split('\n')[0], CLEAR), '--out', join(dir, 'bare'), '--stills', '0.5', '--footage', clip]);
   assert.equal(bare.code, 0, bare.err);
   near(edge(grayPng(join(dir, 'bare', 'f000015-0.500s.png')), 20), 4 * 15, 'footage frame 15 alone');
-  const past = render([file, '--out', stills, '--stills', '1.5', '--footage', clip]);
-  assert.equal(past.code, 2);
-  assert.match(past.err, /1 still\(s\) lie past the footage, which holds 45 frames \(1\.500 s at 30 fps\)/);
+  // Past the footage's last frame the page is laid over black, as the video render lays it.
+  const past = render([file, '--out', stills, '--stills', '1.7', '--footage', clip, '--frames', '60']);
+  assert.equal(past.code, 0, past.err);
+  const after = grayPng(join(stills, 'f000051-1.700s.png'));
+  assert.equal(edge(after, 20), -1, 'no footage past its last frame');
+  assert.ok(after[90 * W + 210] > 200 && after[20 * W + 100] < 8, 'the page over black');
+});
+
+/** Every frame of a video as 8-bit gray, in the order stored, whatever their timestamps say. */
+function storedFrames(video: string): Buffer[] {
+  const raw = execFileSync(FFMPEG, ['-v', 'error', '-i', video, '-fps_mode', 'passthrough', '-vf', 'format=gray', '-f', 'rawvideo', '-'], { maxBuffer: 1 << 28 });
+  return Array.from({ length: raw.length / (W * H) }, (_, i) => raw.subarray(i * W * H, (i + 1) * W * H));
+}
+
+/** Seconds into a file at which its sound first reaches half its loudest, read from its first audio stream. */
+function soundOnset(file: string): number {
+  const raw = execFileSync(FFMPEG, ['-v', 'error', '-i', file, '-map', '0:a:0', '-ac', '1', '-ar', '48000', '-f', 'f32le', '-'], { maxBuffer: 1 << 28 });
+  const samples = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+  const peak = samples.reduce((m, x) => Math.max(m, Math.abs(x)), 0);
+  return samples.findIndex((x) => Math.abs(x) >= peak / 2) / 48000;
+}
+
+// A title card that covers the stage before the footage, captions over it, and an end card over black after it.
+const AROUND_FOOTAGE = `<video src="clip.mp4" muted playsinline style="position:absolute;left:0;top:0;width:${W}px;height:${H}px"></video>
+<div id="title" style="position:absolute;inset:0;background:#333"><div class="box" style="left:20px;top:80px"></div></div>
+<div id="cap" style="position:absolute;left:150px;top:60px;width:40px;height:40px;background:#fff"></div>
+<div id="end" class="box" style="left:280px;top:150px"></div>
+<script src="faces.js"></script>
+<script>
+const show = (id, on) => { document.getElementById(id).style.display = on ? 'block' : 'none'; };
+window.__seek = (t) => {
+  show('title', t < 3); show('cap', t >= 3 && t < 13); show('end', t >= 13);
+  // faces.js counts in the clip's time: the page's, less the moment the clip starts at.
+  if (t >= 3 && t < 13) openeditFaces.place(document.getElementById('cap'), t - 3);
+};
+window.__seek(0);
+</script>`;
+
+test('render: --footage-at lays a shorter clip on the piece\'s timeline, with the page\'s cards before and after it, and mux-audio its sound from the same frame', { skip }, () => {
+  const dir = scratchDir('render-footage-at');
+  // 10 s at 10 fps: frame n has a bar at x = 3n, and the sound is silent but for a tone from 2.0 s, under frame 20.
+  const clip = join(dir, 'clip.mp4');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
+    `color=c=black:s=${W}x${H}:r=10:d=10,format=yuv420p,geq=lum='if(between(X\\,3*N\\,3*N+2)\\,235\\,16)':cb=128:cr=128`,
+    '-f', 'lavfi', '-i', "aevalsrc='if(between(t\\,2\\,2.2)\\,0.5*sin(2*PI*1000*t)\\,0)':s=48000:d=10",
+    '-frames:v', '100', '-c:v', 'libx264', '-g', '50', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', clip]);
+  // A face the caption's spot holds from 4 s to 6 s of the clip, and nowhere else.
+  writeFileSync(join(dir, 'faces.js'), facesScript({
+    video: clip, name: 'clip.mp4', width: W, height: H, fps: 10, frameRate: '10', durationSec: 10, model: 'stub', every: 1, threshold: 10,
+    confidence: 0.5, textMargin: 0,
+    shots: [{ start: 0, end: 4, samples: [] }, { start: 4, end: 6, samples: [{ sec: 4, faces: [{ x: 120, y: 40, w: 80, h: 100 }] }, { sec: 5.9, faces: [{ x: 120, y: 40, w: 80, h: 100 }] }] },
+      { start: 6, end: 10, samples: [] }],
+  }));
+  const file = page(dir, 'around.html', AROUND_FOOTAGE, CLEAR, STATELESS);
+  const out = join(dir, 'out.mp4');
+  // 2 s segments: wholly before the footage, starting on it, inside it, ending inside one, and wholly after it.
+  const r = render([file, '--out', out, '--fps', '10', '--duration', '16', '--workers', '2', '--footage', clip, '--footage-at', '3']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /footage clip\.mp4 under 3\.000-13\.000 s; the page is over black at 0\.000-3\.000 s and 13\.000-16\.000 s/);
+  assert.equal(probe(out, 'stream=nb_read_packets'), '160');
+  const frames = storedFrames(out);
+  frames.forEach((f, i) => {
+    if (i >= 30 && i < 130) near(edge(f, 20), 3 * (i - 30), `footage frame ${i - 30} under page frame ${i}`);
+    else assert.equal(edge(f, 20), -1, `no footage at page frame ${i}`);
+  });
+  for (const i of [0, 29]) assert.ok(frames[i][20 * W + 300] === 51 && frames[i][90 * W + 30] > 200, `the title card at frame ${i}`);
+  for (const i of [130, 159]) assert.ok(frames[i][20 * W + 100] < 8 && frames[i][160 * W + 290] > 200, `the end card over black at frame ${i}`);
+  // At 4.5 s the clip is at 1.5 s, with no face: the caption stays put. At 8 s it is at 5 s, and the caption clears the face.
+  assert.ok(frames[45][80 * W + 170] > 200 && frames[45][80 * W + 220] < 128, 'the caption where the page put it');
+  assert.ok(frames[80][80 * W + 170] < 128 && frames[80][80 * W + 220] > 200, 'the caption moved clear of the face');
+  const record = JSON.parse(readFileSync(`${out}.text.json`, 'utf8'));
+  assert.deepEqual(record.footage, { file: clip, frame: 30, time: 3 });
+
+  // The clip's own sound, laid on by mux-audio, starts with its first frame: the tone under frame 20 of the clip is at 5 s.
+  const final = join(dir, 'final.mp4');
+  const mux = spawnSync(process.execPath, ['--import', 'tsx', CLI, 'mux-audio', '--video', out, '--audio', clip, '--out', final], { encoding: 'utf8' });
+  assert.equal(mux.status, 0, mux.stderr);
+  assert.match(mux.stdout, /clip\.mp4 is the footage the render laid from 3\.000 s; its sound starts there too/);
+  const onset = soundOnset(final);
+  assert.ok(Math.abs(onset - 5) < 0.003, `the tone starts at ${onset.toFixed(4)} s, under the frame the clip drew it with`);
+  near(edge(storedFrames(final)[50], 20), 3 * 20, 'clip frame 20 at 5 s');
+  // Another track, a copy of the clip included, is laid from the start as before.
+  const other = join(dir, 'other.mp4');
+  copyFileSync(clip, other);
+  const plain = spawnSync(process.execPath, ['--import', 'tsx', CLI, 'mux-audio', '--video', out, '--audio', other, '--out', join(dir, 'plain.mp4')], { encoding: 'utf8' });
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.doesNotMatch(plain.stdout, /is the footage/);
+  assert.ok(Math.abs(soundOnset(join(dir, 'plain.mp4')) - 2) < 0.003, 'another track keeps its own timing');
+
+  // Stills land on the same frames: the title card, the footage under its caption, and the end card.
+  const stills = join(dir, 'stills');
+  const s = render([file, '--out', stills, '--stills', '1,8,14', '--fps', '10', '--footage', clip, '--footage-at', '3']);
+  assert.equal(s.code, 0, s.err);
+  assert.equal(grayPng(join(stills, 'f000010-1.000s.png'))[20 * W + 300], 51, 'the title card');
+  near(edge(grayPng(join(stills, 'f000080-8.000s.png')), 20), 3 * 50, 'clip frame 50 at 8 s');
+  assert.equal(edge(grayPng(join(stills, 'f000140-14.000s.png')), 20), -1, 'no footage after it');
+
+  // A patch keeps the footage where it was, and a cache laid with it elsewhere is refused.
+  const patch = render([file, '--out', out, '--fps', '10', '--duration', '16', '--footage', clip, '--footage-at', '3', '--from', '0.5', '--to', '1']);
+  assert.equal(patch.code, 0, patch.err);
+  assert.match(patch.out, /segments: 1 rendered, 7 reused/);
+  const moved = render([file, '--out', out, '--fps', '10', '--duration', '16', '--footage', clip, '--footage-at', '4', '--from', '0.5', '--to', '1']);
+  assert.equal(moved.code, 2);
+  assert.match(moved.err, /made differently \(footageAt 30 → 40\)/);
+  const late = render([file, '--out', join(dir, 'late.mp4'), '--fps', '10', '--duration', '16', '--footage', clip, '--footage-at', '16']);
+  assert.equal(late.code, 2);
+  assert.match(late.err, /--footage-at 16 is at or past the end \(16\.000 s\), so the footage would never show/);
+  const alone = render([file, '--out', join(dir, 'alone.mp4'), '--duration', '16', '--footage-at', '3']);
+  assert.equal(alone.code, 2);
+  assert.match(alone.err, /--footage-at says when the --footage clip starts; give --footage too/);
+  // Without --duration the piece runs on to the clip's last frame, wherever the clip starts.
+  const whole = join(dir, 'whole.mp4');
+  const taken = render([file, '--out', whole, '--footage', clip, '--footage-at', '3']);
+  assert.equal(taken.code, 0, taken.err);
+  assert.match(taken.err, /--fps 10 and --frames 130 \(13\.000 s\) from the footage clip\.mp4/);
+  assert.equal(probe(whole, 'stream=nb_read_packets'), '130');
+});
+
+test('render: footage that ends before the render is followed by the page over black, frame-exact at 30000/1001', { skip }, () => {
+  const dir = scratchDir('render-footage-short');
+  const clip = join(dir, 'clip.mp4');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-i', barClip(dir, 'bars.mp4', { frames: 20 }), '-r', '30000/1001', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', clip]);
+  const out = join(dir, 'out.mp4');
+  // 0.5 s segments of 15 frames: the second ends the footage five frames in, the third has none.
+  const r = render([page(dir, 'over.html', OVER_FOOTAGE, CLEAR), '--out', out, '--fps', '30000/1001', '--frames', '45', '--segment', '0.5', '--footage', clip]);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /footage clip\.mp4 under 0\.000-0\.667 s; the page is over black at 0\.667-1\.502 s/);
+  const frames = storedFrames(out);
+  assert.equal(frames.length, 45);
+  frames.forEach((f, i) => {
+    if (i < 20) near(edge(f, 20), 4 * i, `footage frame ${i}`);
+    else assert.equal(edge(f, 20), -1, `no footage at frame ${i}`);
+    assert.ok(f[90 * W + 210] > 200, `the page's box at frame ${i}`);
+  });
 });
 
 /** A page with a transparent `w` x `h` stage and a small dim mark in its corner, so it draws something over the footage. */
@@ -1274,7 +1620,7 @@ test('render: --footage of another shape than the stage is refused with the refr
   const out = join(dir, 'out.mp4');
   const r = render([markPage(dir, 180, 320), '--out', out, '--fps', '30', '--frames', '30', '--footage', clip]);
   assert.equal(r.code, 2, r.err);
-  assert.match(r.err, /the footage talk\.mp4 is 640x360 as shown and the stage 180x320, another shape: cut it to the stage's shape first with npx @veedstudio\/openedit-cli reframe "\S*talk\.mp4" --aspect 9:16 --out <file>, run faces on that file, and make it the page's footage/);
+  assert.match(r.err, /the footage talk\.mp4 is 640x360 as shown and the stage 180x320, another shape: cut it to the stage's shape first with npx @veedstudio\/openedit-cli reframe "\S*talk\.mp4" --aspect 9:16 --out <file>, and make that file the page's footage/);
   assert.equal(existsSync(out), false);
 });
 

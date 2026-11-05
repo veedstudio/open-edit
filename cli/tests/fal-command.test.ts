@@ -15,6 +15,7 @@ import { describeListing, type Http } from '../src/providers/fal.ts';
 import { readManifest, record, recordRequest, spendLine, type AssetRecord } from '../src/providers/assets.ts';
 import { jobKey, ledgerDir, type Attempt } from '../src/providers/queue-ledger.ts';
 import { falCommand } from '../src/commands/fal.ts';
+import { shellArg } from '../src/shell-arg.ts';
 
 const fresh = () => mkdtempSync(join(tmpdir(), 'fal-cmd-'));
 const reply = (status: number, body: unknown, bytes = new Uint8Array()) => ({
@@ -54,6 +55,8 @@ interface FakeFalOptions {
   submitStatus?: number;
   /** The requests fal's request history lists. */
   history?: { request_id: string; json_input: unknown }[];
+  /** What every result answers with, in place of the image result. */
+  result?: unknown;
 }
 
 const INLINE_BYTES = 'png bytes '.repeat(2000);
@@ -103,6 +106,7 @@ function fakeFal(opts: FakeFalOptions = {}): FakeFal {
     if (u.host === 'queue.fal.run' && u.pathname.endsWith('/status')) return reply(200, { status: opts.status ?? 'COMPLETED' });
     if (u.host === 'queue.fal.run') {
       const id = u.pathname.split('/').pop();
+      if (opts.result !== undefined) return reply(200, opts.result);
       if (opts.noFiles) return reply(200, { text: 'a caption', video_url: `https://files.example/${id}/bare.mp4` });
       if (opts.plainHttp === 'long') return reply(200, { images: [{ url: `http://files.example/${'x'.repeat(5000)}.png` }] });
       if (opts.plainHttp) return reply(200, { images: [{ url: `http://files.example/${id}/out.png?sig=secret` }] });
@@ -429,6 +433,20 @@ await test('only https outputs are fetched, and a response with no file object s
   assert.deepEqual(o.files, []);
   assert.ok(lines.some((l) => l.includes(`no {url} file object in the response; it is kept in ${join(dir, 'o', 'fal-result.json')}`)), lines.join('\n'));
   assert.ok(!lines.some((l) => /no files in the response/.test(l)));
+});
+
+await test('an answer with timed speech in it says, where it lands, the command that makes it a transcript', async () => {
+  const dir = fresh();
+  writeFileSync(join(dir, 'voice.mp3'), 'mp3 bytes');
+  const answer = JSON.parse(readFileSync(new URL('./fixtures/transcripts/fal-whisper-words.json', import.meta.url), 'utf8'));
+  const lines: string[] = [];
+  const job = { model: 'fal-ai/whisper', input: { audio_url: 'voice.mp3', chunk_level: 'word' }, name: 'stt', bases: [dir], outDir: join(dir, 'o') };
+  await runFalJobs([job], { key: 'k', ledgerRoot: dir, timeoutMs: 5_000, http: fakeFal({ result: answer }).http, ...quiet, log: (l) => lines.push(l) });
+  const kept = join(dir, 'o', 'fal-result.json');
+  assert.ok(lines.includes(`[stt] the answer is a transcript (word chunks, 48 words): openedit whisper ${shellArg(kept)} ${shellArg(join(dir, 'voice.mp3'))} writes it`), lines.join('\n'));
+  const quietLines: string[] = [];
+  await runFalJobs(one(fresh()), { key: 'k', ledgerRoot: fresh(), timeoutMs: 5_000, http: fakeFal().http, ...quiet, log: (l) => quietLines.push(l) });
+  assert.ok(!quietLines.some((l) => /transcript/.test(l)), 'an image says nothing about transcripts');
 });
 
 // --- purchases nobody finished recording ------------------------------------------------------------

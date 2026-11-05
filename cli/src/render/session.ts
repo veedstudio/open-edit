@@ -9,9 +9,11 @@ import { join } from 'node:path';
 import type { Browser, CDPSession, Page, Request } from 'playwright-core';
 import { browserProxy } from '../proxy.ts';
 import { CHROME_FLAGS, linuxHint } from './browser.ts';
-import { DRAWN_LARGER, runtimeScript, type ReadyInfo } from './page-runtime.ts';
+import { givenZone, minText, stylesheet, type Zone } from '../commands/safe-zone.ts';
+import { track } from './children.ts';
+import { DRAWN_LARGER, runtimeScript, type FrameReport, type RaisedText, type ReadyInfo, type RuntimeConfig, type StageZone } from './page-runtime.ts';
 import { SPEAKER_BOX } from './speaker.ts';
-import { TEXT_SAMPLER_SCRIPT, type TextEntry } from './text-sampler.ts';
+import { TEXT_SAMPLER_SCRIPT, type SampledFrame } from './text-sampler.ts';
 import { onDisk, type PageServer } from './server.ts';
 import { frameTime, type Fps } from './timing.ts';
 
@@ -20,11 +22,12 @@ import { frameTime, type Fps } from './timing.ts';
  * slow. Each stage is a pure wait from this process's side: the page's own work for a frame (`page`), the replay of
  * the frames before a worker's first (`preroll`), the page's own loads (`loads`), the screenshot
  * (`capture`), the reading of a sampled frame's text for the record (`text`), the launch of Chrome and the page's
- * load and readiness; `encode` is the time a worker was held back by ffmpeg. `draw` and `prerollDraw` count the draws
- * forced on a stalled step, inside `page` and `preroll`; a preroll steps through many frames at once, so it draws on
- * its way without having stalled.
+ * load and readiness; `encode` is the time a worker was held back by ffmpeg, and `scan` the look at the joined output.
+ * `draw` and `prerollDraw` count the draws forced on a stalled step, inside `page` and `preroll`; a preroll steps
+ * through many frames at once, so it draws on its way without having stalled. `probe` is the check of a
+ * data-stateless mark, whatever stages it went through.
  */
-const STAGES = ['launch', 'load', 'preroll', 'page', 'loads', 'capture', 'text', 'encode', 'copy', 'join', 'draw', 'prerollDraw'] as const;
+const STAGES = ['launch', 'load', 'preroll', 'page', 'loads', 'capture', 'text', 'encode', 'copy', 'join', 'scan', 'draw', 'prerollDraw', 'probe'] as const;
 export type Stage = (typeof STAGES)[number];
 export type Timings = Record<Stage, { ms: number; n: number }>;
 
@@ -56,6 +59,8 @@ export interface SessionOptions {
   /** Shared by every session of a render; absent, nothing is timed. */
   timings?: Timings;
   viewport: { width: number; height: number };
+  /** The canvas, once it is settled; before, it is the stage's size, or the viewport's on a page without a stage. */
+  canvas?: { width: number; height: number };
   /** Capture this box instead of the whole viewport. */
   clip?: { x: number; y: number; width: number; height: number } | null;
   /** What `capture` returns each frame as (default png). */
@@ -78,6 +83,8 @@ export interface SessionOptions {
    * footage is: for a check that draws only part of the page.
    */
   videosIn?: string | null;
+  /** Where the speaker layer's cut-out shows on the page's clock (see RuntimeConfig); from time 0 to the end by default. */
+  cutout?: RuntimeConfig['cutout'];
   /** URLs served from a copy smaller than the source: a frame that draws one larger fails with DrawnLarger. */
   shrunk?: string[];
   /** Selectors that `showLayer(k)` switches between, each drawn alone in place; one page pass serves them all. */
@@ -87,6 +94,13 @@ export interface SessionOptions {
   epoch: number;
   /** How long any single wait inside the page may take before the render fails. */
   budgetMs: number;
+  /** How long Chrome may take to start (default LAUNCH_MS); twice that to start and open a page. */
+  launchMs?: number;
+  /**
+   * Step through every frame before the one asked for even on a page marked data-stateless: the mark was found not
+   * to hold (checkStateless in commands/render.ts).
+   */
+  stepAlways?: boolean;
   /**
    * Where failed loads are collected. One set shared by every session of a render lets the command
    * print them on every exit, a failure included, since a missing script is often what failed it.
@@ -98,11 +112,30 @@ export interface SessionOptions {
    * Shared like failedLoads; any one fails the render, since the refusal is certain and has a remedy.
    */
   refused: Set<string>;
+  /** Leaves text under the size floor at the size the page gives it, rather than raising it to the floor. */
+  noTextFloor?: boolean;
+  /** Where the text raised to the floor is gathered, by element; shared like failedLoads. */
+  raised?: Map<string, RaisedText>;
+  /**
+   * The zone the first session gave a page that links none, for the sessions opened after it to put in from their
+   * first load; shared like failedLoads.
+   */
+  givenZone?: { zone?: Zone };
 }
+
+/** The script that puts the zone in a page as it parses, before the page's own scripts run. */
+const giveZone = (zone: Zone): string => `window.__openedit.zone(${JSON.stringify(zone.format.shape)}, ${JSON.stringify(stylesheet(zone))});`;
 
 // How often Chrome is made to draw while a page step lasts: far above a healthy frame, far below its budget. A
 // preroll spans many frames, so it may draw on its way.
 export const DRAW_EVERY_MS = 1000;
+
+// How long Chrome may take to start, as long as any wait inside the page (BUDGET_MS): over ten times the slowest
+// launch measured, so only a Chrome that will not start reaches it.
+export const LAUNCH_MS = 60_000;
+
+/** What to try when Chrome or the page stops answering: the usual cause is a machine with no CPU or memory to spare. */
+const STARVED = 'the machine may be short of CPU or memory: try again with fewer --workers, or once other renders have finished';
 
 // The page's own requests, which receive their 403 and can carry on without the file. Anything else
 // refused (a frame's document, a text track, an image) is drawn without it and fails the render.
@@ -182,7 +215,7 @@ function blankPage(chrome: string, sandbox: boolean, timeoutMs: number): Promise
   const profile = mkdtempSync(join(tmpdir(), 'openedit-chrome-'));
   const args = ['--headless', `--user-data-dir=${profile}`, ...(sandbox ? [] : ['--no-sandbox']), '--dump-dom', 'about:blank'];
   return new Promise<{ ok: boolean; err: string; timedOut: boolean }>((done) => {
-    const child = spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = track(spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] }));
     let out = '';
     let err = '';
     const finish = (timedOut: boolean) => {
@@ -244,11 +277,16 @@ export function launchProxy(env: NodeJS.ProcessEnv = process.env): { server: str
  * Every wait inside the page has its own budget; this is the backstop for a call that never answers
  * at all (a wedged renderer), so a render fails by name instead of hanging.
  */
-function deadline<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+function deadline<T>(work: Promise<T>, ms: number, what: string, hint?: string): Promise<T> {
+  return bounded(work, ms, `${what} did not answer within ${Math.round(ms / 1000)} s${hint ? `: ${hint}` : ''}`);
+}
+
+/** `work`, or a failure with `message` once `ms` have passed without it settling. */
+function bounded<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   return Promise.race([
     work,
-    new Promise<never>((_, fail) => { timer = setTimeout(() => fail(new Error(`${what} did not answer within ${Math.round(ms / 1000)} s`)), ms); }),
+    new Promise<never>((_, fail) => { timer = setTimeout(() => fail(new Error(message)), ms); }),
   ]).finally(() => clearTimeout(timer));
 }
 
@@ -317,6 +355,10 @@ export function imageSize(b: Buffer): { width: number; height: number } | null {
 
 export class RenderSession {
   info!: ReadyInfo;
+  /** The zone given to a page that links none of its own, on its stage; null when the page brings its own or has no stage of a zone's shape. */
+  zone: Zone | null = null;
+  /** The size text is raised to, in CSS px; 0 when it is left as the page sizes it. */
+  floor = 0;
   private error: Error | null = null;
   /** The page has been advanced through every frame below this one, or jumped past them when it is stateless. */
   private next = 0;
@@ -324,6 +366,8 @@ export class RenderSession {
   private idleWaiters: (() => void)[] = [];
   /** URLs whose load failed, each already listed by its own failed-load line. */
   private failedUrls = new Set<string>();
+  /** Set once the page's data-stateless mark was found not to hold. */
+  private stepping = false;
 
   private clip: SessionOptions['clip'];
   private readonly footage: string | null;
@@ -356,34 +400,46 @@ export class RenderSession {
     const { chromium } = await import('playwright-core');
     const proxy = launchProxy();
     const speakerKey = randomBytes(12).toString('hex');
+    const launchMs = o.launchMs ?? LAUNCH_MS;
     const { browser, context, page } = await timed(o.timings, 'launch', () => withSandbox(async (sandbox) => {
-      let browser: Browser;
-      try {
-        browser = await chromium.launch({
-          executablePath: o.chrome, args: CHROME_FLAGS, headless: true, timeout: 60_000, chromiumSandbox: sandbox, proxy,
+      const started = (async () => {
+        let browser: Browser;
+        try {
+          browser = await chromium.launch({
+            executablePath: o.chrome, args: CHROME_FLAGS, headless: true, timeout: launchMs, chromiumSandbox: sandbox, proxy,
+          });
+        } catch (e) {
+          if ((e as Error).name === 'TimeoutError') throw new Error(`Chrome did not start within ${launchMs / 1000} s (${o.chrome}): ${STARVED}`);
+          throw new Error(`Chrome failed to launch (${o.chrome}):\n  ${firstLines((e as Error).message)}${linuxHint()}`);
+        }
+        try {
+          const context = await browser.newContext({ viewport: o.viewport, deviceScaleFactor: 1 });
+          await context.addInitScript(runtimeScript({ seed: o.seed, epoch: o.epoch, num: o.fps.num, den: o.fps.den, captureScale: o.scale ?? 1, speakerKey, cutout: o.cutout ?? { at: 0, until: null } }));
+          await context.addInitScript(TEXT_SAMPLER_SCRIPT);
+          if (o.layers?.length) await context.addInitScript(layersScript(o.layers));
+          if (o.givenZone?.zone) await context.addInitScript(giveZone(o.givenZone.zone));
+          return { browser, context, page: await context.newPage() };
+        } catch (e) {
+          await browser.close().catch(() => {});
+          throw new Error(`Chrome could not open a page (${o.chrome}): ${firstLines((e as Error).message, 2)}`);
+        }
+      })();
+      // A Chrome that starts after the render gave up on it is closed, so nothing it started outlives the render.
+      // Past the launch's own timeout, so a launch that times out is reported as that.
+      return bounded(started, 2 * launchMs, `Chrome did not start and open a page within ${(2 * launchMs) / 1000} s (${o.chrome}): ${STARVED}`)
+        .catch((e) => {
+          started.then((late) => late.browser.close(), () => {}).catch(() => {});
+          throw e;
         });
-      } catch (e) {
-        throw new Error(`Chrome failed to launch (${o.chrome}):\n  ${firstLines((e as Error).message)}${linuxHint()}`);
-      }
-      try {
-        const context = await browser.newContext({ viewport: o.viewport, deviceScaleFactor: 1 });
-        await context.addInitScript(runtimeScript({ seed: o.seed, epoch: o.epoch, num: o.fps.num, den: o.fps.den, captureScale: o.scale ?? 1, speakerKey }));
-        await context.addInitScript(TEXT_SAMPLER_SCRIPT);
-        if (o.layers?.length) await context.addInitScript(layersScript(o.layers));
-        return { browser, context, page: await context.newPage() };
-      } catch (e) {
-        await browser.close().catch(() => {});
-        throw new Error(`Chrome could not open a page (${o.chrome}): ${firstLines((e as Error).message, 2)}`);
-      }
     }, { refused: () => sandboxRefused(o.chrome), say: (line) => console.error(`render: ${line}`) }));
     try {
-      const cdp = await context.newCDPSession(page);
+      const cdp = await deadline(context.newCDPSession(page), launchMs, 'Chrome\'s debugging session', STARVED);
       const s = new RenderSession(o, browser, page, cdp, speakerKey);
       s.watch();
       await timed(o.timings, 'load', () => s.load());
       return s;
     } catch (e) {
-      await browser.close().catch(() => {});
+      await deadline(browser.close(), 15_000, 'closing Chrome').catch(() => {});
       throw e;
     }
   }
@@ -472,29 +528,83 @@ export class RenderSession {
     if (e) throw new Error(`the page threw: ${e.message}${stack}`);
   }
 
-  private async load(): Promise<void> {
+  private async navigate(): Promise<void> {
     const url = this.o.server.urlFor(this.o.page);
+    const budget = this.o.budgetMs;
     try {
-      await this.pw.goto(url, { waitUntil: 'load', timeout: this.o.budgetMs });
+      await this.pw.goto(url, { waitUntil: 'load', timeout: budget });
     } catch (e) {
       this.check();
+      if ((e as Error).name === 'TimeoutError') {
+        throw new Error(`the page did not load within ${budget / 1000} s: its load event never fired (a script that never returns, or a file that never `
+          + `finishes loading); if it loads in a browser, ${STARVED}`);
+      }
       throw new Error(`the page did not load: ${firstLines((e as Error).message, 2)}`);
     }
     this.check();
     if (this.o.transparent) {
       await this.cdp.send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
     }
-    try {
+  }
+
+  private async load(): Promise<void> {
+    await this.navigate();
+    // The zone a page is given goes in before its own scripts run, so text it places as it loads is placed in the
+    // zone: the first load finds the stage's shape, and the page is loaded again with the zone.
+    if (await this.inPage(() => this.dress())) await this.navigate();
+    await this.inPage(async () => {
+      await this.dress();
       if (this.footage) await this.standDown();
       else if (this.o.videosIn) await this.standDownOutside(this.o.videosIn);
-      this.info = await this.pw.evaluate(`window.__openedit.ready(${this.o.budgetMs})`) as ReadyInfo;
+      this.info = await this.pw.evaluate(`window.__openedit.ready(${this.o.budgetMs}, ${this.floor})`) as ReadyInfo;
       this.report(this.info.problems);
+      this.noteRaised(this.info.raised);
       if (this.shrunk.length) await this.pw.evaluate(`window.__openedit.shrunk(${JSON.stringify(this.shrunk)})`);
+    });
+  }
+
+  private async inPage<T>(work: () => Promise<T>): Promise<T> {
+    const budget = this.o.budgetMs;
+    let result: T;
+    try {
+      // The page's own waits share one budget (ready() in page-runtime.ts); this backstop is for a Chrome that stops
+      // answering altogether, as a frame's is.
+      result = await bounded(work(), 2 * budget, `Chrome stopped answering for ${2 * budget / 1000} s while the page loaded its fonts, images and videos: ${STARVED}`);
     } catch (e) {
       this.check();
       throw new Error(`the page never became ready: ${firstLines((e as Error).message, 2)}`);
     }
     this.check();
+    return result;
+  }
+
+  /**
+   * Settles the floor the page's text is raised to, that of the canvas, which until it is settled is the stage's; and
+   * gives a page that links no safe-zone stylesheet a zone of its stage's shape, its brief's platform's or the shape's
+   * own (givenZone). True when the zone is new to this page, which must then be loaded again for it.
+   */
+  private async dress(): Promise<boolean> {
+    const stage = await this.pw.evaluate('window.__openedit.stageZone()') as StageZone | null;
+    this.floor = this.o.noTextFloor ? 0 : minText(this.o.canvas ?? stage ?? this.o.viewport);
+    const zone = stage && givenZone(stage, this.o.page);
+    this.zone = zone && !stage.linked ? zone : null;
+    if (!zone || stage.given) return false;
+    // A page that links its own zone but leaves the stage unmarked has its stage marked, so the zone applies.
+    if (stage.linked) {
+      await this.pw.evaluate(`window.__openedit.zone(${JSON.stringify(zone.format.shape)}, null)`);
+      return false;
+    }
+    if (this.o.givenZone) this.o.givenZone.zone = zone;
+    await this.pw.context().addInitScript(giveZone(zone));
+    return true;
+  }
+
+  /** Each element as it was first raised, by frame, so the list is the same whichever worker reached it first. */
+  private noteRaised(raised: RaisedText[]): void {
+    for (const r of raised) {
+      const had = this.o.raised?.get(r.key);
+      if (!had || r.frame < had.frame) this.o.raised?.set(r.key, r);
+    }
   }
 
   /**
@@ -533,23 +643,39 @@ export class RenderSession {
     return drawWhile(work, draw, DRAW_EVERY_MS, this.o.budgetMs);
   }
 
-  private async advance(i: number): Promise<void> {
+  /** The first frame this session can still draw: 0 on a fresh page. */
+  get position(): number {
+    return this.next;
+  }
+
+  /** Whether this session jumps past frames rather than stepping through them: a stateless page whose mark holds. */
+  get jumps(): boolean {
+    return this.info.stateless && !this.o.stepAlways && !this.stepping;
+  }
+
+  /** Steps through every frame from now on, as for a page without the data-stateless mark. */
+  stepEveryFrame(): void {
+    this.stepping = true;
+  }
+
+  private async advance(i: number, step: boolean): Promise<void> {
     const at = `frame ${i} (${frameTime(i, this.o.fps).toFixed(3)} s)`;
     try {
       // A page is stepped through the frames a worker skips, __seek or not: pages carry state from
       // frame to frame (a scene set up on first entry, a counter, a simulation), and a jump past that
       // state renders a different picture than a one-worker render would. Only a page that declares
-      // itself stateless (data-stateless) is jumped into, and the declaration is trusted: the page
-      // cannot be inspected for state, so one marked wrongly renders differently per worker count.
-      const problems: string[] = [];
+      // itself stateless (data-stateless) is jumped into; render first checks the mark on one frame (probeStateless).
       const budget = this.o.budgetMs;
-      if (i > this.next && !this.info.stateless) {
+      if (i > this.next && (step || !this.jumps)) {
         const steps = i - this.next;
-        problems.push(...await timed(this.o.timings, 'preroll', () => this.drawn('prerollDraw', deadline(this.pw.evaluate(`window.__openedit.preroll(${this.next}, ${i}, ${budget})`) as Promise<string[]>,
-          2 * budget + steps * 1000, `stepping through frames ${this.next}-${i - 1}`)), steps));
+        const stepped = await timed(this.o.timings, 'preroll', () => this.drawn('prerollDraw', deadline(this.pw.evaluate(`window.__openedit.preroll(${this.next}, ${i}, ${budget})`) as Promise<FrameReport>,
+          2 * budget + steps * 1000, `stepping through frames ${this.next}-${i - 1}`)), steps);
+        this.report(stepped.problems);
+        this.noteRaised(stepped.raised);
       }
-      problems.push(...await timed(this.o.timings, 'page', () => this.drawn('draw', deadline(this.pw.evaluate(`window.__openedit.frame(${i}, ${budget})`) as Promise<string[]>, 2 * budget, 'the page'))));
-      this.report(problems);
+      const drew = await timed(this.o.timings, 'page', () => this.drawn('draw', deadline(this.pw.evaluate(`window.__openedit.frame(${i}, ${budget})`) as Promise<FrameReport>, 2 * budget, 'the page')));
+      this.report(drew.problems);
+      this.noteRaised(drew.raised);
     } catch (e) {
       this.check();
       const message = (e as Error).message;
@@ -562,16 +688,19 @@ export class RenderSession {
     this.check();
   }
 
-  /** Frame i in the session's capture format; a session only steps forward. */
-  async capture(i: number): Promise<Buffer> {
-    await this.seek(i);
-    return this.shoot(`frame ${i}`);
+  /**
+   * Frame i in the session's capture format; a session only steps forward. `step` steps through the frames before it
+   * as a page without the data-stateless mark is, even where this session would jump.
+   */
+  async capture(i: number, step = false, format?: Capture): Promise<Buffer> {
+    await this.seek(i, step);
+    return this.shoot(`frame ${i}`, format);
   }
 
   /** Steps the page to frame i without capturing it; a session only steps forward. */
-  async seek(i: number): Promise<void> {
+  async seek(i: number, step = false): Promise<void> {
     if (i < this.next) throw new Error(`frame ${i} was asked for after frame ${this.next - 1}; a page only steps forward`);
-    await this.advance(i);
+    await this.advance(i, step);
   }
 
   /** What the page shows now, in the session's capture format unless one is given. */
@@ -582,7 +711,7 @@ export class RenderSession {
     // same, but the headless shell draws at 1 whatever it is set to.)
     let box = this.clip;
     if (!box && scale !== 1) {
-      const { cssVisualViewport: v } = await this.cdp.send('Page.getLayoutMetrics');
+      const { cssVisualViewport: v } = await this.answer(this.cdp.send('Page.getLayoutMetrics'), 'measuring the viewport');
       box = { x: v.pageX, y: v.pageY, ...this.o.viewport };
     }
     const clip = box ? { ...box, scale } : undefined;
@@ -606,18 +735,18 @@ export class RenderSession {
   }
 
   /**
-   * The text the page shows now, in the pixels of the frame `shoot` captures: called after the capture, it reads
-   * the layout that frame was drawn from.
+   * The text and the videos the page shows now, in the pixels of the frame `shoot` captures: called after the capture,
+   * it reads the layout that frame was drawn from.
    */
-  async readText(): Promise<TextEntry[]> {
+  async readText(): Promise<SampledFrame> {
     const call = `window.__oeText(${JSON.stringify(this.clip)}, ${this.o.viewport.width}, ${this.o.viewport.height}, ${this.o.scale ?? 1})`;
-    return timed(this.o.timings, 'text', () => this.evaluate<TextEntry[]>(call, 'reading the page\'s text'));
+    return timed(this.o.timings, 'text', () => this.evaluate<SampledFrame>(call, 'reading the page\'s text'));
   }
 
   /** Draws only layer k of the session's `layers` from now on; -1 draws the whole page again. */
   async showLayer(k: number): Promise<void> {
     this.needLayers(k);
-    await this.pw.evaluate(`window.__oeLayer(${k})`);
+    await this.answer(this.pw.evaluate(`window.__oeLayer(${k})`), `switching to layer ${k}`);
     // The speaker's box pins its own visibility, so the layer switch cannot hide it: it is hidden here for every layer
     // but its own.
     if (this.info.cutout) await this.showCutout(k < 0 || this.o.layers![k] === SPEAKER_BOX);
@@ -631,8 +760,9 @@ export class RenderSession {
     for (let attempt = 0; attempt < 2; attempt++) {
       this.cutout ??= await this.findCutout();
       try {
-        if (on) await this.cdp.send('DOM.removeAttribute', { nodeId: this.cutout, name: 'style' });
-        else await this.cdp.send('DOM.setAttributeValue', { nodeId: this.cutout, name: 'style', value: 'visibility:hidden!important' });
+        const what = `${on ? 'showing' : 'hiding'} the speaker layer's cut-out`;
+        if (on) await this.answer(this.cdp.send('DOM.removeAttribute', { nodeId: this.cutout, name: 'style' }), what);
+        else await this.answer(this.cdp.send('DOM.setAttributeValue', { nodeId: this.cutout, name: 'style', value: 'visibility:hidden!important' }), what);
         return;
       } catch (e) {
         // A box a script dropped and the speaker put back is a node the protocol no longer knows: found again, once.
@@ -644,7 +774,7 @@ export class RenderSession {
 
   private async findCutout(): Promise<number> {
     type Node = { nodeId: number; attributes?: string[]; children?: Node[]; shadowRoots?: Node[] };
-    const { root } = await this.cdp.send('DOM.getDocument', { depth: -1, pierce: true }) as { root: Node };
+    const { root } = await this.answer(this.cdp.send('DOM.getDocument', { depth: -1, pierce: true }), 'reading the page\'s elements') as { root: Node };
     const stack = [root];
     while (stack.length) {
       const n = stack.pop()!;
@@ -658,13 +788,13 @@ export class RenderSession {
   /** Leaves the page's blended elements out of every layer, and names them with their blend mode. */
   async excludeBlended(): Promise<string[]> {
     this.needLayers();
-    return this.pw.evaluate('window.__oeBlended()') as Promise<string[]>;
+    return this.answer(this.pw.evaluate('window.__oeBlended()') as Promise<string[]>, 'finding blended elements');
   }
 
   /** For each of the session's `layers`, whether one of its elements holds a video now. */
   async layersWithVideo(): Promise<boolean[]> {
     this.needLayers();
-    return this.pw.evaluate('window.__oeHasVideo()') as Promise<boolean[]>;
+    return this.answer(this.pw.evaluate('window.__oeHasVideo()') as Promise<boolean[]>, 'finding the layers\' videos');
   }
 
   /**
@@ -674,7 +804,7 @@ export class RenderSession {
    */
   async visibleLayers(): Promise<{ visible: boolean[]; matches: number[] }> {
     this.needLayers();
-    return this.pw.evaluate('window.__oeVisible()') as Promise<{ visible: boolean[]; matches: number[] }>;
+    return this.answer(this.pw.evaluate('window.__oeVisible()') as Promise<{ visible: boolean[]; matches: number[] }>, 'finding the visible layers');
   }
 
   /**
@@ -711,6 +841,11 @@ export class RenderSession {
       window.__openedit.videoSources();
       window.__openedit.standDown([...document.querySelectorAll('video')].map((v) => !v.closest(${JSON.stringify(keep)})));
     })()`);
+  }
+
+  /** A call into Chrome that may take as long as a frame's step, and no longer: a Chrome that stops answering fails it by name. */
+  private answer<T>(work: Promise<T>, what: string): Promise<T> {
+    return deadline(work, 2 * this.o.budgetMs, what, STARVED);
   }
 
   private needLayers(k = 0): void {

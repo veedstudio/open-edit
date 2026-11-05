@@ -4,14 +4,18 @@
 //   Run:  node --import tsx tests/concat-videos.test.ts
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { FFMPEG, FFPROBE } from '../src/config.ts';
-import { concatVideos, evenSize, ffmpegArgs, filterGraph, largestByArea, parseCanvas } from '../src/commands/concat-videos.ts';
+import { applyEdl } from '../src/commands/apply-edl.ts';
+import { concatVideos, ffmpegArgs, filterGraph, largestByArea } from '../src/commands/concat-videos.ts';
+import { evenSize, parseCanvas } from '../src/size.ts';
 import { parseFit } from '../src/commands/reframe.ts';
 import { probeSquareSize } from '../src/probe.ts';
+import { FLAT_RGB, captureConsole, captureConsoleAsync, flatClip, probeStream, scratchDir, shownRgb } from './helpers/synth.ts';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -181,6 +185,25 @@ await test('a clip with NO audio track still joins — the concat synthesises si
   }
 });
 
+await test('a VP8 WebM joined first, which its decoder labels in part, comes out labelled whole and in each clip\'s colour, and apply-edl assembles the join', async () => {
+  const dir = scratchDir('concat-colour');
+  const out = join(dir, 'joined.mp4');
+  await concatVideos([flatClip(dir, 'vp8'), flatClip(dir, 'untagged')], out, { fit: 'letterbox' });
+  assert.deepEqual(probeStream(out, 'v:0', 'color_range,color_primaries,color_transfer,color_space'),
+    { color_range: 'tv', color_primaries: 'bt709', color_transfer: 'bt709', color_space: 'bt709' });
+  // 30 fps: frame 0 is the WebM's first, frame 45 the middle of the untagged clip.
+  for (const frame of [0, 45]) {
+    const shown = shownRgb(out, frame);
+    assert.ok(shown.every((v, i) => Math.abs(v - FLAT_RGB[i]) < 4), `frame ${frame}: shown as ${shown.map((v) => v.toFixed(1))}, made as ${FLAT_RGB}`);
+  }
+  const edl = join(dir, 'edl.json');
+  writeFileSync(edl, JSON.stringify({ sources: { a: out }, ranges: [{ source: 'a', start: 0, end: 1.5 }] }));
+  const cut = join(dir, 'cut.mp4');
+  const { result } = await captureConsoleAsync(() => applyEdl(['--edl', edl, '--out', cut]));
+  assert.equal(result, 0);
+  // The WebM's timestamps leave a slot of the join empty; the cut fills it, so it holds every frame of its 1.5 s.
+  assert.equal(probeStream(cut, 'v:0', 'nb_frames').nb_frames, '45');
+});
 
 // Moved from the repository's cli-entry suite with the entry point itself: the argv seams
 // stay strict through the CLI dispatch.

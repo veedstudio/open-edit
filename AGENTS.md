@@ -22,7 +22,8 @@ A map for changing this repo. Making a video is the `open-edit` skill's job:
   stands, all read together by `readManifest`) and the queue ledger (`queue-ledger.ts`) that keeps an
   identical request from being bought twice.
 - `cli/src/faces/`: face detection for `faces` (MediaPipe in a Python environment `install-mediapipe` makes
-  under the app-data dir) and `faces.js`, the page code that keeps text off the boxes it finds; `reframe`
+  under the app-data dir), the search for graphics burned into the footage on the same decode's frames
+  (`graphics.ts`, which review's graphics check also runs), and `faces.js`, the page code that keeps text off both; `reframe`
   and `shots` read the same boxes, from the clip's own folder that `folder.ts` names by its real path.
   `concat-videos` and `apply-edl` cut a clip of another shape through reframe's `planShape` and
   `shapeChain`, never a reshaping crop of their own; `render --footage` refuses footage of another shape.
@@ -48,8 +49,11 @@ VEED is listed first because it transcribes best, not because it wins ties.
 | `custom` | The user's own service, and the route for generated narration: the media may be an audio file. We ship only the mapper; no credential passes through OpenEdit. | `openedit whisper <json> <media>` |
 
 The mapper accepts the Python Whisper family (WhisperX, openai-whisper, whisper-timestamped,
-mlx-whisper), the OpenAI API's `verbose_json` with word timestamps, and whisper.cpp's `-oj -ml 1`.
+mlx-whisper), the OpenAI API's `verbose_json` with word timestamps, whisper.cpp's `-oj -ml 1`, a timed
+word list, fal's whisper chunks, a voice model's character timestamps, and `fal run`'s `fal-result.json`.
 Per-word times are mandatory; untimed words are interpolated from their neighbours and counted.
+Every command that reads a transcript goes through `cli/src/transcript/read-transcript.ts`, so each takes
+whatever the mapper does, mapped in memory; `openedit words` prints any of them as timed lines.
 A failed VEED run is classified per `TRANSCRIPTION.md` and never retried blindly; the recorded provider is
 never rewritten on failure.
 

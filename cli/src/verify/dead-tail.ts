@@ -69,7 +69,7 @@ export const endCardLimit = (words: number): number =>
   Math.min(END_CARD_CAP, Math.max(END_CARD_FLOOR, readingSeconds(words) + TAIL_SECONDS));
 
 /** Words to read: whitespace-separated pieces with a letter or a digit in them, so an icon or an arrow is none. */
-const wordsIn = (text: string): number => text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+export const wordsIn = (text: string): number => text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 
 export interface LastSound {
   /** Seconds to the end of the last window loud enough to count as sound; null when none is. */
@@ -87,14 +87,34 @@ export interface LastSound {
  */
 export function lastSoundOf(envelope: number[], windowMs: number, start = 0): LastSound {
   const windows = envelope.length;
+  const gate = soundGateOf(envelope);
+  if (gate === null) return { end: null, gate: ABSOLUTE_GATE_DB, windows };
+  const last = envelope.findLastIndex((db) => db >= gate);
+  return { end: last < 0 ? null : start + ((last + 1) * windowMs) / 1000, gate, windows };
+}
+
+/** The level, in dBFS, a window of `envelope` must reach to count as sound; null when no window is above the absolute gate. */
+export function soundGateOf(envelope: number[]): number | null {
   const audible = envelope.filter((db) => db > ABSOLUTE_GATE_DB);
-  if (audible.length === 0) return { end: null, gate: ABSOLUTE_GATE_DB, windows };
+  if (audible.length === 0) return null;
   // A power mean, as BS.1770 averages its gated blocks: loud windows dominate, so quiet stretches pull the
   // level down far less than an average of decibels would.
   const level = 10 * Math.log10(audible.reduce((sum, db) => sum + 10 ** (db / 10), 0) / audible.length);
-  const gate = Math.max(ABSOLUTE_GATE_DB, level - RELATIVE_GATE_DB);
-  const last = envelope.findLastIndex((db) => db >= gate);
-  return { end: last < 0 ? null : start + ((last + 1) * windowMs) / 1000, gate, windows };
+  return Math.max(ABSOLUTE_GATE_DB, level - RELATIVE_GATE_DB);
+}
+
+export interface SoundSpan {
+  /** Seconds to the start of the first window loud enough to count as sound. */
+  start: number;
+  /** Seconds to the end of the last one. */
+  end: number;
+}
+
+/** Where sound starts and ends, gated as lastSoundOf gates it; null when nothing is loud enough to count. */
+export function soundSpanOf(envelope: number[], windowMs: number, start = 0): SoundSpan | null {
+  const last = lastSoundOf(envelope, windowMs, start);
+  if (last.end === null) return null;
+  return { start: start + (envelope.findIndex((db) => db >= last.gate) * windowMs) / 1000, end: last.end };
 }
 
 export interface LastWord {
@@ -309,14 +329,35 @@ export function judgeDeadTail(
   return { verdict: found ? 'found' : 'pass', lines, skipped };
 }
 
-/** The last sound in a video's first audio track, on the picture's timeline; null when it has no track. */
-export function lastSoundIn(video: string): LastSound | null {
+export interface Sound {
+  /** dBFS of each WINDOW_MS window of the first audio track. */
+  envelope: number[];
+  /** Where the first window sits on the picture's timeline. */
+  start: number;
+}
+
+/** A video's first audio track as WINDOW_MS levels, on the picture's timeline; null when it has no track. */
+export function soundIn(video: string): Sound | null {
   if (!hasAudioStream(video)) return null;
   const pcm = decode(video, null);
   // The decode starts at the track's first sample, so its windows are placed where the track starts
   // relative to the picture.
   const start = streamStartOf(video, 'a:0') - streamStartOf(video, 'v:0');
-  return lastSoundOf(envelopeOf(pcm, (SAMPLE_RATE * WINDOW_MS) / 1000), WINDOW_MS, start);
+  return { envelope: envelopeOf(pcm, (SAMPLE_RATE * WINDOW_MS) / 1000), start };
+}
+
+/** The last sound in a video's first audio track, on the picture's timeline; null when it has no track. */
+export function lastSoundIn(video: string): LastSound | null {
+  const sound = soundIn(video);
+  return sound && lastSoundOf(sound.envelope, WINDOW_MS, sound.start);
+}
+
+/**
+ * Where sound starts and ends in a file's first audio track, measured as the review measures it, from the track's
+ * first sample or from `start` when that sample sits elsewhere on a picture's timeline. Null when nothing counts.
+ */
+export function soundSpanIn(file: string, start = 0): SoundSpan | null {
+  return soundSpanOf(envelopeOf(decode(file, null), (SAMPLE_RATE * WINDOW_MS) / 1000), WINDOW_MS, start);
 }
 
 export function measureDeadTail({ video, duration, transcript, textRecord }: ReviewContext): CheckReport {

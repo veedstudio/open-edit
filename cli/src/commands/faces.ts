@@ -7,15 +7,18 @@
 // rather than by frame count. A shot that holds fewer than MIN_SAMPLES of them gets more, spread across
 // it, from one more decode on the same timeline, never a seek, whose clock a container's start time would
 // move: the more samples a shot has, the less one missed detection decides about it. MediaPipe's
-// full-range BlazeFace finds the faces on each sample. faces.json holds the boxes; faces.js holds them too, with the
-// code that moves text out of them.
+// full-range BlazeFace finds the faces on each sample. The same decode hands the grid's frames, small and grey,
+// to the search for graphics burned into the footage (faces/graphics.ts): part of this command so that one call
+// and one place() keep text off both, at the cost of no second decode. faces.json holds the boxes and the
+// graphics; faces.js holds them too, with the code that moves text out of them.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
 import { boxesOwner, facesFolder, sameFile } from '../faces/folder.ts';
+import { analyseGraphics, GRAPHICS_MARGIN, workSize, type GraphicBox } from '../faces/graphics.ts';
 import { MODEL, missingDetector, modelPath, runDetector, venvPython, type Spawn } from '../faces/mediapipe.ts';
 import { facesApi, facesScript, type FaceBox, type FacesClip, type Sample, type Shot } from '../faces/page-script.ts';
 import { readJsonFile } from '../json-file.ts';
@@ -46,8 +49,11 @@ export const usage = {
     'Boxes are in the clip\'s display pixels (square), top-left origin, per sampled frame of each shot, at its',
     'presentation time in seconds. Load the faces.js whose path faces printed with a <script> tag, then',
     'openeditFaces.place(el, from, to) moves a laid-out element the least distance that keeps it clear of every',
-    'face on screen between those seconds of the clip (the clip\'s own time, not the page\'s; options: {video,',
-    'within, clip}). Needs MediaPipe: install-mediapipe.',
+    'face on screen between those seconds of the clip (the clip\'s own time, not the page\'s), where the <video>',
+    'playing the clip draws it, else on the stage (options: {video, within, clip}; {video} picks one when several',
+    'play it). It keeps the element off graphics burned into the footage too (a lower third, a score bar,',
+    'subtitles, a logo: sharp edges that hold still while the rest of the picture moves, or that come and go in a',
+    'still shot) for the seconds each is up. Needs MediaPipe: install-mediapipe.',
   ].join('\n'),
 } satisfies Usage;
 
@@ -77,16 +83,73 @@ export const atPts = (pts: number | null): string => (pts === null ? 'isnan(prev
 /** Which shot a frame is in: how many cuts (the pts of each shot's first frame) are at or before it. */
 export const shotOf = (cuts: number[], pts: number): number => cuts.filter((c) => c <= pts).length;
 
-/** Detections in still pixels, scaled to the clip's display pixels and clamped to the frame. */
-export function toDisplay(faces: [number, number, number, number, number][], scaleX: number, scaleY: number, width: number, height: number): FaceBox[] {
+/**
+ * Boxes scaled, less `shift`, into a frame `width` by `height`, clamped to it, and dropped where none of a box is in it: how
+ * faces takes detections on a still to the clip's display pixels, and reframe takes its source's boxes to its output's.
+ */
+export function toDisplay(faces: [number, number, number, number, number?][], scaleX: number, scaleY: number, width: number, height: number,
+  shift = { x: 0, y: 0 }): FaceBox[] {
   return faces.map(([x, y, w, h, score]) => {
-    const x0 = Math.max(0, x * scaleX), y0 = Math.max(0, y * scaleY);
-    const x1 = Math.min(width, (x + w) * scaleX), y1 = Math.min(height, (y + h) * scaleY);
+    const x0 = Math.max(0, x * scaleX - shift.x), y0 = Math.max(0, y * scaleY - shift.y);
+    const x1 = Math.min(width, (x + w) * scaleX - shift.x), y1 = Math.min(height, (y + h) * scaleY - shift.y);
     return { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0), score };
   }).filter((b) => b.w > 0 && b.h > 0);
 }
 
 const micro = (s: number) => Math.round(s * 1e6) / 1e6;
+
+/** ffmpeg on `video` with these arguments, returning its log, or an error saying what it could not do and why. */
+function ffmpegFor(spawn: Spawn, video: string): (args: string[], what: string) => string {
+  return (args, what) => {
+    const r = spawn(FFMPEG, ['-nostdin', '-hide_banner', '-nostats', ...args], { encoding: 'utf8', maxBuffer: 1 << 26 });
+    if (r.error || r.status !== 0) {
+      const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
+      const why = code === 'ENOENT' ? `${FFMPEG} was not found` : code === 'ENOBUFS' ? 'its log outgrew the buffer'
+        : r.error ? r.error.message : r.signal ? `killed by ${r.signal}` : `exit ${r.status}`;
+      const tail = String(r.stderr ?? '').trim().split('\n').slice(-3).join(' ');
+      throw new Error(`ffmpeg could not ${what} ${video} (${why})${tail ? `: ${tail}` : ''}`);
+    }
+    return String(r.stderr);
+  };
+}
+
+/** The grid's frames as faces/graphics.ts reads them: at its work size, grey, one byte a pixel. */
+const greyFilter = (size: { width: number; height: number }) => `scale=${size.width}:${size.height},format=gray`;
+
+/** The graphics burned into a clip's grid frames, read back from the raw file the decode wrote. */
+function graphicsFrom(raw: string, grid: { num: number; den: number; pts: number[] }, size: { width: number; height: number },
+  every: number, display: { width: number; height: number }, durationSec: number): GraphicBox[] {
+  const bytes = existsSync(raw) ? statSync(raw).size : 0;
+  if (bytes !== grid.pts.length * size.width * size.height) {
+    throw new Error(`ffmpeg wrote ${bytes} bytes of grey frames for ${grid.pts.length} sampled frame(s) of ${size.width}x${size.height}`);
+  }
+  return analyseGraphics(raw, size, grid.pts.map((p) => micro((p * grid.num) / grid.den)), every, display, durationSec);
+}
+
+/** What graphics alone come to, for a reader that finds no faces.json holding them. */
+export interface GraphicsOf { video: string; width: number; height: number; durationSec: number; every: number; graphics: GraphicBox[] }
+
+/**
+ * The graphics burned into a clip, on the same grid frames faces samples and from the same code, so a clip faces has
+ * not run on gets the regions faces would have written for it. No MediaPipe, and no scene detection: one decode.
+ */
+export function findGraphics(videoArg: string, every = 0.25, spawn: Spawn = spawnSync): GraphicsOf {
+  const video = resolveVideoArg(videoArg);
+  if (!existsSync(video)) throw new Error(`video not found: ${video}`);
+  const { width, height } = probeSquareSize(video);
+  const span = probeVideoSpan(video);
+  const size = workSize(width, height);
+  const work = mkdtempSync(join(tmpdir(), 'open-edit-graphics-'));
+  try {
+    const raw = join(work, 'grey.raw');
+    const log = ffmpegFor(spawn, video)(['-i', video, '-an', '-sn', '-dn', '-vf', `${gridSelect(every)},showinfo@grid,${greyFilter(size)}`,
+      '-fps_mode', 'passthrough', '-f', 'rawvideo', raw], 'read');
+    const graphics = graphicsFrom(raw, parseShowinfo(log, 'grid'), size, every, { width, height }, span.end);
+    return { video, width, height, durationSec: span.end, every, graphics };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
 
 export interface FacesOptions { every: number; threshold: number; confidence: number; margin: number }
 export interface FacesDeps { spawn?: Spawn; python?: string; model?: string }
@@ -107,28 +170,24 @@ export function findFaces(videoArg: string, o: FacesOptions, deps: FacesDeps = {
   const k = Math.min(1, DETECT_SIDE / Math.max(width, height));
   // Scaled to the shown shape, so anamorphic footage is measured in square pixels like everything else.
   const scale = `scale=${Math.max(2, Math.round((width * k) / 2) * 2)}:${Math.max(2, Math.round((height * k) / 2) * 2)}`;
-  const ffmpeg = (args: string[], what: string): string => {
-    const r = spawn(FFMPEG, ['-nostdin', '-hide_banner', '-nostats', ...args], { encoding: 'utf8', maxBuffer: 1 << 26 });
-    if (r.error || r.status !== 0) {
-      const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
-      const why = code === 'ENOENT' ? `${FFMPEG} was not found` : code === 'ENOBUFS' ? 'its log outgrew the buffer'
-        : r.error ? r.error.message : r.signal ? `killed by ${r.signal}` : `exit ${r.status}`;
-      const tail = String(r.stderr ?? '').trim().split('\n').slice(-3).join(' ');
-      throw new Error(`ffmpeg could not ${what} ${video} (${why})${tail ? `: ${tail}` : ''}`);
-    }
-    return String(r.stderr);
-  };
+  const ffmpeg = ffmpegFor(spawn, video);
   const work = mkdtempSync(join(tmpdir(), 'open-edit-faces-'));
   const name = (prefix: string, i: number) => `${prefix}${String(i).padStart(7, '0')}.png`;
   // Each still's frame, by its pts.
   const stills = new Map<string, number>();
 
   try {
+    const grey = workSize(width, height);
+    const raw = join(work, 'grey.raw');
+    // The grid's frames go both ways from one split, so the grey ones are the very frames findGraphics reads.
     const log = ffmpeg(['-i', video, '-an', '-sn', '-dn', '-filter_complex',
       `[0:v]split=2[a][b];[a]scdet=threshold=${o.threshold},metadata=mode=select:key=lavfi.scd.time,showinfo@cuts,nullsink;` +
-        `[b]${gridSelect(o.every)},showinfo@grid,${scale}[s]`,
-      '-map', '[s]', '-fps_mode', 'passthrough', '-start_number', '0', join(work, 'c%07d.png')], 'read');
+        `[b]${gridSelect(o.every)},showinfo@grid,split=2[c][g];[c]${scale}[s];[g]${greyFilter(grey)}[r]`,
+      '-map', '[s]', '-fps_mode', 'passthrough', '-start_number', '0', join(work, 'c%07d.png'),
+      '-map', '[r]', '-fps_mode', 'passthrough', '-f', 'rawvideo', raw], 'read');
     const grid = parseShowinfo(log, 'grid');
+    const graphics = graphicsFrom(raw, grid, grey, o.every, { width, height }, span.end);
+    rmSync(raw, { force: true });
     const { num, den } = grid;
     const sec = (pts: number) => (pts * num) / den;
     grid.pts.forEach((p, i) => stills.set(name('c', i), p));
@@ -183,6 +242,8 @@ export function findFaces(videoArg: string, o: FacesOptions, deps: FacesDeps = {
       threshold: o.threshold,
       confidence: o.confidence,
       textMargin: o.margin,
+      graphicsMargin: GRAPHICS_MARGIN,
+      graphics,
       shots: Array.from({ length: shots }, (_, k): Shot => ({
         start: micro(bounds[k]),
         end: micro(bounds[k + 1]),
@@ -207,6 +268,8 @@ export function readFaces(path: string): FacesClip {
     : clip.shots.some((s) => !isNum(s?.start) || !isNum(s?.end)) ? 'a shot without its start or end'
     : clip.shots.some((s) => !Array.isArray(s?.samples) || s.samples.some((x) => !isNum(x?.sec) || !Array.isArray(x.faces)
       || x.faces.some((f) => ![f?.x, f?.y, f?.w, f?.h].every(isNum)))) ? 'a sample without its time or face boxes'
+    : clip.graphics !== undefined && (!Array.isArray(clip.graphics) || clip.graphics.some((g) => ![g?.x, g?.y, g?.w, g?.h, g?.from, g?.to].every(isNum)))
+      ? 'a graphic without its box or its times'
     : null;
   if (problem) throw new Error(`${path} is not a faces.json the faces command wrote (${problem})`);
   return clip as FacesClip;
@@ -273,6 +336,10 @@ export function faces(argv: string[]): number {
     const list = boxes.map((b) => `${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.w)}x${Math.round(b.h)}`).join('; ');
     console.log(`  ${shot.start.toFixed(3)}–${shot.end.toFixed(3)}s  ${shot.samples.length} sample(s)  ${boxes.length ? `keep text clear of: ${list}` : 'no face'}`);
   }
+  const graphics = clip.graphics ?? [];
+  console.log(`  graphics burned into the footage: ${graphics.length ? `${graphics.length}, kept clear like the faces` : 'none found'}`);
+  for (const g of graphics.slice(0, 12)) console.log(`    ${g.from.toFixed(3)}–${g.to.toFixed(3)}s  ${g.x},${g.y} ${g.w}x${g.h}`);
+  if (graphics.length > 12) console.log(`    and ${graphics.length - 12} more in faces.json`);
   const d = clip.detector!;
   console.log(`  detector: model loaded in ${Math.round(d.readyMs)} ms, ${d.frames} frame(s) in ${d.totalMs} ms` +
     `${d.frames ? ` (${(d.totalMs / d.frames).toFixed(1)} ms each)` : ''}; whole command ${((Date.now() - started) / 1000).toFixed(1)} s`);

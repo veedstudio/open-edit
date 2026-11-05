@@ -75,7 +75,8 @@ test('text: white text on a pale wall is under 3:1 where a plate, a stroke or a 
   const page = join(dir, 'legibility.html');
   writeFileSync(page, legibility);
   const out = join(dir, 'out.mp4');
-  render([page, '--out', out, '--fps', '30', '--duration', '1.5']);
+  // Drawn at the page's own sizes: render would raise the small print to the floor.
+  render([page, '--out', out, '--fps', '30', '--duration', '1.5', '--no-text-floor']);
   const input = found(out);
   assert.deepEqual(input.record.samples[0].texts.map((e) => e.text).sort(), ['Gradient', 'Half faded', 'Half white', 'On a plate', 'Pale wall', 'Pops in', 'Small print', 'With a shadow', 'With a stroke']);
   const report = await judgeText(out, input);
@@ -169,6 +170,16 @@ test('text: the floor is a share of the shorter side, so a 40px text is small on
     '1 text(s) under 49px, 4.5% of the frame\'s 1080px shorter side, smaller than a phone\'s body text:',
     '"So small" is 40px from 0.00s to 1.00s',
   ]);
+});
+
+test('text: an icon, an arrow, a lone symbol and SVG text are not held to the size floor; a word beside them is', async () => {
+  const marks = [entry('→', [10, 10, 20, 20], 20, '#arrow'), entry('$', [40, 10, 20, 30], 30, '#dollar'), { ...entry('cc', [80, 10, 30, 30], 32, '#badge>text:nth-child(1)'), svg: true as const }];
+  const record = recordFor({ width: 1080, height: 1920, frames: 3, transparent: true, texts: () => [...marks, entry('Fine print', [10, 100, 200, 30], 30, '#small')] });
+  const report = await judgeText('unused.mov', { path: 'r.json', record });
+  assert.deepEqual(report.lines, ['1 text(s) under 49px, 4.5% of the frame\'s 1080px shorter side, smaller than a phone\'s body text:', '"Fine print" is 30px from 0.00s to 0.10s']);
+  const alone = await judgeText('unused.mov', { path: 'r.json', record: recordFor({ width: 1080, height: 1920, frames: 3, transparent: true, texts: () => marks }) });
+  assert.equal(alone.verdict, 'pass');
+  assert.deepEqual(alone.lines, ['no text held to the size floor, only icons, symbols and SVG text, over 1 sampled frames']);
 });
 
 // ---- captions, on records built here -------------------------------------------------------------------------
@@ -313,7 +324,7 @@ test('captions: a caption a beat late, words split by a silence, and words after
 test('captions: skipped without a transcript or without a record, saying which is missing', () => {
   const check = CHECKS.find((c) => c.name === 'captions')!;
   const input = recordOf(9, []);
-  const base = { video: 'out.mp4', duration: 9, askedLength: { missing: 'none' } };
+  const base = { video: 'out.mp4', duration: 9, askedLength: { missing: 'none' }, brief: { missing: 'none' } };
   assert.deepEqual(check.run({ ...base, transcript: { missing: 'no transcript here' }, textRecord: input }),
     { verdict: 'skipped', lines: [], skipped: ['the speech: no transcript here'] });
   assert.deepEqual(check.run({ ...base, transcript: SPEECH, textRecord: { missing: 'no record here' } }),

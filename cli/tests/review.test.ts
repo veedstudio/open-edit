@@ -14,7 +14,7 @@ import { review, reviewReport, transcriptFor } from '../src/commands/review.ts';
 import { chromePlatform, installedChrome } from '../src/render/browser.ts';
 import type { Transcript } from '../src/transcript/transcript-types.ts';
 import { CHECKS, type Check, type ReviewContext } from '../src/verify/checks.ts';
-import { SINE, TESTSRC, captureConsoleAsync, scratchDir, synthClip } from './helpers/synth.ts';
+import { SINE, captureConsoleAsync, scratchDir, synthClip } from './helpers/synth.ts';
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const platform = chromePlatform();
@@ -30,18 +30,18 @@ process.env.OPEN_EDIT_ROOT = workspace;
 const toneUntil = (until: number) => `aevalsrc=exprs='if(lt(t,${until}),0.3*sin(2*PI*220*t),0)':s=48000`;
 
 /** A context for a report built from stand-in checks, which read nothing from it. */
-const STAND_IN: ReviewContext = { video: 'out.mp4', duration: 1, transcript: { missing: 'none' }, askedLength: { missing: 'none' }, textRecord: { missing: 'none' } };
+const STAND_IN: ReviewContext = { video: 'out.mp4', duration: 1, transcript: { missing: 'none' }, askedLength: { missing: 'none' }, textRecord: { missing: 'none' }, brief: { missing: 'none' } };
 
 const transcriptEndingAt = (end: number): Transcript => ({
   text: 'the last line',
   chunks: [{ text: 'the last line', timestamp: [0.5, end], words: [{ text: 'line', timestamp: [end - 0.3, end] }] }],
 });
 
-/** A piece's folder as the skill lays it out: the render, and the transcript beside it unless told not to. */
+/** A piece's folder as the skill lays it out: the render, at a platform canvas, and the transcript beside it unless told not to. */
 function piece(name: string, opts: { toneUntil: number; seconds: number; lastWord?: number }): string {
   const folder = join(dir, name);
   mkdirSync(folder, { recursive: true });
-  const video = synthClip(folder, 'out.mp4', { video: TESTSRC, audio: toneUntil(opts.toneUntil), seconds: opts.seconds });
+  const video = synthClip(folder, 'out.mp4', { video: 'testsrc=size=1920x1080:rate=25', audio: toneUntil(opts.toneUntil), seconds: opts.seconds });
   if (opts.lastWord !== undefined) {
     writeFileSync(join(folder, 'transcript.json'), JSON.stringify(transcriptEndingAt(opts.lastWord)));
   }
@@ -58,7 +58,9 @@ await test('a render with a dead tail gets a report that names it, and the revie
   // Each further line of a check sits under its first, past the name and the verdict.
   assert.match(lines[2], /^ {23}the last spoken word, "line", ends at 2\.90s \(.*dead[\\/]transcript\.json\)$/);
   assert.match(out, /^blank-frames {2}pass {5}opens on a picture, no flash/m);
-  assert.equal(lines.at(-1), 'Checks: 1 found something, 1 passed, 3 skipped, 0 could not run. The video was not changed: each finding is '
+  // The silent tail is the dead-tail check's alone, so dead-air does not report it again.
+  assert.match(out, /^dead-air {6}pass {5}nothing dead:/m);
+  assert.equal(lines.at(-1), 'Checks: 1 found something, 3 passed, 5 skipped, 0 could not run. The video was not changed: each finding is '
     + 'yours to judge, and one you leave in place is worth a word to the user.');
 });
 
@@ -104,7 +106,8 @@ await test('a render that ends on its last line gets a report with nothing found
   const { out } = await captureConsoleAsync(() => review([video, '--length', '6']));
   assert.match(out, /^dead-tail +pass +ends on time/m);
   assert.match(out, /^length +pass +on length/m);
-  assert.match(out, /Checks: 0 found something, 3 passed, 2 skipped, 0 could not run\. The video was not changed\.$/m);
+  assert.match(out, /^canvas +pass +1920x1080, exactly 16:9 with 1080 px on its short side$/m);
+  assert.match(out, /Checks: 0 found something, 5 passed, 4 skipped, 0 could not run\. The video was not changed\.$/m);
 });
 
 await test('without a transcript the review still runs, and says what it skipped', async () => {
@@ -118,7 +121,7 @@ await test('a pass with a comparison skipped is counted as such, so it never rea
   const video = piece('clean-no-transcript', { toneUntil: 5.8, seconds: 6 });
   const { out } = await captureConsoleAsync(() => review([video]));
   assert.match(out, /^dead-tail +pass +ends on time: the picture ends 0\.20s after the last sound$/m);
-  assert.match(out, /Checks: 0 found something, 2 passed \(1 with a comparison skipped\), 3 skipped, 0 could not run\./);
+  assert.match(out, /Checks: 0 found something, 4 passed \(1 with a comparison skipped\), 5 skipped, 0 could not run\./);
 });
 
 await test('a transcript keyed by the file\'s name is not read: another piece\'s render of that name may have written it', async () => {
@@ -133,7 +136,7 @@ await test('a transcript keyed by the file\'s name is not read: another piece\'s
 await test('the dead-tail check is given the picture\'s length the review probed, not one it probes again', async () => {
   const video = piece('duration', { toneUntil: 5.8, seconds: 6 });
   const deadTail = CHECKS.find((check) => check.name === 'dead-tail')!;
-  const report = await deadTail.run({ video, duration: 20, transcript: { missing: 'none' }, askedLength: { missing: 'none' }, textRecord: { missing: 'none' } });
+  const report = await deadTail.run({ video, duration: 20, transcript: { missing: 'none' }, askedLength: { missing: 'none' }, textRecord: { missing: 'none' }, brief: { missing: 'none' } });
   assert.match(report.lines[0], /nothing is heard after 5\.80s, and the picture runs to 20\.00s/);
 });
 
@@ -142,20 +145,20 @@ await test('a render shorter than the length asked for gets a report naming both
   const { result, out } = await captureConsoleAsync(() => review([video, '--length', '6']));
   assert.equal(result, 0);
   assert.match(out, /^length +FOUND +the video is 4\.00s, 2\.00s shorter than the 6\.00s asked for/m);
-  assert.match(out, /Checks: 1 found something, 2 passed \(1 with a comparison skipped\), 2 skipped, 0 could not run\./);
+  assert.match(out, /Checks: 1 found something, 4 passed \(1 with a comparison skipped\), 4 skipped, 0 could not run\./);
 });
 
 await test('a render within the tolerance of the length asked for passes', async () => {
   const video = piece('near-length', { toneUntil: 5.8, seconds: 6 });
   const { out } = await captureConsoleAsync(() => review([video, '--length', '6.5']));
-  assert.match(out, /^length +pass +on length: 6\.00s against the 6\.50s asked for, 0\.50s off, within the 1\.00s allowed$/m);
+  assert.match(out, /^length +pass +on length: 6\.00s against the 6\.50s asked for \(--length\), 0\.50s off, within the 1\.00s allowed$/m);
 });
 
-await test('without --length the length check is skipped with a line saying so, and the review still exits 0', async () => {
+await test('without --length or a brief the length check is skipped with a line saying so, and the review still exits 0', async () => {
   const video = piece('no-length', { toneUntil: 5.8, seconds: 6 });
   const { result, out } = await captureConsoleAsync(() => review([video]));
   assert.equal(result, 0);
-  assert.match(out, /^length +skipped +skipped: the length asked for: none given with --length$/m);
+  assert.match(out, /^length +skipped +skipped: the length asked for: none given with --length or in a brief\.json for this piece$/m);
 });
 
 await test('a --length that is not a length stops the review instead of being skipped, before the video is probed', async () => {
@@ -187,14 +190,34 @@ await test('a named transcript that is missing or damaged stops the review inste
   await assert.rejects(review([video, '--transcript', join(dir, 'nowhere.json')]), /transcript not found: .*nowhere\.json/);
   const damaged = join(dir, 'damaged-named.json');
   writeFileSync(damaged, '{"chunks":"no"}');
-  await assert.rejects(review([video, '--transcript', damaged]), /damaged-named\.json is not a transcript\.json/);
+  await assert.rejects(review([video, '--transcript', damaged]), /damaged-named\.json is not a transcript: expected a transcript\.json/);
+});
+
+const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/transcripts/${name}`, import.meta.url));
+
+await test('an upload\'s Whisper JSON named with --transcript is mapped in memory, and the report names its format in one line', async () => {
+  const video = piece('whisper-named', { toneUntil: 8, seconds: 11 });
+  const named = fixture('whisper-segments.json');
+  const { result, out } = await captureConsoleAsync(() => review([video, '--transcript', named]));
+  assert.equal(result, 0);
+  const lines = out.trimEnd().split('\n');
+  assert.equal(lines[1], `transcript: ${named}: read as Whisper segments with word times, mapped in memory (16 words)`);
+  assert.match(out, /the last spoken word, "again\.", ends at 7\.98s/);
+});
+
+await test('a fal speech-to-text answer left beside the video as transcript.json is read as it came', async () => {
+  const video = piece('fal-beside', { toneUntil: 17, seconds: 20 });
+  copyFileSync(fixture('fal-whisper-words.json'), join(dir, 'fal-beside', 'transcript.json'));
+  const { out } = await captureConsoleAsync(() => review([video]));
+  assert.match(out, /^transcript: .*fal-beside[\\/]transcript\.json: read as word chunks, mapped in memory \(48 words\)$/m);
+  assert.match(out, /the last spoken word, "minutes\.", ends at 16\.83s/);
 });
 
 await test('a damaged transcript in the folder is set aside with its file named, not trusted', () => {
   const cases = [
-    ['damaged', '{"chunks": "no"}', 'is not a transcript\\.json'],
-    ['null', 'null', 'is not a transcript\\.json'],
-    ['null-chunk', '{"chunks": [null]}', 'is not a transcript\\.json'],
+    ['damaged', '{"chunks": "no"}', 'is not a transcript: expected'],
+    ['null', 'null', 'is not a transcript: expected'],
+    ['null-chunk', '{"chunks": [null]}', 'is not a transcript: expected'],
     ['null-word', '{"chunks": [{"words": [null]}]}', 'is not a transcript\\.json'],
     ['not-json', '{"chunks": [', ':'],
   ];

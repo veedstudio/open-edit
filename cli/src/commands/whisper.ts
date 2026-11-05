@@ -1,7 +1,9 @@
-// The "custom provider" entrypoint: converts a Whisper-family JSON that something else produced into
+// The "custom provider" entrypoint: converts a speech-to-text JSON that something else produced into
 // runs/<key>/transcript.json, the same artefact the VEED provider writes. This is the seam a user's
 // own service or MCP plugs into — no transcription is run here, and no credential is handled here.
-// For the built-in local provider use the transcribe command, which drives WhisperX itself.
+// For the built-in local provider use the transcribe command, which drives WhisperX itself. It reads
+// every format whisper-mapper.ts lists, and a fal model's answer as `openedit fal run` keeps it in
+// fal-result.json, so a generated voice that returned its own timings needs no speech-to-text bought.
 //
 //   openedit whisper <whisper.json> <media> [<whisper.json> <media> ...] [--force]
 //
@@ -19,21 +21,22 @@
 // routes write the same runs/<key>/transcript.json for the same file.
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runsDir } from '../config.ts';
 import { resolveVideoArg, runKeyOf } from '../resolve-video.ts';
 import { validateTranscript } from './transcribe.ts';
-import { mapWhisperTranscript, type WhisperJson } from '../transcript/whisper-mapper.ts';
+import { readTranscriptFile } from '../transcript/read-transcript.ts';
 import { cachedNote, cachedTranscriptPath, wordCount } from '../transcript/transcript-cache.ts';
 
 export const usage = {
-  summary: "Map a Whisper-family JSON your own service produced into runs/<key>/transcript.json",
+  summary: "Map a speech-to-text JSON (Whisper's, fal's, your own service's) into runs/<key>/transcript.json",
   positionals: '<whisper.json> <media> [<whisper.json> <media> ...]',
   flags: {
     force: { type: 'boolean', help: 'Replace a transcript.json that already exists' },
   },
-  notes: 'media = a video or an audio file',
+  notes: 'media = a video or an audio file. The json may be Whisper segments with word times, a timed word list, whisper.cpp ' +
+    'offsets, fal\'s whisper chunks, a voice\'s character timestamps, or the fal-result.json openedit fal run wrote.',
 } satisfies Usage;
 
 const USAGE = usageLine('whisper', usage);
@@ -47,9 +50,9 @@ async function mapOne(jsonArg: string, videoArg: string, force = false): Promise
     throw new Error(`video not found: ${video}`);
   }
 
-  const raw = JSON.parse(await readFile(jsonArg, 'utf8')) as WhisperJson;
-  const { transcript, interpolated, reordered } = mapWhisperTranscript(raw);
-  validateTranscript(transcript);
+  const { transcript, format, mapped, interpolated, reordered } = readTranscriptFile(jsonArg);
+  // A transcript.json given here is copied as written: a hosted one may carry overlaps the validator refuses.
+  if (mapped) validateTranscript(transcript);
 
   const key = runKeyOf(video);
 
@@ -68,7 +71,7 @@ async function mapOne(jsonArg: string, videoArg: string, force = false): Promise
   await writeFile(out, JSON.stringify(transcript, null, 2));
 
   const words = wordCount(transcript);
-  console.log(`[whisper-transcribe] ${key}: ${transcript.chunks.length} chunks, ${words} words -> ${out}`);
+  console.log(`[whisper-transcribe] ${key}: read as ${format}; ${transcript.chunks.length} chunks, ${words} words -> ${out}`);
   if (interpolated > 0) {
     console.warn(
       `[whisper-transcribe] ${key}: WARNING ${interpolated} of ${words} word(s) arrived without usable timings; ` +

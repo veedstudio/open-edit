@@ -2,26 +2,33 @@
 // before it delivers. It reports only. It never edits the video or asks for a re-render, and it exits 0
 // whatever it finds, so a finding is a judgement for the agent rather than a failure to retry. It exits
 // non-zero only when it cannot run at all, such as a bad call, a file ffprobe cannot read or measure a
-// picture in, a --transcript that is missing or malformed, or a --length that is not a positive number.
+// picture in, a --transcript that is missing or malformed, a --length that is not a positive number, or a
+// --brief file that is not there.
 //
-//   openedit review <video> [--transcript <transcript.json>] [--length <sec>]
+//   openedit review <video> [--transcript <transcript.json>] [--length <sec>] [--brief <text|file>]...
 //
 // A check that compares against speech reads the transcript named, else the transcript.json in the
 // render's own folder: the piece's folder, not a transcript keyed by file name, which another piece's
-// render of the same name could have written. It never transcribes: that would bill the recorded
+// render of the same name could have written. Either may be in any format the whisper command maps,
+// mapped in memory and named in one line of the report. It never transcribes: that would bill the recorded
 // provider, or take minutes of local compute, on every review. A check of on-screen text reads the record
-// `openedit render` wrote beside the video, `<video>.text.json`, which mux-audio carries to its output.
+// `openedit render` wrote beside the video, `<video>.text.json`, which mux-audio carries to its output. The length
+// check compares with --length, else with the length in the piece's brief.json, which `openedit brief` writes, and
+// the numbers check with the user's words from --brief, else from that brief.
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
+import { readBrief, type FoundBrief } from '../brief.ts';
 import { FFPROBE } from '../config.ts';
 import { pictureDurationOf, probeDisplaySize } from '../probe.ts';
 import { readRecord, recordPath, recordSeconds, timeOf, type TextRecord } from '../render/text-record.ts';
 import {
-  CHECKS, type Check, type CheckReport, type LengthInput, type ReviewContext, type TextRecordInput, type TranscriptInput, type Verdict,
+  CHECKS, type BriefInput, type Check, type CheckReport, type LengthInput, type ReviewContext, type TextRecordInput, type TranscriptInput,
+  type Verdict,
 } from '../verify/checks.ts';
-import { readTranscript } from './retime-transcript.ts';
+import { mappedNote, readTranscriptFile } from '../transcript/read-transcript.ts';
+import { seconds } from '../verify/report.ts';
 
 export const usage = {
   summary: 'Run every delivery check on a render and print one report; changes nothing',
@@ -30,12 +37,18 @@ export const usage = {
     transcript: {
       type: 'string',
       value: '<transcript.json>',
-      help: "The transcript on the video's timeline (default: transcript.json in the video's folder)",
+      help: "The transcript on the video's timeline, in any format whisper maps (default: transcript.json in the video's folder)",
     },
     length: {
       type: 'string',
       value: '<sec>',
-      help: 'The length the video should run, in seconds (without it, the length check is skipped)',
+      help: 'The length the video should run, in seconds (default: the length in the piece\'s brief.json; without either, the length check is skipped)',
+    },
+    brief: {
+      type: 'string',
+      multiple: true,
+      value: '<text|file>',
+      help: "The user's own words the video was made from, or a file holding them; repeatable (default: the words in the piece's brief.json; without either, numbers on screen are compared with the transcript only)",
     },
   },
   notes: 'Exits 0 whenever the review ran, findings or not: a finding is for you to judge, not an error.',
@@ -43,15 +56,19 @@ export const usage = {
 
 /** The transcript the checks compare against: the one named, else the one in the video's folder, else why there is none. */
 export function transcriptFor(video: string, named: string | undefined): TranscriptInput {
+  const read = (path: string): TranscriptInput => {
+    const got = readTranscriptFile(path);
+    return { path, transcript: got.transcript, note: mappedNote(path, got) };
+  };
   // A named file that cannot be read is a mistake in the call, so it stops the review rather than being skipped.
   if (named !== undefined) {
     if (!existsSync(named)) throw new Error(`transcript not found: ${named}`);
-    return { path: named, transcript: readTranscript(named) };
+    return read(named);
   }
   const beside = join(dirname(video), 'transcript.json');
   if (!existsSync(beside)) return { missing: `no transcript at ${beside}, and none named with --transcript` };
   try {
-    return { path: beside, transcript: readTranscript(beside) };
+    return read(beside);
   } catch (error) {
     return { missing: (error as Error).message };
   }
@@ -91,10 +108,56 @@ export function textRecordFor(video: string, duration: number): TextRecordInput 
   return { path, record };
 }
 
-/** The length asked for, or why there is none; a value that is not a length is a mistake in the call and stops the review. */
-export function lengthFor(raw: string | undefined): LengthInput {
-  if (raw === undefined) return { missing: 'none given with --length' };
-  return { seconds: numberFlag('length', raw, 30, (n) => n > 0, 'seconds above 0') };
+/**
+ * The length asked for: --length, else the one in the piece's brief, found from the video; or why there is none. A
+ * --length that is not a length is a mistake in the call and stops the review.
+ */
+export function lengthFor(raw: string | undefined, video: string): LengthInput {
+  const named = raw === undefined ? undefined : numberFlag('length', raw, 30, (n) => n > 0, 'seconds above 0');
+  let found: FoundBrief | null;
+  try {
+    found = readBrief(video);
+  } catch (error) {
+    return named === undefined ? { missing: (error as Error).message } : { seconds: named, from: '--length' };
+  }
+  const briefed = found?.brief.length;
+  if (named !== undefined) {
+    return { seconds: named, from: briefed === undefined || briefed === named ? '--length' : `--length, over the ${seconds(briefed)} in ${found!.path}` };
+  }
+  if (briefed === undefined) return { missing: `none given with --length or in ${found ? found.path : 'a brief.json for this piece'}` };
+  return { seconds: briefed, from: found!.path };
+}
+
+/**
+ * The user's words: each --brief, a file's text when the value names a file, else the value itself; without --brief,
+ * the words in the piece's brief.json, found from the video. A one-word value that reads as a path but names nothing
+ * stops the review, so a mistyped path is never compared as the words.
+ */
+export function briefFor(values: string[] | undefined, video: string): BriefInput {
+  let found: FoundBrief | null = null;
+  try {
+    found = readBrief(video);
+  } catch (error) {
+    // --brief needs no brief.json, so one that cannot be read stops only a review that relies on it.
+    if (!values?.length) return { missing: (error as Error).message };
+  }
+  const briefed = found?.brief.words;
+  if (!values?.length) {
+    if (briefed === undefined) return { missing: `none given with --brief or in ${found ? found.path : 'a brief.json for this piece'}` };
+    return { sources: [{ label: found!.path, text: briefed }] };
+  }
+  const sources = values.map((value) => {
+    if (existsSync(value)) {
+      if (!statSync(value).isFile()) throw new Error(`--brief ${value} is a directory: give the user's words, or a file holding them`);
+      return { label: value, text: readFileSync(value, 'utf8') };
+    }
+    const word = value.trim();
+    if (word === '') throw new Error("--brief is empty: give the user's words, or a file holding them");
+    if (/^\S+$/.test(word) && /[\\/]|\.\w{1,5}$/.test(word)) throw new Error(`brief file not found: ${value}`);
+    return { label: 'given as text', text: value };
+  });
+  if (briefed !== undefined) sources[0] = { ...sources[0], label: `${sources[0].label}, over the words in ${found!.path}` };
+  return { sources };
 }
 
 /** An error's first line, with the last line a failed tool wrote to stderr: its own reason, which a spawn's message buries. */
@@ -123,6 +186,7 @@ export function pictureSeconds(video: string): number {
 /** The report: a heading, one block per check, and a footer counting the verdicts. */
 export async function reviewReport(context: ReviewContext, checks: readonly Check[] = CHECKS): Promise<string[]> {
   const lines = [`review: ${context.video}`];
+  if ('note' in context.transcript && context.transcript.note) lines.push(`transcript: ${context.transcript.note}`);
   const width = Math.max(...checks.map((c) => c.name.length));
   const tally: Record<Verdict, number> = { found: 0, pass: 0, skipped: 0 };
   let partial = 0;
@@ -161,10 +225,11 @@ export async function review(argv: string[]): Promise<number> {
   const video = positionals[0];
   if (!video || positionals.length > 1) throw new Error(usageLine('review', usage));
   if (!existsSync(video)) throw new Error(`video not found: ${video}`);
-  const askedLength = lengthFor(values.length);
+  const askedLength = lengthFor(values.length, video);
+  const brief = briefFor(values.brief, video);
   const duration = pictureSeconds(video);
   const transcript = transcriptFor(video, values.transcript);
   const textRecord = textRecordFor(video, duration);
-  for (const line of await reviewReport({ video, duration, transcript, askedLength, textRecord })) console.log(line);
+  for (const line of await reviewReport({ video, duration, transcript, askedLength, textRecord, brief })) console.log(line);
   return 0;
 }

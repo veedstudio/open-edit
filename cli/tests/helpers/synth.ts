@@ -52,6 +52,40 @@ export function synthClip(dir: string, name: string, spec: SynthSpec): string {
   return path;
 }
 
+/** The colour the flat clips below are made of, as RGB. */
+export const FLAT_RGB = [0x33, 0xcc, 0x66];
+
+/**
+ * One second of FLAT_RGB with a tone, labelled no more than `kind` says, each the way its footage arrives: a VP8 WebM
+ * (BT.601 by the codec, which its decoder alone labels, matrix and range), the BT.601 matrix declared on its own, no
+ * label at all over a BT.709 picture (what an untagged file is taken for), a full-range BT.709 file, and RGB in a MOV.
+ */
+export function flatClip(dir: string, kind: 'vp8' | 'matrix' | 'untagged' | 'full' | 'rgb'): string {
+  const out = join(dir, `${kind}.${kind === 'vp8' ? 'webm' : kind === 'rgb' ? 'mov' : 'mp4'}`);
+  // Drawn in RGB and converted with exact rounding, so each file holds the colour itself, not swscale's rounding of it.
+  const to = (matrix: string, range = 'tv') => `scale=out_color_matrix=${matrix}:out_range=${range}:flags=accurate_rnd+full_chroma_int,format=yuv420p`;
+  const vf = {
+    vp8: to('bt601'),
+    matrix: `${to('bt601')},setparams=colorspace=bt470bg`,
+    untagged: to('bt709'),
+    full: `${to('bt709', 'pc')},setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=pc`,
+    rgb: 'null',
+  }[kind];
+  const codec = kind === 'vp8' ? ['-c:v', 'libvpx', '-b:v', '2M', '-c:a', 'libopus'] : ['-c:v', kind === 'rgb' ? 'png' : 'libx264', '-c:a', 'aac'];
+  const colour = `0x${FLAT_RGB.map((c) => c.toString(16)).join('')}`;
+  execFileSync(FFMPEG, ['-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', `color=c=${colour}:s=640x360:r=30:d=1,format=rgb24`,
+    '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:d=1', '-vf', vf, ...codec, '-shortest', out]);
+  return out;
+}
+
+/** The mean colour of frame `index` as a player shows it: decoded by the matrix and range its frames are labelled with. */
+export function shownRgb(file: string, index = 0): number[] {
+  const px = rawFrame(file, index, 'scale=in_color_matrix=auto:in_range=auto:flags=accurate_rnd+full_chroma_int,format=rgb24', 'rgb24');
+  const sum = [0, 0, 0];
+  px.forEach((v, i) => { sum[i % 3] += v; });
+  return sum.map((v) => v / (px.length / 3));
+}
+
 /** Remux `src` with a display-rotation tag, the way phone footage stores a portrait recording. */
 export function rotatedCopy(src: string, dst: string, degrees: number): string {
   execFileSync(FFMPEG, [

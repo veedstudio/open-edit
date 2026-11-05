@@ -6,19 +6,28 @@
 import type { TextRecord } from '../render/text-record.ts';
 import type { Transcript } from '../transcript/transcript-types.ts';
 import { measureBlankFrames } from './blank-frames.ts';
+import { measureCanvas } from './canvas.ts';
 import { measureCaptions } from './captions.ts';
+import { measureDeadAir } from './dead-air.ts';
 import { measureDeadTail } from './dead-tail.ts';
+import { measureGraphics } from './graphics.ts';
 import { measureLength } from './length.ts';
+import { measureNumbers } from './numbers.ts';
 import { measureText } from './text.ts';
 
 /** The transcript on the render's timeline, or why there is none: the reason is printed in the report. */
-export type TranscriptInput = { path: string; transcript: Transcript } | { missing: string };
+export type TranscriptInput =
+  | { path: string; transcript: Transcript; /** The line naming the format, when the file was mapped from another. */ note?: string }
+  | { missing: string };
 
-/** The length the user asked for, in seconds, or why there is none: the reason is printed in the report. */
-export type LengthInput = { seconds: number } | { missing: string };
+/** The length the user asked for, in seconds, and where it was asked (--length or the brief's path), or why there is none. */
+export type LengthInput = { seconds: number; from: string } | { missing: string };
 
 /** The record of on-screen text the render wrote beside the video, or why there is none: the reason is printed in the report. */
 export type TextRecordInput = { path: string; record: TextRecord } | { missing: string };
+
+/** What the user asked for in their own words, each text with where it came from, or why there is none: the reason is printed in the report. */
+export type BriefInput = { sources: { label: string; text: string }[] } | { missing: string };
 
 /** An input that is there. */
 export type Found<T> = Exclude<T, { missing: string }>;
@@ -29,10 +38,12 @@ export interface ReviewContext {
   duration: number;
   /** Resolved once by the review, so every check that compares against speech reads the same words. */
   transcript: TranscriptInput;
-  /** From --length: how long the user asked the video to run, where `duration` is how long it does. */
+  /** From --length or the piece's brief: how long the user asked the video to run, where `duration` is how long it does. */
   askedLength: LengthInput;
   /** What text the video shows, where and how large, sampled while it was rendered. */
   textRecord: TextRecordInput;
+  /** From --brief: the user's own words, so a number on screen can be traced to them as well as to the speech. */
+  brief: BriefInput;
 }
 
 export type Verdict = 'found' | 'pass' | 'skipped';
@@ -53,8 +64,12 @@ export interface Check {
 
 export const CHECKS: readonly Check[] = [
   { name: 'dead-tail', run: measureDeadTail },
+  { name: 'dead-air', run: measureDeadAir },
   { name: 'length', run: measureLength },
+  { name: 'canvas', run: measureCanvas },
   { name: 'blank-frames', run: measureBlankFrames },
   { name: 'text', run: measureText },
   { name: 'captions', run: measureCaptions },
+  { name: 'numbers', run: measureNumbers },
+  { name: 'graphics', run: measureGraphics },
 ];

@@ -30,7 +30,7 @@ const joined = (...shots: [string, number][]) =>
   `${shots.map((_, i) => `[s${i}]`).join('')}concat=n=${shots.length}:v=1:a=0`;
 
 const measure = (video: string) => measureBlankFrames({
-  video, duration: pictureDurationOf(video), transcript: { missing: 'none' }, askedLength: { missing: 'none' }, textRecord: { missing: 'none' },
+  video, duration: pictureDurationOf(video), transcript: { missing: 'none' }, askedLength: { missing: 'none' }, textRecord: { missing: 'none' }, brief: { missing: 'none' },
 });
 const flashLines = (lines: string[]) => lines.filter((line) => line.startsWith('a flash'));
 

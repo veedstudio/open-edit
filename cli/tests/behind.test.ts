@@ -21,6 +21,8 @@ import { speakerScript } from '../src/render/speaker.ts';
 import { scratchDir } from './helpers/synth.ts';
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
+// The check and the renders beside it share one media cache, as in any workspace: this file's own, so no other finds its copies.
+process.env.OPEN_EDIT_ROOT = scratchDir('behind-workspace');
 const W = 320;
 const H = 180;
 // The speaker: an opaque column from x 150 to 189, the full height, transparent elsewhere.
@@ -130,12 +132,12 @@ test('alpha: a VP9 cut-out names libvpx, ProRes 4444 needs nothing named but a c
   assert.equal(alphaInput(stale), null);
 });
 
-test('render: the copy of a cut-out keeps its alpha, all-intra, at its own size, at a shown size, and from ProRes', () => {
+test('render: the copy of a cut-out keeps its alpha, all-intra, at its own size, at a shown size, and from ProRes', async () => {
   const dir = scratchDir('behind-copy');
   const source = cutout(dir, { frames: 30, gop: 30 });
   const mov = prores(source, join(dir, 'cutout.mov'));
   for (const [file, size, at] of [[source, null, [40, 170]], [source, { width: 160, height: 90 }, [20, 85]], [mov, null, [40, 170]]] as const) {
-    const { path } = seekableCopy(file, join(dir, 'media'), size);
+    const { path } = await seekableCopy(file, join(dir, 'media'), size);
     assert.match(path, /\.webm$/);
     assert.equal(longestGop(path), 1, 'every frame a keyframe');
     const input = alphaInput(path);
@@ -179,7 +181,7 @@ function footage(dir: string): void {
 }
 
 const byName = (report: BehindReport) => Object.fromEntries(report.graphics.map((g) => [g.name, g]));
-const render = (args: string[]) => spawnSync(process.execPath, ['--import', 'tsx', CLI, 'render', ...args], { encoding: 'utf8', timeout: 240_000 });
+const render = (args: string[], env: NodeJS.ProcessEnv = {}) => spawnSync(process.execPath, ['--import', 'tsx', CLI, 'render', ...args], { encoding: 'utf8', timeout: 240_000, env: { ...process.env, ...env } });
 const rgbOf = (png: string): Buffer => execFileSync(FFMPEG, ['-v', 'error', '-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 24 });
 const at = (rgb: Buffer, x: number, y: number) => [...rgb.subarray((y * W + x) * 3, (y * W + x) * 3 + 3)];
 const isBlue = ([r, , b]: number[]) => b > 200 && r < 60;
@@ -536,10 +538,14 @@ test('layers: a ProRes 4444 cut-out, which Chrome cannot play, is checked and re
   assert.deepEqual(report.failedLoads, [], 'the copy that plays leaves no failed load behind');
   const r = render([file, '--out', join(dir, 'stills'), '--stills', '0.5', '--fps', '10']);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /made a VP9 copy of cutout\.mov that keeps its alpha/);
+  assert.doesNotMatch(r.stderr, /made a VP9 copy/, 'the render plays the VP9 copy the check made');
   assert.doesNotMatch(r.stderr, /failed to load or play/);
   const rgb = rgbOf(join(dir, 'stills', readdirSync(join(dir, 'stills')).find((f) => f.endsWith('.png'))!));
   assert.ok(isBlue(at(rgb, 170, 30)) && isRed(at(rgb, 100, 30)), 'the speaker over the graphic, the graphic beside it');
+  // In a workspace of its own, the render makes that copy itself.
+  const own = render([file, '--out', join(dir, 'own'), '--stills', '0.5', '--fps', '10'], { OPEN_EDIT_ROOT: scratchDir('behind-prores-own') });
+  assert.equal(own.status, 0, own.stderr);
+  assert.match(own.stderr, /made a VP9 copy of cutout\.mov that keeps its alpha/);
 });
 
 test('render: a speaker layer that cannot be played fails the render', { skip }, () => {
@@ -600,4 +606,40 @@ test('layers: speaker.js lays the same layers in an ordinary browser, the cut-ou
     await browser.close();
     await server.close();
   }
+});
+
+test('layers: under render --footage-at, the cut-out shows where the footage does, in register with it frame for frame, as the check measures it', { skip }, async () => {
+  const dir = scratchDir('behind-footage-at');
+  // The footage's speaker is a white column at x 10n on frame n, for 2 s at 10 fps; the cut-out is that column, in blue.
+  const clip = join(dir, 'clip.mp4');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
+    `color=c=gray:s=${W}x${H}:r=10:d=2,format=yuv420p,geq=lum='if(between(X\\,10*N\\,10*N+9)\\,235\\,128)':cb=128:cr=128`,
+    '-frames:v', '20', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', clip]);
+  cutout(dir, { frames: 20, alpha: '255*between(X,10*N,10*N+9)' });
+  // A graphic behind the speaker over x 0 to 99: the speaker crosses it over the clip's first second.
+  const file = page(dir, { footage: '<video src="clip.mp4" muted playsinline></video>',
+    behind: '<div class="g" data-behind="g" style="left:0;top:10px;width:100px;height:40px"></div>' },
+  { style: 'html,body,#stage{background:transparent}' });
+  const out = join(dir, 'out.mp4');
+  // Five workers: one picks the cut-out up partway through its run, after render's check of the stateless mark.
+  const r = render([file, '--out', out, '--fps', '10', '--duration', '6', '--footage', clip, '--footage-at', '3', '--workers', '5']);
+  assert.equal(r.status, 0, r.stderr);
+  const raw = execFileSync(FFMPEG, ['-v', 'error', '-i', out, '-fps_mode', 'passthrough', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 28 });
+  const frames = Array.from({ length: raw.length / (W * H * 3) }, (_, i) => raw.subarray(i * W * H * 3, (i + 1) * W * H * 3));
+  assert.equal(frames.length, 60);
+  const isWhite = ([r, g, b]: number[]) => r > 200 && g > 200 && b > 200;
+  frames.forEach((rgb, k) => {
+    const row = Array.from({ length: W }, (_, x) => at(rgb, x, 120));
+    const blue = row.findIndex(isBlue);
+    if (k >= 30 && k < 50) {
+      assert.equal(blue, 10 * (k - 30), `frame ${k}: the cut-out's speaker at clip frame ${k - 30}`);
+      assert.ok(!row.some(isWhite), `frame ${k}: the footage's own speaker left showing beside the cut-out`);
+    } else {
+      assert.equal(blue, -1, `frame ${k}: no cut-out where the footage is not`);
+    }
+  });
+  // The check steps the page on the same clock: the graphic is under the speaker only over the clip's first second.
+  const report = await checkBehind(file, { bar: 0.95, fps: { num: 10, den: 1 }, duration: 6, footageAt: 3 });
+  assert.deepEqual(report.graphics[0].under, { frames: 10, start: 3, end: 3.9 });
+  near(report.graphics[0].worst.share, 0.9, 0.005, 'a tenth of the graphic behind the speaker');
 });

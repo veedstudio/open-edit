@@ -8,8 +8,14 @@
 //     { segments:[{ start, end, text, words:[{ word|text, start, end }] }] }
 //   - the OpenAI API's verbose_json with timestamp_granularities:["word"]:
 //     { segments:[{ start, end, text }], words:[{ word, start, end }] }
-//   - a flat word list, including whisper.cpp `-oj`:
-//     { transcription:[{ offsets:{ from, to }, text }] }  (offsets are MILLISECONDS)
+//   - a flat word list, as fal's speech-to-text and forced-alignment models return one; entries typed
+//     "spacing" are blank and dropped, and "audio_event" entries (a laugh, applause) are not speech:
+//     { words:[{ text, start, end, type? }] }
+//   - whisper.cpp `-oj`: { transcription:[{ offsets:{ from, to }, text }] }  (offsets are MILLISECONDS)
+//   - fal's whisper and wizper: { chunks:[{ timestamp:[start, end], text }] }, one word per chunk with
+//     chunk_level "word", else one segment per chunk with no word times
+//   - a voice model's alignment of what it said, in blocks of characters:
+//     { timestamps:[{ characters, character_start_times_seconds, character_end_times_seconds }] }
 //
 // ONE PIPELINE, because a branch per family is a branch per way of losing a word:
 //
@@ -26,12 +32,13 @@ import type { Transcript, TranscriptChunk, TranscriptWord } from './transcript-t
 
 export type { Transcript, TranscriptChunk, TranscriptWord };
 
-// `word` is openai/WhisperX/mlx; `text` is whisper-timestamped. Times are seconds.
+// `word` is openai/WhisperX/mlx; `text` is whisper-timestamped and fal's word lists. Times are seconds.
 export interface WhisperWord {
   word?: string;
   text?: string;
   start?: number;
   end?: number;
+  type?: string;
 }
 
 export interface WhisperSegment {
@@ -47,11 +54,24 @@ export interface WhisperCppEntry {
   offsets?: { from?: number; to?: number };
 }
 
+export interface TimedChunk {
+  text?: string;
+  timestamp?: [number | null, number | null];
+}
+
+export interface CharacterBlock {
+  characters?: string[];
+  character_start_times_seconds?: number[];
+  character_end_times_seconds?: number[];
+}
+
 export interface WhisperJson {
   text?: string;
   segments?: WhisperSegment[];
   words?: WhisperWord[];
   transcription?: WhisperCppEntry[];
+  chunks?: TimedChunk[];
+  timestamps?: CharacterBlock[];
 }
 
 export interface GroupOptions {
@@ -63,6 +83,8 @@ export interface GroupOptions {
 
 export interface MapResult {
   transcript: Transcript;
+  /** What the input was, in words, for the line a reader prints. */
+  format: string;
   /** Words the provider left untimed, whose windows were inferred. */
   interpolated: number;
   /** Words whose times ran backwards and were reordered to match their reveals. */
@@ -107,6 +129,7 @@ function tokenize(p: Pending): Pending[] {
 
 function pendingFromWords(words: WhisperWord[], group?: number): Pending[] {
   return words
+    .filter((w) => w?.type !== 'audio_event')
     .map((w) => ({ text: (w.word ?? w.text ?? '').trim(), start: w.start, end: w.end, group }))
     .flatMap((p) => tokenize(p));
 }
@@ -123,6 +146,67 @@ function pendingFromCpp(entries: WhisperCppEntry[]): Pending[] {
       };
     })
     .flatMap((p) => tokenize(p));
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const timeOf = (n: unknown): number | undefined => (finite(n) ? n : undefined);
+
+// A voice's characters become words at whitespace. A bracketed tag ([excited], [whispers]) is a direction to
+// the voice that the alignment times like speech, so it is dropped rather than shown as a word.
+function wordsFromCharacters(blocks: CharacterBlock[]): WhisperWord[] {
+  const words: WhisperWord[] = [];
+  let current: WhisperWord | undefined;
+  let inTag = false;
+  const flush = () => {
+    if (current) words.push(current);
+    current = undefined;
+  };
+  for (const block of blocks) {
+    const chars = Array.isArray(block.characters) ? block.characters : [];
+    chars.forEach((c, i) => {
+      const start = timeOf(block.character_start_times_seconds?.[i]);
+      const end = timeOf(block.character_end_times_seconds?.[i]);
+      if (inTag || c === '[') {
+        inTag = c !== ']';
+        flush();
+        return;
+      }
+      if (typeof c !== 'string' || /^\s*$/.test(c)) return flush();
+      if (!current) current = { word: c, start, end };
+      else current = { ...current, word: current.word + c, end: end ?? current.end };
+    });
+  }
+  flush();
+  return words;
+}
+
+/**
+ * The families the pipeline does not read directly, rewritten into one it does, with what the input was.
+ * `format` is undefined when nothing in the input names a transcript at all.
+ */
+export function normaliseWhisperJson(input: WhisperJson): { input: WhisperJson; format?: string } {
+  const segments = Array.isArray(input.segments) ? input.segments : [];
+  if (segments.some((s) => Array.isArray(s?.words) && s.words.length > 0)) return { input, format: 'Whisper segments with word times' };
+  if (Array.isArray(input.words) && input.words.length > 0) {
+    return { input, format: segments.length > 0 ? 'Whisper segments with a word list (verbose_json)' : 'a timed word list' };
+  }
+  if (Array.isArray(input.transcription) && input.transcription.length > 0) return { input, format: 'whisper.cpp offsets' };
+  if (segments.length > 0) return { input, format: 'Whisper segments' };
+  const chunks = (Array.isArray(input.chunks) ? input.chunks : []).filter(isObject) as TimedChunk[];
+  if (chunks.length > 0) {
+    const span = (c: TimedChunk) => ({ start: timeOf(c.timestamp?.[0]), end: timeOf(c.timestamp?.[1]) });
+    // A chunk holding several words is a segment: its words are spread over its window and counted as interpolated.
+    if (chunks.some((c) => /\S\s+\S/.test((c.text ?? '').trim()))) {
+      return {
+        input: { segments: chunks.map((c) => ({ ...span(c), text: c.text, words: [{ word: c.text, ...span(c) }] })) },
+        format: 'segment chunks without word times (chunk_level "word" times each word)',
+      };
+    }
+    return { input: { words: chunks.map((c) => ({ word: c.text, ...span(c) })) }, format: 'word chunks' };
+  }
+  const blocks = (Array.isArray(input.timestamps) ? input.timestamps : []).filter((b) => isObject(b) && Array.isArray(b.characters));
+  if (blocks.length > 0) return { input: { words: wordsFromCharacters(blocks) }, format: "a voice's character timestamps" };
+  return { input };
 }
 
 /** Spreads `count` windows evenly across [from,to]; a zero-width span yields zero-width windows. */
@@ -257,7 +341,10 @@ function orderWords(words: TranscriptWord[]): { words: TranscriptWord[]; reorder
   return { words: [...words].sort((a, b) => a.timestamp[0] - b.timestamp[0]), reordered };
 }
 
-export function mapWhisperTranscript(input: WhisperJson, opts: GroupOptions = {}): MapResult {
+export function mapWhisperTranscript(raw: WhisperJson, opts: GroupOptions = {}): MapResult {
+  const normalised = normaliseWhisperJson(raw);
+  const input = normalised.input;
+  const format = normalised.format ?? 'no known format';
   const segments = Array.isArray(input.segments) ? input.segments : [];
   const flatWords = Array.isArray(input.words) ? input.words : [];
   const cppEntries = Array.isArray(input.transcription) ? input.transcription : [];
@@ -318,5 +405,5 @@ export function mapWhisperTranscript(input: WhisperJson, opts: GroupOptions = {}
     );
   }
 
-  return { transcript: { text: chunks.map((c) => c.text).join(' '), chunks }, interpolated, reordered };
+  return { transcript: { text: chunks.map((c) => c.text).join(' '), chunks }, format, interpolated, reordered };
 }

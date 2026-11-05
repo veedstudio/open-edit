@@ -2,6 +2,7 @@
 // container on the zone as the page's text layer, whose defaults keep text the page leaves unstyled inside the
 // zone and at the shape's minimum size.
 //
+//   openedit safe-zone --out runs/<key>                 (the platform in the piece's brief.json)
 //   openedit safe-zone tiktok --out runs/<key>
 //   openedit safe-zone 9:16 --ad --out runs/<key>
 //   openedit safe-zone instagram --out runs/<key> --canvas 1080x1350
@@ -9,7 +10,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
-import { parseCanvas } from './concat-videos.ts';
+import { readBrief, type FoundBrief } from '../brief.ts';
+import { parseCanvas } from '../size.ts';
 import { SIZE_FLOOR } from '../verify/text.ts';
 
 export interface Size {
@@ -162,16 +164,24 @@ function shapeOf(canvas: Size, among: Shape[]): Shape | undefined {
 
 const sized = (s: Shape) => `${SHAPES[s].canvas.width}x${SHAPES[s].canvas.height}`;
 
+const spelled = (raw: string) => Object.hasOwn(SPELLINGS, raw) ? SPELLINGS[raw] : raw;
+
 /**
- * The zone a name stands for: a shape (`9:16`, or `9x16` for the shell) for its default zone, or an app (`tiktok`)
- * for that app's own. An app posted in several shapes takes its shape from the canvas. `ad` asks for the ad zone,
- * which only 9:16 has.
+ * The zone a name stands for: a shape (`9:16`, or `9x16` for the shell) for its default zone, an app (`tiktok`)
+ * for that app's own, or an app with a shape (`linkedin 1:1`, the zone's own printed name). An app posted in several
+ * shapes takes its shape from the canvas when its name has none. `ad` asks for the ad zone, which only 9:16 has.
  */
 export function formatNamed(name: string, opts: { canvas?: Size; ad?: boolean } = {}): Format {
   const raw = name.trim().toLowerCase();
-  const key = Object.hasOwn(SPELLINGS, raw) ? SPELLINGS[raw] : raw;
+  const key = spelled(raw);
+  const [app, shapeWord, ...rest] = raw.split(/\s+/).map(spelled);
   let found: Format;
-  if (Object.hasOwn(SHAPES, key)) {
+  if (shapeWord !== undefined && rest.length === 0 && Object.hasOwn(APPS, app) && Object.hasOwn(SHAPES, shapeWord)) {
+    const zones = APPS[app].zones;
+    const own = zones[shapeWord as Shape];
+    if (!own) throw new Error(`${app} has no ${shapeWord} zone: it is posted as ${listed(Object.keys(zones))}`);
+    found = own;
+  } else if (Object.hasOwn(SHAPES, key)) {
     found = DEFAULTS[key as Shape];
   } else if (Object.hasOwn(APPS, key)) {
     const app = APPS[key];
@@ -187,6 +197,7 @@ export function formatNamed(name: string, opts: { canvas?: Size; ad?: boolean } 
         ...(app.zones['9:16'] === REELS ? ['name reels for a Reel'] : []),
         ...(feed.length ? [`name the feed shape (${listed(feed)})`] : []),
         `pass --canvas with the piece's size (${listed(shapes.map(sized))})`,
+        `name ${key} with its shape (${listed(shapes.map((s) => `"${key} ${s}"`))})`,
       ];
       throw new Error(`${key} is posted as ${listed(shapes.map((s) => app.zones[s] === REELS ? `${s} (a Reel)` : s))}, each with its own zone: `
         + ways.join(', or '));
@@ -248,6 +259,34 @@ export function zoneFor(format: Format, canvas: Size): Zone {
   };
 }
 
+/** The default zone of the shape a canvas has, on that canvas; null for a shape with none, such as 2:3 or 21:9. */
+export function shapeZone(canvas: Size): Zone | null {
+  const shape = shapeOf(canvas, Object.keys(SHAPES) as Shape[]);
+  return shape ? zoneFor(DEFAULTS[shape], canvas) : null;
+}
+
+/**
+ * The zone a page that links none is given: that of the platform in the piece's brief, found from `from`, when the
+ * platform has one of the canvas's shape, else the shape's own; null for a shape with none.
+ */
+export function givenZone(canvas: Size, from: string): Zone | null {
+  let platform: string | undefined;
+  try {
+    platform = readBrief(from)?.brief.platform;
+  } catch {
+    // A brief that cannot be read names no platform here; the shape's own zone is clear of every app it lists.
+  }
+  if (platform !== undefined) {
+    try {
+      const format = formatNamed(platform, { canvas });
+      if (fits(format, canvas)) return zoneFor(format, canvas);
+    } catch {
+      // A platform with no zone of this shape leaves the shape's own.
+    }
+  }
+  return shapeZone(canvas);
+}
+
 // The review's size floor, so text left at the container's default, or sized no smaller than it, passes the text
 // check: 49 px on a 1080 px side.
 export function minText(canvas: Size): number {
@@ -306,18 +345,14 @@ ${sel} [data-safe] {
 `;
 }
 
-// How a zone is asked for, where its printed name ("linkedin 1:1") is not itself a name the command takes.
-function askedAs(f: Format): string {
-  if (f === AD) return '--ad, with 9:16 or an app posted in it';
-  const [app, shape] = f.name.split(' ');
-  return shape ? `${app} with a ${shape} canvas` : f.name;
-}
+// How a zone is asked for: by its printed name, except the ad zone, which is a flag.
+const askedAs = (f: Format) => f === AD ? '--ad, with 9:16 or an app posted in it' : f.name;
 
 export const usage = {
   summary: 'Write the stylesheet that sizes the stage for a platform\'s shape and gives the page its safe-zone text layer',
-  positionals: '<zone>',
+  positionals: '[<zone>]',
   flags: {
-    out: { type: 'string', required: true, value: '<dir>', help: 'Directory for safe-zone.css, usually the piece\'s own runs/<key>' },
+    out: { type: 'string', required: true, value: '<dir>', help: 'Directory for safe-zone.css, usually the piece\'s own runs/<key>; with no zone named, the platform in the brief.json there (or in a folder above it) is the zone' },
     canvas: { type: 'string', value: 'WxH', help: 'The canvas, when it is not the shape\'s usual one (footage\'s own size, say); it must have the zone\'s shape, and it picks the shape for an app posted in several' },
     ad: { type: 'boolean', help: 'The ad zone, for a 9:16 video that runs as an ad: the published ad margins, which keep far more of the top and bottom clear than an ordinary post\'s UI takes' },
   },
@@ -325,22 +360,23 @@ export const usage = {
     'Which zone: the app the brief names; with none named, or several, the shape\'s own name. 9:16, 1:1 and 4:5 are',
     'clear of every app listed for them; 16:9 is YouTube\'s player, so a 16:9 piece for a feed names that feed\'s app.',
     'Add --ad when a 9:16 video is an ad; other shapes have no ad zone, so an ad in them takes the ordinary one.',
-    'Instagram is posted as a Reel or a feed post: name reels for a 9:16 Reel or the feed shape (1:1 or 4:5), or',
-    'pass the piece\'s size with --canvas. Facebook and LinkedIn, posted in several shapes too, take --canvas the',
-    'same way; with a 9:16 canvas, instagram and facebook mean reels and youtube means shorts. The zones:',
+    'Instagram is posted as a Reel or a feed post: name reels for a 9:16 Reel, the feed shape (1:1 or 4:5) or the app',
+    'with its shape (instagram 4:5), or pass the piece\'s size with --canvas. Facebook and LinkedIn, posted in several',
+    'shapes too, are named or take --canvas the same way; with a 9:16 canvas, instagram and facebook mean reels and',
+    'youtube means shorts. The zones:',
     ...FORMATS.map((f) => `- ${askedAs(f)}: ${f.platforms}, ${f.canvas.width}x${f.canvas.height}; keeps text ${f.keeps}.`),
     `Also accepted: ${Object.keys(SPELLINGS).join(', ')}. Every zone gives both sides the larger of its two side margins,`,
     'so text centred in the container sits on the frame\'s centre.',
-    'Link the stylesheet, mark the stage with the zone\'s shape (<div id="stage" data-safe-zone="9:16">), and put',
-    'all text inside <div data-safe>, the text layer on the zone; the stage stays the whole frame for footage,',
-    'backgrounds and full-bleed pictures. The container\'s own rule (its place on the zone, box-sizing and',
+    'Link the stylesheet and put all text inside <div data-safe>, the text layer on the zone; the stage stays the whole',
+    'frame for footage, backgrounds and full-bleed pictures. Render marks the stage with the zone\'s shape',
+    '(data-safe-zone="9:16") when the page does not, and gives a page that links no zone its stage shape\'s own,',
+    'the one this command writes for the shape\'s name. The container\'s own rule (its place on the zone, box-sizing and',
     'container-type) is specific, so a page rule must outrank it to change them. Its other defaults have no',
     'specificity, so a rule the page writes for the same property wins:',
     '- Text inside it starts at --min-text, the shape\'s smallest size, and so do small, sub, sup, h5, h6 and form',
     '  controls, which a browser sets smaller. Set base text sizes on [data-safe] or inside it: one on body or #stage',
-    '  does not reach in, since the container sets its own. Size text in cqw and cqh no smaller than the minimum, as',
-    '  font-size: max(var(--min-text), 6cqw); on elements inside the container they measure the zone, while on the',
-    '  container itself they measure the viewport.',
+    '  does not reach in, since the container sets its own. Render draws any text set smaller than the minimum at the',
+    '  minimum. On elements inside the container cqw and cqh measure the zone; on the container itself, the viewport.',
     '- A word too long for its line breaks; a row of word spans keeps words whole with flex-wrap: wrap.',
     '- A box inside keeps within the container\'s width, so one set wider is narrowed to it, unless it sets max-width:',
     '  none. A ticker\'s track meant to run past the zone sets width: max-content and max-width: none. An svg keeps the',
@@ -354,20 +390,45 @@ export const usage = {
 
 export async function safeZone(argv: string[]): Promise<number> {
   const { values, positionals } = parseUsage('safe-zone', usage, argv);
-  if (positionals.length !== 1 || !values.out) {
+  if (positionals.length > 1 || !values.out) {
+    console.error(usageLine('safe-zone', usage));
+    return 2;
+  }
+  const dir = resolve(values.out);
+  const named = positionals[0];
+  let found: FoundBrief | null = null;
+  try {
+    found = readBrief(dir);
+  } catch (error) {
+    // A zone named here needs no brief, so one that cannot be read stops only a call that relies on it.
+    if (named === undefined) throw error;
+  }
+  const platform = found?.brief.platform;
+  if (named === undefined && platform === undefined) {
+    console.error(`${found ? `${found.path} records no platform` : 'no zone named and no brief.json for this piece'}: name the zone, `
+      + `or record where the piece is posted with npx @veedstudio/openedit-cli brief ${values.out} --platform <zone>`);
     console.error(usageLine('safe-zone', usage));
     return 2;
   }
   const asked = values.canvas ? parseCanvas(values.canvas) : undefined;
-  const format = formatNamed(positionals[0], { canvas: asked, ad: values.ad });
+  let format: Format;
+  try {
+    format = formatNamed(named ?? platform!, { canvas: asked, ad: values.ad });
+  } catch (error) {
+    if (named !== undefined) throw error;
+    throw new Error(`${found!.path} has the platform ${JSON.stringify(platform)}: ${(error as Error).message}`, { cause: error });
+  }
   const canvas = asked ?? format.canvas;
   const zone = zoneFor(format, canvas);
-  const dir = resolve(values.out);
   mkdirSync(dir, { recursive: true });
   const file = join(dir, 'safe-zone.css');
   writeFileSync(file, stylesheet(zone));
   const { width, height } = canvas;
   console.log(`safe-zone: ${format.name} (${format.platforms}), ${width}x${height} → ${file}`);
+  if (named === undefined) console.log(`  zone: the platform ${platform} in ${found!.path}`);
+  else if (platform !== undefined && platform.trim().toLowerCase() !== named.trim().toLowerCase()) {
+    console.log(`  zone: ${named} as named, over the platform ${platform} in ${found!.path}`);
+  }
   console.log(`  text area: ${zone.right - zone.left}x${zone.bottom - zone.top} at ${zone.left},${zone.top}, clear of ${zone.top} px at the top, `
     + `${height - zone.bottom} at the bottom, ${zone.left} on the left and ${width - zone.right} on the right`);
   console.log(`  keeps text ${format.keeps}`);

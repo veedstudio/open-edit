@@ -18,7 +18,9 @@ speaker layer: a layer clip holds its element alone, without the cut-out, so a g
   `text` parts, captions as a `captions` part, the soundtrack as a `mix` part (its ducking, and the
   centring of a track recorded on one channel, are not carried; the command names each). An `edl` source of
   another shape than the canvas is laid full-canvas for the editor to frame, not cut as `apply-edl` cuts it;
-  the command names it, and `reframe` it to the canvas's shape first for the same picture.
+  the command names it, and `reframe` it to the canvas's shape first for the same picture. An `edl` range
+  is laid as filmed: a muted one plays at no volume, a grade is not carried (the command names it), and a
+  range at another speed is refused, so hand off the cut `apply-edl` assembled as a `video` part instead.
 - Name as `layer` parts (a CSS selector each) the page elements a person would move or retime on their
   own. A layer's `at` and `to` are page time, which is project time unless it gives `shift`. The editor
   has no blend modes, so an element drawn with `mix-blend-mode` is left out of every layer, and the

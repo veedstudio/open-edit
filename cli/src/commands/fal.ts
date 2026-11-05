@@ -26,6 +26,9 @@ import { fileDigest, uploadFile } from '../providers/fal-storage.ts';
 import { errorText } from '../proxy.ts';
 import { buyerRunning, jobKey, ledgerDir } from '../providers/queue-ledger.ts';
 import { findRequest, recordRequest, recordsDir, type AssetKind, type AssetRecord } from '../providers/assets.ts';
+import { shellArg } from '../shell-arg.ts';
+import { readTranscriptJson, type TranscriptRead } from '../transcript/read-transcript.ts';
+import { wordCount } from '../transcript/transcript-cache.ts';
 
 export interface FalJobSpec {
   model: string;
@@ -218,6 +221,25 @@ async function downloadOutputs(payload: unknown, outDir: string, http?: Http): P
 
 // --- running ------------------------------------------------------------------------------
 
+const MEDIA = /\.(mp3|wav|m4a|aac|ogg|opus|flac|mp4|mov|webm|mkv)$/i;
+
+/**
+ * The command that turns an answer with timed speech in it (a speech-to-text model's, a voice's asked for its
+ * timestamps) into its audio's transcript, said where the answer lands: otherwise the speech gets bought again.
+ */
+function transcriptHint(payload: unknown, kept: string, files: string[]): string | undefined {
+  let read: TranscriptRead;
+  try {
+    read = readTranscriptJson(payload, kept);
+  } catch {
+    return undefined;
+  }
+  const words = wordCount(read.transcript);
+  if (words === 0) return undefined;
+  const media = files.find((f) => MEDIA.test(f));
+  return `the answer is a transcript (${read.format}, ${words} words): openedit whisper ${shellArg(kept)} ${media ? shellArg(media) : '<its audio>'} writes it`;
+}
+
 /**
  * The cost line for a purchase this run accounts for, whether or not its job then finished: fal took the
  * money when it accepted the request, so a failure afterwards changes nothing about the charge.
@@ -307,6 +329,8 @@ async function runOne(job: FalJobSpec, ctx: FalRunContext, upload: (p: string) =
     if (!written.length && unfetched) throw new Error(unfetched);
     log(`done in ${Math.round((Date.now() - started) / 1000)}s -> ${written.length ? written.join(', ') : `no {url} file object in the response; it is kept in ${kept}`}`);
     if (unfetched) log(unfetched);
+    const transcript = transcriptHint(result.payload, kept, [...written, ...files]);
+    if (transcript) log(transcript);
   } catch (e) {
     outcome.error = errorText(e);
     // A request whose id this job heard is bought, whatever the ledger could record.

@@ -6,6 +6,8 @@ import * as login from "./commands/login.ts";
 import * as token from "./commands/token.ts";
 import * as transcribe from "./commands/transcribe.ts";
 import * as whisper from "./commands/whisper.ts";
+import * as wordsCmd from "./commands/words.ts";
+import * as brief from "./commands/brief.ts";
 import * as generate from "./commands/generate.ts";
 import * as generateSet from "./commands/generate-set.ts";
 import * as samplePresenter from "./commands/sample-presenter.ts";
@@ -21,6 +23,7 @@ import * as frames from "./commands/frames.ts";
 import * as shotsCmd from "./commands/shots.ts";
 import * as facesCmd from "./commands/faces.ts";
 import * as behindCmd from "./commands/behind.ts";
+import * as captionsCmd from "./commands/captions.ts";
 import * as reframeCmd from "./commands/reframe.ts";
 import * as renderCmd from "./commands/render.ts";
 import * as installBrowser from "./commands/install-browser.ts";
@@ -65,6 +68,8 @@ const COMMANDS: Record<string, Command> = {
   },
   transcribe: { usage: transcribe.usage, run: transcribe.transcribe },
   whisper: { usage: whisper.usage, run: whisper.whisper },
+  words: { usage: wordsCmd.usage, run: wordsCmd.words },
+  brief: { usage: brief.usage, run: brief.brief },
   generate: { usage: generate.usage, run: generate.generate },
   "generate-set": { usage: generateSet.usage, run: generateSet.generateSet },
   "sample-presenter": { usage: samplePresenter.usage, run: samplePresenter.samplePresenterCommand },
@@ -80,6 +85,7 @@ const COMMANDS: Record<string, Command> = {
   shots: { usage: shotsCmd.usage, run: shotsCmd.shots },
   faces: { usage: facesCmd.usage, run: facesCmd.faces },
   behind: { usage: behindCmd.usage, run: behindCmd.behind },
+  captions: { usage: captionsCmd.usage, run: captionsCmd.captions },
   reframe: { usage: reframeCmd.usage, run: reframeCmd.reframe },
   render: { usage: renderCmd.usage, run: renderCmd.render },
   "install-browser": { usage: installBrowser.usage, run: installBrowser.installBrowser },

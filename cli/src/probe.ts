@@ -16,6 +16,13 @@ export interface ColourTags {
 export const BT709: ColourTags = Object.freeze({ primaries: 'bt709', transfer: 'bt709', space: 'bt709' });
 export const ASSUMED_COLOUR = BT709;
 
+/**
+ * The matrices of BT.601 (by both its names) and BT.709: the SD and HD pictures the bt709 assumption's primaries and
+ * transfer describe, so a file that declares one of them and nothing else is not contradicted by the assumption, and a
+ * join converts its picture from that matrix (see joinColour in colour.ts).
+ */
+export const SDR_MATRICES: ReadonlySet<string> = new Set(['bt709', 'bt470bg', 'smpte170m']);
+
 export interface ColourReport {
   /** What the output is stamped with. */
   tags: ColourTags;
@@ -143,20 +150,55 @@ export function probeFps(video: string): number {
   return probeFrameRate(video).fps;
 }
 
+const knownColour = (value: unknown): string | undefined =>
+  typeof value === 'string' && value !== '' && value !== 'unknown' && value !== 'reserved' ? value : undefined;
+
 export function colourTagsOf(video: string): ColourReport {
-  const stream = videoStream(video, 'stream=color_primaries,color_transfer,color_space', 'colour tags');
-  const known = (value: unknown): string | undefined =>
-    typeof value === 'string' && value !== '' && value !== 'unknown' && value !== 'reserved' ? value : undefined;
+  return reportOf(videoStream(video, 'stream=color_primaries,color_transfer,color_space', 'colour tags'));
+}
+
+/** A source's colour as its frames come out of the decoder (see decodedColourOf). */
+export interface DecodedColour extends ColourReport {
+  /** Full range; an unlabelled picture is read as limited. */
+  full: boolean;
+  /** The decoded pixel format, e.g. `yuv420p`, `yuvj420p` or `rgb24`. */
+  pixFmt: string;
+}
+
+/**
+ * colourTagsOf, with each axis the file leaves unset read from its first decoded frame: a decoder labels its frames
+ * by its codec's own convention where the container says nothing, as VP8's BT.601 matrix in a WebM. Range likewise.
+ */
+export function decodedColourOf(video: string): DecodedColour {
+  const stream = videoStream(video, 'stream=color_primaries,color_transfer,color_space,color_range,pix_fmt', 'colour tags');
+  let frame: Record<string, unknown> = {};
+  try {
+    const frames = probeJson(video, ['-select_streams', 'v:0', '-read_intervals', '%+#1', '-show_entries',
+      'frame=color_primaries,color_transfer,color_space,color_range'], 'decoded colour').frames as Record<string, unknown>[] | undefined;
+    frame = frames?.[0] ?? {};
+  } catch {
+    // Without a first frame ffprobe can decode, the file's own declaration stands.
+  }
+  const axis = (key: string) => knownColour(stream[key]) ?? knownColour(frame[key]);
+  const pixFmt = String(stream.pix_fmt ?? '');
+  return {
+    ...reportOf({ color_primaries: axis('color_primaries'), color_transfer: axis('color_transfer'), color_space: axis('color_space') }),
+    full: axis('color_range') === 'pc' || pixFmt.startsWith('yuvj'),
+    pixFmt,
+  };
+}
+
+function reportOf(axes: Record<string, unknown>): ColourReport {
   const declared: { -readonly [K in keyof ColourTags]?: string } = {};
-  const primaries = known(stream.color_primaries);
-  const transfer = known(stream.color_transfer);
-  const space = known(stream.color_space);
+  const primaries = knownColour(axes.color_primaries);
+  const transfer = knownColour(axes.color_transfer);
+  const space = knownColour(axes.color_space);
   if (primaries) declared.primaries = primaries;
   if (transfer) declared.transfer = transfer;
   if (space) declared.space = space;
-  // A partially tagged source is not carried through piecemeal: one declared axis with two assumed
-  // ones describes a picture that does not exist.
   if (primaries && transfer && space) return { tags: { primaries, transfer, space }, assumed: false, declared };
+  // A partially tagged source is not carried through piecemeal: one declared axis with two assumed ones describes a
+  // picture that may not exist. What it does declare is kept in `declared`, where a join reads its matrix.
   return { tags: ASSUMED_COLOUR, assumed: true, declared };
 }
 
