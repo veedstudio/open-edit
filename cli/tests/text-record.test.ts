@@ -216,14 +216,18 @@ test('render: a patch keeps the record whole, reading again only the segments it
   const out = join(dir, 'out.mp4');
   const args = [page, '--out', out, '--fps', '30', '--duration', '2', '--workers', '2', '--segment', '0.5'];
   assert.equal(render(args).code, 0);
+  const first = join(`${out}.render`, 'seg-00000.text.json');
+  const kept = statSync(first).mtimeMs;
   writeFileSync(page, caption('Bonjour'));
   const patch = render([...args, '--from', '1', '--to', '1.4']);
   assert.equal(patch.code, 0, patch.err);
-  assert.match(patch.out, /segments: 1 rendered, 3 reused/);
+  // The caption fades in from 0.5 s, so the new words reach every segment but the first.
+  assert.match(patch.err, /also rendering segment\(s\) 1, 3 outside --from\/--to again: the page shows other text or video there than when they were rendered \(segment 1 at [\d.]+ s: text "Bonjour", which it did not show\)/);
+  assert.match(patch.out, /segments: 3 rendered, 1 reused/);
+  assert.equal(statSync(first).mtimeMs, kept, 'the reused segment\'s text is kept, not read again');
   const words = (frame: number) => readRecord(recordPath(out)).samples.find((s) => s.frame === frame)!.texts.map((e) => e.text).filter((t) => t !== 'Title');
   assert.equal(readRecord(recordPath(out)).samples.length, 20);
-  for (const frame of [21, 27, 45, 57]) assert.deepEqual(words(frame), ['Hello there'], `frame ${frame} kept from the first render`);
-  for (const frame of [30, 33, 42]) assert.deepEqual(words(frame), ['Bonjour'], `frame ${frame} read again`);
+  for (const frame of [21, 27, 30, 33, 42, 45, 57]) assert.deepEqual(words(frame), ['Bonjour'], `frame ${frame} read again`);
 
   // A segment cached without its text, as by a version before the record, is rendered again rather than left out.
   rmSync(join(`${out}.render`, 'seg-00000.text.json'));
@@ -232,8 +236,7 @@ test('render: a patch keeps the record whole, reading again only the segments it
   assert.match(again.out, /segments: 2 rendered, 2 reused/);
   assert.match(again.err, /also rendering segment\(s\) 0 \(no text cached\) outside --from\/--to again, to record the text they show/);
   assert.equal(readRecord(recordPath(out)).samples.length, 20);
-  for (const frame of [30, 42, 45, 57]) assert.deepEqual(words(frame), ['Bonjour'], `frame ${frame} after the second patch`);
-  for (const frame of [21, 27]) assert.deepEqual(words(frame), ['Hello there'], `frame ${frame} still from the first render`);
+  for (const frame of [21, 27, 30, 42, 45, 57]) assert.deepEqual(words(frame), ['Bonjour'], `frame ${frame} after the second patch`);
   for (const frame of [0, 12]) assert.deepEqual(words(frame), [], `frame ${frame}, before the caption, read again`);
 });
 

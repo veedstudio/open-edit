@@ -327,17 +327,41 @@ test('veed-project: the hand-off bookmark lays the timeline only in a fresh proj
   }
 });
 
+const GRAPHQL = '/api/v2/graphql';
+const projectAnswer = (project: unknown = { __typename: 'Project', id: ID(1), name: 'Rec', aspect: [W, H], fps: 30 }) => ({ json: { data: { getProjectById: project } } });
+
 test('veed-project: the "Send to Claude" bookmark runs only on the VEED site it was made for, and asks only for files by id', async () => {
   const saved: string[] = [];
   const pulled = await click(PULL_BOOKMARKLET, {
     path: `/edit/${ID(1)}`,
-    api: (method, path) => (path.includes('/timeline/') ? { json: { data: [{ assetId: ID(5) }, { assetId: '../../v1/me' }, { assetId: null }] } } : { json: { data: [] } }),
+    api: (method, path) => (path.startsWith(GRAPHQL) ? projectAnswer() : path.includes('/timeline/') ? { json: { data: [{ assetId: ID(5) }, { assetId: '../../v1/me' }, { assetId: null }] } } : { json: { data: [] } }),
   });
   for (const c of pulled.calls) saved.push(c.path);
   assert.ok(saved.includes(`/api/v1/asset/${ID(5)}`) && !saved.some((p) => p.includes('/me')), saved.join(' '));
   const r = await click(PULL_BOOKMARKLET, { origin: 'https://example.com' });
   assert.deepEqual([r.alerts, r.calls], [['OpenEdit: click this bookmark on https://www.veed.io'], []]);
   assert.throws(() => bookmarkletUrl(BOOKMARKLET, "https://a$'b.io"), /not an address a bookmark can be made for/);
+});
+
+test('veed-project: the "Send to Claude" bookmark reads the project through GraphQL and keeps only what veed-pull reads', async () => {
+  const pulled = await click(PULL_BOOKMARKLET, {
+    path: `/edit/${ID(1)}`,
+    api: (method, path) => (path.startsWith(GRAPHQL) ? projectAnswer() : { json: { data: [] } }),
+  });
+  const read = pulled.calls.find((c) => c.path.startsWith(GRAPHQL));
+  assert.ok(read, pulled.calls.map((c) => c.path).join(' '));
+  assert.equal(read.method, 'POST');
+  assert.deepEqual((read.body as { variables: unknown }).variables, { id: ID(1) });
+  assert.ok(!pulled.calls.some((c) => c.path.replace(/\/$/, '') === `/api/v1/project/${ID(1)}`), 'the project itself is never read over REST');
+});
+
+test('veed-project: the "Send to Claude" bookmark stops when the project cannot be read', async () => {
+  const denied = await click(PULL_BOOKMARKLET, {
+    path: `/edit/${ID(1)}`,
+    api: (method, path) => (path.startsWith(GRAPHQL) ? projectAnswer({ __typename: 'HTTPError', message: 'User does not have access to this resource', statusCode: 403 }) : { json: { data: [] } }),
+  });
+  assert.deepEqual(denied.alerts, ['Send to Claude failed: reading the project failed: 403']);
+  assert.ok(!denied.calls.some((c) => c.path.includes('/timeline/')), 'nothing else is read');
 });
 
 test('veed-pull: a saved project\'s files are fetched only from VEED, saved only under their ids, and a failure fails the pull', async () => {

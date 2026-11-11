@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { atPts, findFaces, otherClipAt, parseShowinfo, shotOf, toDisplay } from '../src/commands/faces.ts';
+import { atPts, cutsOf, findFaces, otherClipAt, parseScenes, parseShowinfo, shotOf, toDisplay } from '../src/commands/faces.ts';
 import { fetchModel, installArgs, PINNED, platformProblem, pythonProblem, stepFailure, verifyModel, type Machine } from '../src/commands/install-mediapipe.ts';
 import { FFMPEG } from '../src/config.ts';
 import { missingDetector, runDetector, type Spawn } from '../src/faces/mediapipe.ts';
@@ -46,15 +46,21 @@ function variableRate(dir: string): string {
 }
 
 test('faces: each frame is read by its pts in its time base, the cuts and the samples apart', () => {
-  const log = '[showinfo@cuts @ 0x1] config in time_base: 1/30000, frame_rate: 30000/1001\n' +
-    '[showinfo@grid @ 0x2] config in time_base: 1/30000, frame_rate: 30000/1001\n' +
+  const log = '[showinfo@grid @ 0x2] config in time_base: 1/30000, frame_rate: 30000/1001\n' +
     '[showinfo@grid @ 0x2] n:   0 pts:  15015 pts_time:0.5005  duration:   1001\n' +
     '[scdet @ 0x3] lavfi.scd.score: 32.031, lavfi.scd.time: 1.034367\n' +
-    '[showinfo@cuts @ 0x1] n:   0 pts:  31031 pts_time:1.034367 duration:   1001\n' +
     '[showinfo@grid @ 0x2] n:   1 pts:  45045 pts_time:1.5015  duration:   1001\n';
   assert.deepEqual(parseShowinfo(log, 'grid'), { num: 1, den: 30000, pts: [15015, 45045] });
-  assert.deepEqual(parseShowinfo(log, 'cuts'), { num: 1, den: 30000, pts: [31031] });
   assert.throws(() => parseShowinfo(log, 'mid'), /no time base for showinfo@mid/);
+  const printed = 'frame:0    pts:0       pts_time:0\nlavfi.scd.mafd=0.000\nlavfi.scd.score=0.000\n' +
+    'frame:1    pts:31031   pts_time:1.034367\nlavfi.scd.mafd=32.100\nlavfi.scd.score=32.031\nlavfi.scd.time=1.034367\n';
+  assert.deepEqual(parseScenes(printed), [{ pts: 0, mafd: 0, cut: false }, { pts: 31031, mafd: 32.1, cut: true }]);
+  // Under the threshold, a frame starts a shot only when it stands out from every frame within four of it: one
+  // frame's jump between two still shots does, a walking selfie's judder every third frame does not.
+  const frames = (mafd: number[]) => mafd.map((m, i) => ({ pts: i, mafd: m, cut: false }));
+  assert.deepEqual(cutsOf(frames([0, 0.2, 0.3, 0.2, 0.1, 6.4, 0.1, 0.2, 0.3, 0.2]), 10), [5]);
+  assert.deepEqual(cutsOf(frames([0, 3.5, 3.7, 9.0, 4.8, 5.6, 9.3, 4.5, 3.8, 8.9]), 10), []);
+  assert.deepEqual(cutsOf(frames([0, 0.2, 0.3, 0.2, 0.1, 6.4, 0.1, 0.2, 0.3, 0.2]), 40), [], 'a fifth of the threshold at least');
   // A cut's own frame is in the new shot however its time prints: the pts are compared, not seconds.
   assert.deepEqual([15015, 31030, 31031, 45045].map((p) => shotOf([31031], p)), [0, 0, 1, 1]);
   assert.equal(atPts(null), 'isnan(prev_pts)');
@@ -102,6 +108,15 @@ test('faces: a variable frame rate is sampled by time, so every shot gets its ow
   // times (67 ms) later. Counting frames instead would put them 25% late, and the last shot would get none.
   assertGrid(clip, [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5], 0.07);
 });
+test('faces: a cut between two similar-looking shots, under scdet\'s threshold, still starts a shot', () => {
+  // The fixture at 40% contrast, as dim and flat as one studio's two cameras: its cuts score 7.4 on scdet's scale.
+  const dim = join(scratchDir('faces-dim'), 'dim.mp4');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-i', FIXTURE, '-vf', 'eq=contrast=0.4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', dim]);
+  const scdet = execFileSync(FFMPEG, ['-v', 'error', '-i', dim, '-vf', `scdet=threshold=${OPTIONS.threshold},metadata=mode=print:file=-`, '-f', 'null', '-'],
+    { encoding: 'utf8', maxBuffer: 1 << 26 });
+  assert.equal(parseScenes(scdet).filter((f) => f.cut).length, 0, 'scdet alone finds no cut');
+  assert.deepEqual(findFaces(dim, OPTIONS, oneFace()).shots.map((s) => s.start), [0, 2.469133, 8.174833]);
+});
 test('faces: a shot the grid samples less than four times gets more, spread across it', () => {
   const clip = findFaces(FIXTURE, { ...OPTIONS, every: 4 }, oneFace());
   // Grid points at 2, 6 and 10 s: one or none in each shot, so each gets its first frame and one in each quarter.
@@ -138,6 +153,73 @@ test('faces.js: text already clear stays; text on a face moves the least distanc
   // A narrow label on the face's left edge steps left rather than down past the whole face.
   assert.deepEqual(json(clear({ x: 190, y: 100, w: 60, h: 30 }, [face], frame)), { x: 159, y: 100, clear: true, moved: true });
   assert.deepEqual(json(clear({ x: 0, y: 0, w: 640, h: 300 }, [face], frame)), { x: 0, y: 0, clear: false, moved: false });
+});
+
+test('faces.js: elements shown in turn share one move, the least that clears each over its own boxes, and split only where no one move clears them all', () => {
+  const { clear, hold } = facesApi();
+  const frame = { x: 0, y: 0, w: 640, h: 360 };
+  // Cues bottom-aligned at 320, one line 40 px tall and two lines 80; a chin down to 250 is on screen only while
+  // the two-line cue is up.
+  const one = (w: number) => ({ x: (640 - w) / 2, y: 280, w, h: 40 }), two = (w: number) => ({ x: (640 - w) / 2, y: 240, w, h: 80 });
+  const chin = { x: 200, y: 60, w: 240, h: 190 };
+  const cues = [{ rect: one(300), avoid: [] }, { rect: two(400), avoid: [chin] }, { rect: one(200), avoid: [chin] }];
+  assert.deepEqual(cues.map((it) => clear(it.rect, it.avoid, frame).y + it.rect.h), [320, 331, 320], 'placed one by one, only the two-line cue moves');
+  assert.deepEqual(json(hold(cues, frame)), [{ from: 0, to: 3, dx: 0, dy: 11, clear: true, moved: true, stuck: [] }], 'together they all go down to 331');
+  assert.deepEqual(json(hold(cues.slice(0, 1), frame)), [{ from: 0, to: 1, dx: 0, dy: 0, clear: true, moved: false, stuck: [] }]);
+  assert.deepEqual(json(hold([], frame)), []);
+
+  // The first cues have to go up over a face low in the frame, the next has to stay below one high up: no one move
+  // does both, so they take two, the first as long as it can be.
+  const low = { x: 0, y: 200, w: 640, h: 160 }, high = { x: 0, y: 0, w: 640, h: 250 }, everywhere = { x: 0, y: 0, w: 640, h: 360 };
+  assert.deepEqual(json(hold([{ rect: one(300), avoid: [low] }, { rect: one(300), avoid: [low] }, { rect: one(300), avoid: [high] }, { rect: one(200), avoid: [] }], frame)), [
+    { from: 0, to: 2, dx: 0, dy: -121, clear: true, moved: true, stuck: [] },
+    { from: 2, to: 4, dx: 0, dy: 0, clear: true, moved: false, stuck: [] },
+  ]);
+  // A cue no move clears overlaps wherever it sits, so it keeps the move of the cues around it rather than split them.
+  assert.deepEqual(json(hold([{ rect: one(300), avoid: [] }, { rect: one(300), avoid: [everywhere] }, { rect: one(300), avoid: [low] }], frame)), [
+    { from: 0, to: 3, dx: 0, dy: -121, clear: false, moved: true, stuck: [1] },
+  ]);
+  assert.deepEqual(json(hold([{ rect: one(300), avoid: [everywhere] }], frame)), [{ from: 0, to: 1, dx: 0, dy: 0, clear: false, moved: false, stuck: [0] }]);
+  // Before the first cue that holds the others, a stuck one joins the first stretch; after a split, the stretch before it.
+  assert.deepEqual(json(hold([{ rect: one(300), avoid: [everywhere] }, { rect: one(300), avoid: [low] }, { rect: one(300), avoid: [everywhere] }, { rect: one(300), avoid: [high] }], frame)), [
+    { from: 0, to: 3, dx: 0, dy: -121, clear: false, moved: true, stuck: [0, 2] },
+    { from: 3, to: 4, dx: 0, dy: 0, clear: true, moved: false, stuck: [] },
+  ]);
+});
+
+test('faces.js: from any start, every cue of a stretch is clear inside the frame unless no move clears it, and no stretch could take one cue more', () => {
+  const { hold } = facesApi();
+  const frame = { x: 0, y: 0, w: 640, h: 360 };
+  let seed = 11;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+  let split = 0, stuck = 0;
+  for (let round = 0; round < 150; round++) {
+    const items = Array.from({ length: 2 + Math.floor(rand() * 5) }, () => {
+      const w = 200 + rand() * 300, h = 30 + rand() * 50;
+      return { rect: { x: (640 - w) / 2, y: 330 - h, w, h }, avoid: Array.from({ length: Math.floor(rand() * 3) }, () => ({ x: rand() * 480, y: rand() * 300, w: 80 + rand() * 240, h: 60 + rand() * 160 })) };
+    });
+    const held = hold(items, frame);
+    assert.equal(held[0].from, 0);
+    assert.equal(held.at(-1)!.to, items.length);
+    held.slice(1).forEach((s, k) => assert.equal(s.from, held[k].to, `round ${round}: each stretch starts where the last ended`));
+    for (const s of held) {
+      items.slice(s.from, s.to).forEach((it, n) => {
+        const alone = hold([it], frame)[0];
+        assert.equal(s.stuck.includes(s.from + n), !alone.clear, `round ${round}: stuck is exactly the items no move clears`);
+        if (!alone.clear) return;
+        const r = { ...it.rect, x: it.rect.x + s.dx, y: it.rect.y + s.dy };
+        assert.ok(r.x >= -1e-6 && r.y >= -1e-6 && r.x + r.w <= 640 + 1e-6 && r.y + r.h <= 360 + 1e-6, `round ${round} left the frame`);
+        for (const f of it.avoid) assert.ok(!overlaps(r, f), `round ${round}: ${JSON.stringify(r)} overlaps ${JSON.stringify(f)}`);
+      });
+      stuck += s.stuck.length;
+    }
+    // Each stretch but the last ends where taking the next one's first cue would leave no move that clears them all.
+    for (let k = 0; k + 1 < held.length; k++) {
+      assert.ok(hold(items.slice(held[k].from, held[k + 1].from + 1), frame).length > 1, `round ${round}: stretch ${k} could take one cue more`);
+    }
+    if (held.length > 1) split++;
+  }
+  assert.ok(split > 20 && stuck > 3, `${split} of 150 runs split and ${stuck} cues were stuck: the rounds should cover both`);
 });
 
 test('faces.js: from any starting place, a placed caption overlaps no face and stays in the frame', () => {
@@ -521,7 +603,7 @@ ${scripts}</head><body><div id="stage">${body}</div></body></html>`);
     const full = await place(page('full.html', 'width:640px;height:360px', '<div class="cap" id="c"></div>', '.cap{left:0;top:0;width:640px;height:300px}'), null);
     assert.deepEqual(full.res, { x: 0, y: 0, clear: false, moved: false });
     assert.deepEqual(full.rect, { x: 0, y: 0, w: 640, h: 300 });
-    assert.match(warnings.join('\n'), /no place inside the stage keeps this element off every face and graphic from 0 to 2 s of the clip, so it stays where the page put it/);
+    assert.match(warnings.join('\n'), /no place inside the stage keeps this element off every face and graphic from 0.00 to 2.00 s of the clip, so it stays where the page put it/);
 
     // Inside a [data-safe] container the caption keeps inside it: up past the face, the nearer side, would leave the
     // container, so it goes down. The zone a safe-zone stylesheet marks on the stage with its insets bounds it the same.
@@ -548,6 +630,134 @@ ${scripts}</head><body><div id="stage">${body}</div></body></html>`);
     assert.match((await place(page('other.html', 'width:640px;height:360px', '<img id="v" src="another.mp4"><div class="cap" id="c"></div>'), 'v')).error ?? '', /no face data for .*another\.mp4/);
     assert.match((await place(page('square.html', 'width:400px;height:400px', '<div class="cap" id="c"></div>'), null)).error ?? '', /does not fill it at its own shape: pass the element it is drawn in as \{video\}/);
     assert.match((await place(page('percent.html', 'width:640px;height:360px', '<img id="v" src="50%.mp4"><div class="cap" id="c"></div>'), 'v')).error ?? '', /no face data for .*50%\.mp4/);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test('faces.js: in Chrome, a placer holds one place through each shot, takes the next shot\'s at a cut, and takes the fewest places a shot needs', { skip: noChrome ?? false }, async () => {
+  const dir = scratchDir('faces-placer');
+  const at = (sec: number, faces: Rect[]) => ({ sec, faces });
+  const high = { x: 240, y: 40, w: 160, h: 180 }, chin = { x: 240, y: 40, w: 160, h: 230 };
+  const top = { x: 0, y: 0, w: 640, h: 250 }, bottom = { x: 0, y: 200, w: 640, h: 160 }, mid = { x: 0, y: 200, w: 640, h: 110 }, everywhere = { x: 0, y: 0, w: 640, h: 360 };
+  const first = { x: 200, y: 280, w: 240, h: 34 };
+  const clip: FacesClip = {
+    video: join(dir, 'clip.mp4'), name: 'clip.mp4', width: 640, height: 360, fps: 30, frameRate: '30', durationSec: 28,
+    model: 'blaze_face_full_range', every: 0.5, threshold: 10, confidence: 0.5, textMargin: 0,
+    // A lower third over where the elements sit, burned in for a moment of the short shot from 22 s.
+    graphics: [{ x: 0, y: 290, w: 640, h: 60, from: 22.1, to: 22.4 }],
+    shots: [
+      // Starts a tenth of a second in, with a face low on its first frame, seen only by the element up before the shot
+      // starts. The chin comes down to 270 only while the two-line element is up.
+      { start: 0.1, end: 4, samples: [at(0.1, [first]), ...[0.15, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map((s) => at(s, [s === 2 || s === 2.5 ? chin : high]))] },
+      // A face across the bottom for the first frames, under the element up from the shot before; then one across the
+      // top, then across the bottom again: three places.
+      { start: 4, end: 12, samples: [at(4, [bottom]), at(4.1, [bottom]), at(4.5, [top]), at(5.5, [top]), at(6.5, [top]), at(8.5, [bottom]), at(9.5, [bottom]), at(10.5, [bottom]), at(11.5, [bottom])] },
+      // Bottom, top, bottom: three. It ends half a second before the next starts.
+      { start: 12, end: 17.5, samples: [at(12.5, [bottom]), at(13.5, []), at(14.5, [top]), at(15.5, []), at(16.5, [bottom]), at(17.2, [])] },
+      // The middle element has no place at all.
+      { start: 18, end: 22, samples: [at(18.5, [bottom]), at(19, [bottom]), at(19.5, [everywhere]), at(20, [bottom]), at(20.5, [bottom])] },
+      { start: 22, end: 22.5, samples: [at(22.25, [])] },
+      { start: 22.5, end: 23, samples: [at(22.75, [bottom])] },
+      // Ends a frame after the next shot starts, as a speed-changed range of a cut can.
+      { start: 23, end: 24.04, samples: [at(23.5, [bottom])] },
+      // The last shot ends at 28, and the last element is up on past it, on its last picture.
+      { start: 24, end: 28, samples: [at(24.5, []), at(25.5, []), at(26.5, []), at(27.5, [mid])] },
+    ],
+  };
+  writeFileSync(join(dir, 'faces.js'), facesScript(clip));
+  const named: [string, number, number][] = [['before', 0, 0.15], ['e0', 0.2, 1.5], ['two', 1.6, 2.9], ['across', 3.0, 4.02], ['e3', 5.2, 6.0], ['e4', 9.0, 10.0],
+    ['e5', 10.2, 11.5], ['onCut', 11.6, 12.0], ['e7', 12.2, 13.0], ['e8', 14.0, 15.0], ['e9', 16.0, 17.0], ['gap', 17.6, 17.9], ['a', 18.2, 18.8], ['stuck', 19.3, 19.7],
+    ['c', 20.2, 20.8], ['three', 21.8, 23.2], ['sliver', 23.3, 25.0], ['end', 27.0, 28.4]];
+  const n = Object.fromEntries(named.map(([name], i) => [name, i])) as Record<string, number>;
+  // Elements shown one at a time, bottom-aligned at 340 in a centred box, the way captions.js shows its cues.
+  writeFileSync(join(dir, 'placer.html'), `<!doctype html><html><head><style>html,body{margin:0}
+#stage{position:relative;width:640px;height:360px}#box{position:absolute;left:0;right:0;bottom:20px;display:flex;justify-content:center;align-items:flex-end}</style>
+<script src="faces.js"></script></head><body><div id="stage"><div id="box"></div></div><script>
+const spans = ${JSON.stringify(named.map(([, from, to]) => ({ from, to })))};
+const box = document.getElementById('box');
+const make = (i) => { const d = document.createElement('div'); d.style.width = (i === ${n.two} ? 300 : 200) + 'px'; d.style.height = (i === ${n.two} ? 80 : 40) + 'px'; return d; };
+const placer = openeditFaces.placer(spans, (i) => {
+  const d = make(i);
+  box.appendChild(d);
+  const r = d.getBoundingClientRect();
+  box.removeChild(d);
+  return { x: r.left, y: r.top, w: r.width, h: r.height };
+}, { what: 'the test cues' });
+let el = null, shown = -1;
+window.show = (i, sec) => {
+  if (i !== shown) { box.textContent = ''; el = make(i); box.appendChild(el); shown = i; }
+  const res = placer.place(el, i, sec);
+  return { part: placer.part(i, sec), bottom: el.getBoundingClientRect().bottom, clear: res.clear };
+};
+window.refused = (f) => { try { f(); return null; } catch (e) { return e.message; } };
+</script></body></html>`);
+  const { chromium } = await import('playwright-core');
+  const server = await startPageServer({ roots: [dir] });
+  const browser = await chromium.launch({ executablePath: installedChrome(platform!), args: CHROME_FLAGS });
+  try {
+    const p = await browser.newPage();
+    const warnings: string[] = [];
+    p.on('console', (m) => { if (m.type() === 'warning') warnings.push(m.text()); });
+    await p.goto(server.urlFor(join(dir, 'placer.html')));
+    type Shown = { part: unknown; bottom: number; clear: boolean };
+    const show = async (name: string, sec: number) => await p.evaluate(`show(${n[name]}, ${sec})`) as Shown;
+    const bottoms = async (list: [string, number][]) => { const out = []; for (const [name, sec] of list) out.push((await show(name, sec)).bottom); return out; };
+    // Placed on its own, the two-line element would come down past the chin (to 351), and the one up before the shot
+    // starts past the shot's first face (to 355); the shot holds the second for all.
+    assert.deepEqual(await bottoms([['before', 0.05], ['e0', 1], ['two', 2], ['across', 3.5]]), [355, 355, 355, 355]);
+    // Up across the cut at 4 s, the same element takes the next shot's place there, and its part changes there. That
+    // shot's first frame is drawn with it up, over a face across the bottom, so it goes up over that.
+    const [before, after] = [await show('across', 3.9), await show('across', 4.01)];
+    assert.deepEqual([after.bottom, after.clear], [199, true]);
+    assert.notDeepEqual(after.part, before.part);
+    // The face across the bottom from 8.5 s sends the rest of the shot up over it, from the element that first meets it,
+    // one that ends on the next cut included; the next shot needs three places, and keeps the last through its gap.
+    assert.deepEqual(await bottoms([['e3', 5.5], ['e4', 9.5], ['e5', 11], ['onCut', 11.99], ['e7', 12.5], ['e8', 14.5], ['e9', 16.5], ['gap', 17.7]]),
+      [340, 199, 199, 199, 199, 340, 199, 199]);
+    // An element no place clears keeps the move of those around it, and says so once however often it is placed.
+    assert.deepEqual(await bottoms([['a', 18.5], ['stuck', 19.4], ['stuck', 19.6], ['c', 20.5]]), [199, 199, 199, 199]);
+    assert.equal((await show('stuck', 19.5)).clear, false);
+    // Up across three cuts: one place in each shot, a part of its own in each; in the second, a lower third keeps it up.
+    const across = [await show('three', 21.9), await show('three', 22.2), await show('three', 22.7), await show('three', 23.1)];
+    assert.deepEqual(across.map((s) => s.bottom), [199, 289, 199, 199]);
+    assert.equal(new Set(across.map((s) => JSON.stringify(s.part))).size, 4);
+    // The frame where the shot before ends a frame after the next starts is the next shot's, with no place of its own.
+    const sliver = [await show('sliver', 23.5), await show('sliver', 24.02), await show('sliver', 24.5)];
+    assert.deepEqual(sliver.map((s) => s.bottom), [199, 351, 351]);
+    assert.deepEqual(sliver[1].part, sliver[2].part);
+    // Past the clip's last second, the picture held is the last shot's, and so is the place.
+    const end = [await show('end', 27.5), await show('end', 28.2)];
+    assert.deepEqual([end[0].bottom, end[1].bottom, end[1].clear], [351, 351, true]);
+    assert.deepEqual(end[1].part, end[0].part);
+    assert.deepEqual(warnings, [
+      'openeditFaces: no one place inside the stage keeps the test cues off every face and graphic through the shot from 4.00 to 12.00 s of the clip, so the test cues take 3 places in it, moving at 5.20, 9.00 s',
+      'openeditFaces: no one place inside the stage keeps the test cues off every face and graphic through the shot from 12.00 to 18.00 s of the clip, so the test cues take 3 places in it, moving at 14.00, 16.00 s',
+      'openeditFaces.place: no place inside the stage keeps this element off every face and graphic from 19.30 to 19.70 s of the clip, so it takes the place held from 18.20 to 22.00 s of the clip, and overlaps there: make it smaller or shorten its span',
+    ]);
+    // The page lifts the box 100 px: placed again by a caller that never prepares, the shot is measured again, and its
+    // elements go down past the chin and the first face from there.
+    await p.evaluate(`document.getElementById('box').style.bottom = '120px'`);
+    assert.deepEqual(await bottoms([['e0', 1], ['two', 2]]), [355, 355]);
+    // What the placer is given is checked where it is given, and what measure gives where it gives it.
+    const refusals = await p.evaluate(`[
+      refused(() => openeditFaces.placer('x', () => ({}))),
+      refused(() => openeditFaces.placer([{ from: 2, to: 1 }], () => ({}))),
+      refused(() => openeditFaces.placer([{ from: 0, to: 2 }, { from: 1, to: 3 }], () => ({}))),
+      refused(() => openeditFaces.placer([{ from: 0, to: 1 }], 'measure')),
+      refused(() => placer.part(${named.length}, 1)),
+      refused(() => placer.part(1.5, 1)),
+      refused(() => openeditFaces.placer([{ from: 0, to: 1 }], () => ({ x: 0, y: 0 })).prepare(0)),
+      refused(() => openeditFaces.placer([{ from: 0, to: 1 }], () => ({}), { say: 'console' })),
+    ]`) as string[];
+    assert.deepEqual(refusals.map((m) => m.replace(/: .*/, '')), Array(8).fill('openeditFaces.placer'));
+    assert.match(refusals[7], /say must be a function/);
+    assert.match(refusals[2], /in time order and not overlapping/);
+    assert.match(refusals[3], /measure must be a function/);
+    assert.match(refusals[4], new RegExp(`${named.length} is not the index of one of the ${named.length} elements`));
+    assert.match(refusals[5], /1\.5 is not the index/);
+    assert.match(refusals[6], /measure\(0\) gave \{"x":0,"y":0\}, not a box \{x, y, w, h\} in viewport pixels/);
   } finally {
     await browser.close();
     await server.close();

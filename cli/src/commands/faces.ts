@@ -2,9 +2,9 @@
 //
 //   openedit faces <video> [--out <dir>] [--every 0.25] [--threshold 10] [--confidence 0.5] [--margin 0.25]
 //
-// One decode finds the cuts (ffmpeg's scdet) and samples a frame every --every seconds, each labelled by
-// its presentation time, so footage with a variable frame rate (most phone video) is sampled in time
-// rather than by frame count. A shot that holds fewer than MIN_SAMPLES of them gets more, spread across
+// One decode finds the cuts (from ffmpeg scdet's difference between each frame and the one before) and samples a
+// frame every --every seconds, each labelled by its presentation time, so footage with a variable frame rate (most
+// phone video) is sampled in time rather than by frame count. A shot that holds fewer than MIN_SAMPLES of them gets more, spread across
 // it, from one more decode on the same timeline, never a seek, whose clock a container's start time would
 // move: the more samples a shot has, the less one missed detection decides about it. MediaPipe's
 // full-range BlazeFace finds the faces on each sample. The same decode hands the grid's frames, small and grey,
@@ -34,13 +34,27 @@ const DETECT_SIDE = 640;
 // against 3.6 s at one a second.
 const MIN_SAMPLES = 4;
 
+// A cut between two shots of one set changes the picture less than scdet's threshold asks (6 to 9 between a podcast's
+// close-ups), but all in one frame, where motion, a fade or a phone's judder spread theirs over several (a graphic cut in
+// over a still shot does not, and reads as a cut). On 16 clips with 33 cuts labelled by eye and a made flash, fade and whip
+// pan, no other frame changing 1 or more stood over 2.2 times above every frame within four of it, the weakest such cut 6.9.
+const SPIKE_RATIO = 3;
+const SPIKE_SPAN = 4;
+// Of the threshold, so --threshold still sets how readily a change starts a shot.
+const SPIKE_FLOOR = 0.2;
+
 export const usage = {
   summary: 'Find the faces in each shot of a clip and write their boxes, for laying text out around them and for reframe',
   positionals: '<video>',
   flags: {
     out: { type: 'string', value: '<dir>', help: 'Where faces.json and faces.js are written (default runs/<key>/faces-<hash>/ of the workspace, a folder of the clip\'s own by its real path)' },
     every: { type: 'string', value: '<sec>', help: 'Seconds between sampled frames (default 0.25); a shot with fewer than 4 of them also gets its first frame and the first at or past the middle of each quarter of it' },
-    threshold: { type: 'string', value: '<score>', help: 'Scene-change score that starts a new shot, above 0 and at most 100 on ffmpeg scdet\'s scale (default 10)' },
+    threshold: {
+      type: 'string', value: '<score>',
+      help: 'Scene-change score that starts a new shot, above 0 and at most 100 on ffmpeg scdet\'s scale (default 10); a frame that '
+        + `changes ${SPIKE_FLOOR * 100}% of it or more, and ${SPIKE_RATIO} times as much as any frame within ${SPIKE_SPAN} of it, `
+        + 'starts one too, as a cut between two shots of one set does',
+    },
     confidence: { type: 'string', value: '<0-1>', help: 'Lowest detection score kept (default 0.5)' },
     margin: { type: 'string', value: '<fraction>', help: 'Kept clear of text around each face box on every side, as a fraction of its size (default 0.25)' },
     json: { type: 'boolean', help: 'Print faces.json instead of the summary' },
@@ -53,7 +67,17 @@ export const usage = {
     'playing the clip draws it, else on the stage (options: {video, within, clip}; {video} picks one when several',
     'play it). It keeps the element off graphics burned into the footage too (a lower third, a score bar,',
     'subtitles, a logo: sharp edges that hold still while the rest of the picture moves, or that come and go in a',
-    'still shot) for the seconds each is up. Needs MediaPipe: install-mediapipe.',
+    'still shot) for the seconds each is up. openeditFaces.placer(spans, measure, options) is for elements shown one',
+    'after another in one spot, such as caption cues: spans are their {from, to} seconds of the clip, in time order and',
+    'not overlapping, and measure(i) lays element i out alone, unmoved, and gives its box {x, y, w, h} in viewport pixels',
+    '(a DOMRect will do). It returns {prepare(i), place(el, i, sec), part(i, sec), check(el, i, sec)}. Run prepare(i)',
+    'while none of the elements is on screen, before showing element i: measure is called then, for elements not on',
+    'screen; a page that never calls prepare still works, with place() measuring each time. Unlike place(el, from, to),',
+    "which clears one element over its own span, its place takes an element's index and one second of the clip and puts",
+    'it where the elements are then: one place through each shot, moving only at a cut, or where no single place stays',
+    'clear for every element up in the shot, however briefly. Place an element again whenever part(i, sec) changes, as',
+    'it does at each cut the element is up across; check(el, i, sec), called as an element is drawn, says when it is',
+    'drawn larger than it was measured and meets a face. Needs MediaPipe: install-mediapipe.',
   ].join('\n'),
 } satisfies Usage;
 
@@ -66,6 +90,36 @@ export function parseShowinfo(log: string, name: string): { num: number; den: nu
   if (!base) throw new Error(`ffmpeg logged no time base for showinfo@${name}`);
   const pts = [...log.matchAll(new RegExp(`\\[showinfo@${name} @[^\\]]*\\] n:\\s*\\d+ pts:\\s*(-?\\d+)`, 'g'))].map((m) => Number(m[1]));
   return { num: Number(base[1]), den: Number(base[2]), pts };
+}
+
+/** One frame after scdet: its pts, its difference from the frame before (0-100), and whether scdet's own score reached the threshold. */
+export interface SceneFrame { pts: number; mafd: number; cut: boolean }
+
+/** What ffmpeg's metadata filter printed after scdet: `frame:N pts:P pts_time:T`, then that frame's keys. */
+export function parseScenes(text: string): SceneFrame[] {
+  const frames: SceneFrame[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const head = /^frame:\d+\s+pts:(\S+)/.exec(line);
+    // A frame without a pts (NOPTS) still holds its place among its neighbours.
+    if (head) frames.push({ pts: /^-?\d+$/.test(head[1]) ? Number(head[1]) : NaN, mafd: 0, cut: false });
+    else if (frames.length && line.startsWith('lavfi.scd.mafd=')) frames.at(-1)!.mafd = Number(line.slice(15));
+    else if (frames.length && line.startsWith('lavfi.scd.time=')) frames.at(-1)!.cut = true;
+  }
+  return frames;
+}
+
+/**
+ * The pts of each frame that opens a shot: scdet's own cuts, and each frame that changes SPIKE_FLOOR of the threshold or
+ * more and SPIKE_RATIO times as much as any other within SPIKE_SPAN frames of it. The first frame's difference is left out
+ * of every comparison, since it has no frame before it.
+ */
+export function cutsOf(frames: SceneFrame[], threshold: number): number[] {
+  return frames.flatMap((f, i) => {
+    if (i === 0 || !Number.isFinite(f.pts)) return [];
+    if (f.cut) return [f.pts];
+    const around = frames.slice(Math.max(1, i - SPIKE_SPAN), i + SPIKE_SPAN + 1).filter((g) => g !== f).map((g) => g.mafd);
+    return f.mafd >= SPIKE_FLOOR * threshold && f.mafd >= SPIKE_RATIO * Math.max(0, ...around) ? [f.pts] : [];
+  });
 }
 
 /**
@@ -98,10 +152,11 @@ export function toDisplay(faces: [number, number, number, number, number?][], sc
 
 const micro = (s: number) => Math.round(s * 1e6) / 1e6;
 
-/** ffmpeg on `video` with these arguments, returning its log, or an error saying what it could not do and why. */
-function ffmpegFor(spawn: Spawn, video: string): (args: string[], what: string) => string {
+/** ffmpeg on `video` with these arguments, returning its log and what it printed, or an error saying what it could not do and why. */
+function ffmpegFor(spawn: Spawn, video: string): (args: string[], what: string) => { log: string; out: string } {
   return (args, what) => {
-    const r = spawn(FFMPEG, ['-nostdin', '-hide_banner', '-nostats', ...args], { encoding: 'utf8', maxBuffer: 1 << 26 });
+    // Room for hours of footage at the three lines a frame the scene decode prints.
+    const r = spawn(FFMPEG, ['-nostdin', '-hide_banner', '-nostats', ...args], { encoding: 'utf8', maxBuffer: 1 << 28 });
     if (r.error || r.status !== 0) {
       const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
       const why = code === 'ENOENT' ? `${FFMPEG} was not found` : code === 'ENOBUFS' ? 'its log outgrew the buffer'
@@ -109,7 +164,7 @@ function ffmpegFor(spawn: Spawn, video: string): (args: string[], what: string) 
       const tail = String(r.stderr ?? '').trim().split('\n').slice(-3).join(' ');
       throw new Error(`ffmpeg could not ${what} ${video} (${why})${tail ? `: ${tail}` : ''}`);
     }
-    return String(r.stderr);
+    return { log: String(r.stderr), out: String(r.stdout ?? '') };
   };
 }
 
@@ -143,7 +198,7 @@ export function findGraphics(videoArg: string, every = 0.25, spawn: Spawn = spaw
   try {
     const raw = join(work, 'grey.raw');
     const log = ffmpegFor(spawn, video)(['-i', video, '-an', '-sn', '-dn', '-vf', `${gridSelect(every)},showinfo@grid,${greyFilter(size)}`,
-      '-fps_mode', 'passthrough', '-f', 'rawvideo', raw], 'read');
+      '-fps_mode', 'passthrough', '-f', 'rawvideo', raw], 'read').log;
     const graphics = graphicsFrom(raw, parseShowinfo(log, 'grid'), size, every, { width, height }, span.end);
     return { video, width, height, durationSec: span.end, every, graphics };
   } finally {
@@ -180,8 +235,8 @@ export function findFaces(videoArg: string, o: FacesOptions, deps: FacesDeps = {
     const grey = workSize(width, height);
     const raw = join(work, 'grey.raw');
     // The grid's frames go both ways from one split, so the grey ones are the very frames findGraphics reads.
-    const log = ffmpeg(['-i', video, '-an', '-sn', '-dn', '-filter_complex',
-      `[0:v]split=2[a][b];[a]scdet=threshold=${o.threshold},metadata=mode=select:key=lavfi.scd.time,showinfo@cuts,nullsink;` +
+    const { log, out } = ffmpeg(['-i', video, '-an', '-sn', '-dn', '-filter_complex',
+      `[0:v]split=2[a][b];[a]scdet=threshold=${o.threshold},metadata=mode=print:file=-,nullsink;` +
         `[b]${gridSelect(o.every)},showinfo@grid,split=2[c][g];[c]${scale}[s];[g]${greyFilter(grey)}[r]`,
       '-map', '[s]', '-fps_mode', 'passthrough', '-start_number', '0', join(work, 'c%07d.png'),
       '-map', '[r]', '-fps_mode', 'passthrough', '-f', 'rawvideo', raw], 'read');
@@ -191,7 +246,7 @@ export function findFaces(videoArg: string, o: FacesOptions, deps: FacesDeps = {
     const { num, den } = grid;
     const sec = (pts: number) => (pts * num) / den;
     grid.pts.forEach((p, i) => stills.set(name('c', i), p));
-    const cuts = [...new Set(parseShowinfo(log, 'cuts').pts)].sort((x, y) => x - y);
+    const cuts = [...new Set(cutsOf(parseScenes(out), o.threshold))].sort((x, y) => x - y);
     // Shot k runs from bounds[k] to bounds[k + 1]: the cuts between, the video's last moment at the end, and 0 at
     // the start even when the picture starts later, since a player shows its first frame until then.
     const bounds = [0, ...cuts.map(sec), span.end];
@@ -208,7 +263,7 @@ export function findFaces(videoArg: string, o: FacesOptions, deps: FacesDeps = {
       const chunk = thin.slice(i, i + per);
       const select = `select='${chunk.flatMap((k) => targets(k).map(atPts)).join('+')}'`;
       const shown = parseShowinfo(ffmpeg(['-i', video, '-an', '-sn', '-dn', '-vf', `${select},showinfo@more,${scale}`,
-        '-fps_mode', 'passthrough', '-start_number', String(next), join(work, 'm%07d.png')], 'sample the short shots of'), 'more');
+        '-fps_mode', 'passthrough', '-start_number', String(next), join(work, 'm%07d.png')], 'sample the short shots of').log, 'more');
       const have = new Set(stills.values());
       shown.pts.forEach((p, j) => {
         const file = name('m', next + j);

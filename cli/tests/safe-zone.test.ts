@@ -70,6 +70,26 @@ test('safe-zone: each zone on its own canvas, under the name that asks for it', 
   for (const f of FORMATS) assert.equal(zoneFor(f, f.canvas).minText, 49, `${f.name} minimum on its own canvas`);
 });
 
+test('safe-zone: captions, cards and the hook step up from the floor in that order, on every zone and canvas', () => {
+  const sizes = (z: { minText: number; captionText: number; cardText: number; hookText: number }) => [z.minText, z.captionText, z.cardText, z.hookText];
+  // Full screen and a feed shown at a phone's full width read alike; a 16:9 feed's picture is shown smaller, so its
+  // sizes are three steps up.
+  for (const f of FORMATS) {
+    const feed = ['linkedin 16:9', 'x', 'facebook 16:9'].includes(f.name);
+    assert.deepEqual(sizes(zoneFor(f, f.canvas)), feed ? [49, 122, 147, 177] : [49, 71, 86, 104], f.name);
+  }
+  // The order holds by construction down to the smallest canvas of the shape, where rounding up could otherwise tie
+  // two sizes.
+  for (const f of FORMATS) {
+    for (let k = 1; k <= 480; k++) {
+      const canvas = { width: f.aspect.width * k, height: f.aspect.height * k };
+      const [min, caption, card, hook] = sizes(zoneFor(f, canvas));
+      assert.ok(min < caption && caption < card && card < hook, `${f.name} on ${canvas.width}x${canvas.height}: ${[min, caption, card, hook]}`);
+    }
+  }
+  assert.deepEqual(sizes(zoneFor(formatNamed('9:16'), { width: 720, height: 1280 })), [33, 48, 58, 70]);
+});
+
 test('safe-zone: a shape\'s default lies inside each of its apps\' zones, and the ad zone is the same whichever app names it', () => {
   for (const shape of ['9:16', '1:1', '4:5']) {
     const d = zoneFor(formatNamed(shape), formatNamed(shape).canvas);
@@ -136,10 +156,12 @@ test('safe-zone: the command writes the stylesheet for a platform, and refuses a
   assert.match(css, /^\/\* openedit safe-zone tiktok: TikTok, on a 1080x1920 canvas\./);
   assert.match(css, /\[data-safe-zone="9:16"\] \{\n {2}position: relative;\n {2}width: 1080px;\n {2}height: 1920px;/);
   assert.match(css, /\[data-safe-zone="9:16"\] \[data-safe\] \{\n {2}position: absolute;\n {2}left: 183px;\n {2}top: 240px;\n {2}width: 714px;\n {2}height: 1238px;/);
-  assert.match(css, /--min-text: 49px;/);
+  assert.match(css, /--min-text: 49px;\n {2}--caption-text: 71px;\n {2}--card-text: 86px;\n {2}--hook-text: 104px;\n\}/);
+  assert.match(r.out, /text sizes: captions 71 px, where a data-captions track starts unless the page sizes it, cards 86 px, hook 104 px \(--caption-text, --card-text, --hook-text\)/);
   // Only the container's place is specific; every default after it has no specificity, so the page's rules win.
   assert.match(css, /height: 1238px;\n {2}box-sizing: border-box;\n {2}container-type: size;\n\}/);
   assert.match(css, /:where\(\[data-safe-zone="9:16"\] \[data-safe\]\) \{\n {2}font-size: var\(--min-text\);\n {2}overflow-wrap: break-word;/);
+  assert.match(css, /:where\(\[data-safe-zone="9:16"\] \[data-safe\]\) :where\(\[data-captions\]\) \{\n {2}font-size: var\(--caption-text\);\n\}/);
   assert.doesNotMatch(css, /overflow:\s*(clip|hidden)/, 'the container never clips: clipping would truncate text silently');
   assert.match(r.out, /text area: 714x1238 at 183,240, clear of 240 px at the top, 442 at the bottom, 183 on the left and 183 on the right/);
   assert.match(r.out, /data-safe-zone="9:16"/);
@@ -235,19 +257,30 @@ test('browser: the defaults set unsized text at the minimum and lose to any rule
   const dir = scratchDir('safe-zone-defaults');
   const canvas = { width: 1080, height: 1920 };
   const size = 'const size = (id) => getComputedStyle(document.getElementById(id)).fontSize;';
-  // Unsized text, and the elements a browser sets smaller, start at the minimum; cqw and cqh measure the zone.
+  // Unsized text, and the elements a browser sets smaller, start at the minimum; cqw and cqh measure the zone; the
+  // caption, card and hook sizes reach text inside the container, and an unsized caption track and its words start
+  // at the caption size.
   const floor = zonePage(dir, 'floor.html', formatNamed('9:16'), canvas,
     '<div data-safe><p id="plain">Plain</p><small id="small">Small</small><h6 id="h6">Six</h6><button id="button" style="background:#fff;padding:8px">Go</button>'
-    + '<h1 id="head">Head</h1><p id="sized" style="font-size:max(var(--min-text), 10cqw)">Sized</p><div id="full" style="width:100cqw;height:100cqh"></div></div>');
+    + '<h1 id="head">Head</h1><p id="sized" style="font-size:max(var(--min-text), 10cqw)">Sized</p><div id="full" style="width:100cqw;height:100cqh"></div>'
+    + '<p id="caption" style="font-size:var(--caption-text)">Caption</p><p id="card" style="font-size:var(--card-text)">Card</p><p id="hook" style="font-size:var(--hook-text)">Hook</p>'
+    + '<div data-captions id="track"><div data-cue="0"><div data-line="0"><span data-word="0" id="word">Said</span></div></div></div></div>');
   assert.deepEqual(await inChrome(floor, `(() => { ${size} const r = document.getElementById('full').getBoundingClientRect();
-    return [size('plain'), size('small'), size('h6'), size('button'), size('head'), size('sized'), r.width, r.height]; })()`),
-  ['49px', '49px', '49px', '49px', '98px', '68px', 680, 1238]);
+    return [size('plain'), size('small'), size('h6'), size('button'), size('head'), size('sized'), r.width, r.height, size('caption'), size('card'), size('hook'), size('track'), size('word')]; })()`),
+  ['49px', '49px', '49px', '49px', '98px', '68px', 680, 1238, '71px', '86px', '104px', '71px', '71px']);
 
-  // A size the page sets on the container, by element or by class, wins; its place on the zone holds.
+  // A size the page sets on the container, by element or by class, wins; its place on the zone holds. The caption
+  // track keeps its own size, which only a rule for the track or its words changes.
   for (const css of ['[data-safe]{font-size:48px}', '.cap{font-size:48px;top:auto;bottom:100px;height:200px}']) {
-    const page = zonePage(dir, 'own.html', formatNamed('9:16'), canvas, '<div data-safe class="cap"><p id="plain">Plain</p></div>', css);
+    const page = zonePage(dir, 'own.html', formatNamed('9:16'), canvas, '<div data-safe class="cap"><p id="plain">Plain</p><div data-captions id="track"></div></div>', css);
     assert.deepEqual(await inChrome(page, `(() => { ${size} const r = document.querySelector('[data-safe]').getBoundingClientRect();
-      return [size('plain'), r.top, r.height]; })()`), ['48px', 240, 1238], css);
+      return [size('plain'), size('track'), r.top, r.height]; })()`), ['48px', '71px', 240, 1238], css);
+  }
+  const tracks: [css: string, sizes: string[]][] = [['[data-captions]{font-size:60px}', ['60px', '60px']], ['.track [data-word]{font-size:90px}', ['71px', '90px']]];
+  for (const [css, want] of tracks) {
+    const page = zonePage(dir, 'track.html', formatNamed('9:16'), canvas,
+      '<div data-safe><div data-captions class="track" id="track"><span data-word="0" id="word">Said</span></div></div>', css);
+    assert.deepEqual(await inChrome(page, `(() => { ${size} return [size('track'), size('word')]; })()`), want, css);
   }
 });
 

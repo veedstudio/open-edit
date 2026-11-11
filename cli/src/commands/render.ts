@@ -14,6 +14,7 @@ import { availableParallelism, homedir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { parseUsage, usageLine, numberFlag, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
 import { assertConvertible, describeHdr, hdrKind, toSdr } from '../hdr.ts';
@@ -28,9 +29,9 @@ import { killChildren } from '../render/children.ts';
 import type { RaisedText } from '../render/page-runtime.ts';
 import { encoderArgs, FULL_ENCODE, joinSegments, startSegmentEncoder, timingProblems, X264_PRESETS, type Encode } from '../render/encode.ts';
 import { composeStill, gcd, overlayFor, probeFootage, sameRate, underSegment, type Footage } from '../render/footage.ts';
-import { alphaInputOf, longestGop, MAX_GOP, MEDIA_CACHE_BYTES, MEDIA_LEASE_MS, mediaCache, perVersion, seekableCopy, shownSize, type CacheReport } from '../render/media.ts';
+import { alphaInputOf, contentId, foreignCodecOf, longestGop, MAX_GOP, MEDIA_CACHE_BYTES, MEDIA_LEASE_MS, mediaCache, perVersion, seekableCopy, shownSize, type CacheReport } from '../render/media.ts';
 import { inspectPng, pngDifference, showsSomething } from '../render/png.ts';
-import { onDisk, startPageServer, tooBroad, type PageServer } from '../render/server.ts';
+import { isPicture, onDisk, startPageServer, tooBroad, type PageServer } from '../render/server.ts';
 import { BUDGET_MS, EPOCH, openLead, SEED, sessionOptions, UsageError, type Canvas, type SessionBase } from '../render/lead.ts';
 import { CAPTURES, DRAW_EVERY_MS, DrawnLarger, drawnSize, newTimings, RenderSession, timed, type Capture, type Timings } from '../render/session.ts';
 import type { SampledFrame, SampledVideo } from '../render/text-sampler.ts';
@@ -86,11 +87,15 @@ export const usage = {
     'advance by exactly one frame per frame, and Math.random is seeded. Frame i is at i*den/num s. Each frame, CSS and',
     'Web Animations are set to that time, gsap.globalTimeline is seeked when GSAP is present, and window.__seek(t) is',
     'called and awaited when the page defines it (the clock stands still while it runs, so it must not await',
-    'requestAnimationFrame or a timer); <video> elements show the picture at t (from 0 unless __seek sets their',
-    'time). Timers and requestAnimationFrame run before that seek, so a video drawn into a canvas from either shows',
+    'requestAnimationFrame or a timer); <video> elements show the picture at t (from 0) in each frame __seek does not',
+    'set their time. Timers and requestAnimationFrame run before that seek, so a video drawn into a canvas from either shows',
     'the previous frame\'s picture; draw it from window.__seek(t) once the video\'s own seek has settled (while',
-    'video.seeking, await its seeked event). Fonts, images and videos are loaded before the first frame. A local video with',
-    'keyframes far apart is served from an all-intra copy, so every seek decodes a single frame. A copy of a video',
+    'video.seeking, await its seeked event); a video whose time __seek set in an earlier frame is sought only after __seek',
+    'returns, so set its time there too. Fonts, images and videos are loaded before the first frame. A local video with',
+    'keyframes far apart is served from an all-intra copy, so every seek decodes a single frame. One in a codec Chrome',
+    'has no decoder of its own for (any but H.264, VP8, VP9 and AV1, such as HEVC or ProRes) is copied whatever its',
+    'keyframes, so a page plays it as it came: to H.264, or a picture with alpha as below; a cut-out with no alpha a',
+    'copy could keep is left as it is, since an opaque copy would cover the graphics behind it. A copy of a video',
     'with alpha, such as a cut-out, is a VP9 WebM that keeps it, so what lies under it still shows (an HDR one,',
     'converted to SDR, does not); one with alpha Chrome cannot play (ProRes 4444, PNG or QTRLE in a .mov) is copied',
     'whatever its keyframes. A stage that names a cut-out (data-cutout="<file>") is drawn in layers: the page\'s',
@@ -137,8 +142,16 @@ export const usage = {
     'Cache: segments and a manifest live in <out>.render/. --from/--to re-renders the segments that overlap the range',
     '(plus any missing from the cache) with the same page, fps, size, length, segment length, transparency, capture,',
     'footage (its path, size and date, and --footage-at), conversion of HDR videos, encoder settings, browser and ffmpeg,',
-    'and rejoins by stream copy. Each segment is placed by its frame count, not by its file\'s own length, and every frame',
-    'of the joined file is checked against its time (i × den/num s), so the video plays at --fps whatever ffmpeg wrote.',
+    'and rejoins by stream copy. A segment outside the range is rendered again as well, with a line saying so, when what',
+    'it was drawn from has changed: a <video> or <img> file its sampled frames (see Text below) show, by its bytes, so a',
+    'clip replaced at the same path counts (a changed image or video the page shows only otherwise, as a CSS background or',
+    'drawn into a canvas, renders every segment again); or what the page shows on those frames, jumped to whatever its',
+    'mark while the range renders, in Chromes of their own beside its workers (one per CPU in all, or --workers): its text,',
+    'and each video\'s file, time and place, so a cue or a scene that moved counts. A page that carries state between',
+    'frames can show otherwise when jumped to than when stepped through, and those segments are rendered again too.',
+    'Each segment is placed by its frame count, not by its file\'s',
+    'own length, and every frame of the joined file is checked against its time (i × den/num s), so the video plays at',
+    '--fps whatever ffmpeg wrote.',
     `Text: a video render also writes <out>.text.json for openedit review: the text the page draws in its HTML and SVG, read about`,
     `every ${SAMPLE_MS} ms of page time (a whole number of frames) on frames it captures anyway, with its words, its box and font`,
     'size in the video\'s pixels, its colour and its opacity. Each segment\'s text is cached beside it, so a patch reads again',
@@ -351,6 +364,8 @@ interface Params {
   sdr?: string;
   /** How the page's videos with alpha were served; absent when it plays none, so an older cache is never spliced in. */
   alpha?: string;
+  /** The codecs Chrome cannot play that the page's videos were copied from; absent when it plays none, so an older cache is never spliced in. */
+  recoded?: string;
   /** The size text was raised to, in CSS px; absent when it was drawn as the page sized it. */
   textFloor?: number;
   /** The zone given to a page that links none; absent when the page brought its own, or its stage's shape has none. */
@@ -364,8 +379,16 @@ interface Params {
 interface Manifest {
   version: 1;
   params: Params;
-  /** `drawn`: whether any frame of the segment is more than one flat colour; absent reads as drawn. */
-  segments: { index: number; start: number; frames: number; file: string; bytes: number; drawn?: boolean }[];
+  /**
+   * Every image and video file the page loaded or a segment shows, by its content id (contentId), so a file rewritten
+   * in place is told from the one a segment was drawn from; absent in a cache from before it was recorded.
+   */
+  media?: Record<string, string>;
+  /**
+   * `drawn`: whether any frame of the segment is more than one flat colour; absent reads as drawn. `shows`: the files of
+   * the <video> and <img> elements its sampled frames show; absent when they were not recorded.
+   */
+  segments: { index: number; start: number; frames: number; file: string; bytes: number; drawn?: boolean; shows?: string[] }[];
 }
 
 
@@ -386,6 +409,7 @@ export function breakdown(t: Timings, frames: number): string[] {
   if (t.preroll.n) rest.unshift(`preroll: ${t.preroll.n} earlier frame(s) stepped through in ${sec('preroll')} (${Math.round(t.preroll.ms / t.preroll.n)} ms/frame)`);
   if (t.text.n) rest.push(`text read on ${t.text.n} frame(s) in ${sec('text')} (${(t.text.ms / t.text.n).toFixed(1)} ms each)`);
   if (t.probe.n) rest.push(`data-stateless mark checked in ${sec('probe')}`);
+  if (t.check.n) rest.push(`reused segments compared with the page on ${t.check.n} frame(s) in ${sec('check')}`);
   if (t.copy.n) rest.push(`all-intra copies ${sec('copy')}`);
   if (t.join.n) rest.push(`join ${sec('join')}`);
   if (t.scan.n) rest.push(`picture scanned in ${sec('scan')}`);
@@ -415,10 +439,11 @@ const firstLine = (e: unknown): string =>
   ((e as { stderr?: Buffer }).stderr?.toString().trim() || (e as Error).message).split('\n')[0];
 
 /**
- * Serves an all-intra copy in place of every video the page plays that is long-GOP, or, when `shrink`,
- * drawn well below its own size (then at the drawn size, so a seek decodes no more than is shown), and
- * reloads the lead when what it loaded has changed: a copy swapped in, or, on the full-size attempt, the
- * smaller copies the first attempt served. Returns the URLs served from smaller copies.
+ * Serves an all-intra copy in place of every video the page plays that is long-GOP, HDR, one Chrome cannot
+ * play as it is (recodeOf), or, when `shrink`, drawn well below its own size (then at the drawn size, so a
+ * seek decodes no more than is shown), and reloads the lead when what it loaded has changed: a copy swapped
+ * in, or, on the full-size attempt, the smaller copies the first attempt served. Returns the URLs served from
+ * smaller copies.
  */
 async function seekableVideos(lead: RenderSession, server: PageServer, shrink: boolean): Promise<{ shrunk: string[] }> {
   const dir = mediaCache();
@@ -439,12 +464,10 @@ async function seekableVideos(lead: RenderSession, server: PageServer, shrink: b
     seen.urls.push(video.url);
     seen.video.scale = seen.video.scale === null || video.scale === null ? null : Math.max(seen.video.scale, video.scale);
   }
-  // A picture with alpha Chrome has no decoder for (ProRes 4444, PNG or QTRLE in a .mov) plays from its copy.
-  for (const url of lead.info.unplayable) {
-    const file = server.fileFor(url);
-    if (!file || byFile.has(file) || !existsSync(file) || !pictureColour(file) || alphaInputOf(file)?.webm !== false) continue;
-    byFile.set(file, { video: { url, width: 0, height: 0, scale: null }, urls: [url] });
+  for (const { url, file } of recodedUnplayable(lead, server)) {
+    if (!byFile.has(file)) byFile.set(file, { video: { url, width: 0, height: 0, scale: null }, urls: [url] });
   }
+  const cutoutPath = cutoutFile(lead, server);
   for (const [file, { video, urls }] of byFile) {
     // A copy an earlier attempt served is dropped unless this one makes it again.
     server.substitute(file, file);
@@ -455,26 +478,27 @@ async function seekableVideos(lead: RenderSession, server: PageServer, shrink: b
     const kind = colour && hdrKind(colour);
     const sdr = kind ? toSdr(colour!, name) : undefined;
     if (kind) say(describeHdr(name, colour!));
+    const recode = kind ? null : recodeOf(file, cutoutPath);
     let gop: number | null = null;
     try {
       gop = longestGop(file);
     } catch (e) {
-      if (!kind) {
+      if (!kind && !recode) {
         say(`could not read the keyframes of ${name} (${firstLine(e)}); serving it as it is, so its seeks may be slow`);
         continue;
       }
     }
     const size = shrink ? shownSize(video, video.scale) : null;
-    // Copied whatever its keyframes when Chrome cannot play its alpha as it is.
-    const recoded = !kind && colour !== null && alphaInputOf(file)?.webm === false;
-    if (!kind && !recoded && gop! <= MAX_GOP && !size) continue;
+    if (!kind && !recode && gop! <= MAX_GOP && !size) continue;
     const started = Date.now();
     const copy = await timed(lead.timings, 'copy', () => seekableCopy(file, dir, size, sdr));
     cache = copy.cache ?? cache;
     if (copy.made) {
       const secs = `${((Date.now() - started) / 1000).toFixed(1)} s`;
-      if (kind) say(`made an SDR copy of ${name}${size ? ` at ${size.width}x${size.height}` : ''} (it is HDR), all-intra for frame-exact seeks, in ${secs}`);
-      else if (recoded) say(`made a VP9 copy of ${name} that keeps its alpha, since Chrome cannot play it as it is, in ${secs}`);
+      const at = size ? ` at ${size.width}x${size.height}` : '';
+      if (kind) say(`made an SDR copy of ${name}${at} (it is HDR), all-intra for frame-exact seeks, in ${secs}`);
+      else if (recode === 'vp9') say(`made a VP9 copy of ${name} that keeps its alpha, since Chrome cannot play it as it is, in ${secs}`);
+      else if (recode === 'h264') say(`made an H.264 copy of ${name}${at}, since Chrome cannot play its picture (${foreignCodecOf(file)}), in ${secs}`);
       else {
         const why = size
           ? `at ${size.width}x${size.height} (shown at that size; the source is ${video.width}x${video.height}${gop! > MAX_GOP ? `, with keyframes up to ${gop} frames apart` : ''})`
@@ -512,6 +536,41 @@ export function cacheLine(c: CacheReport): string {
   return `media cache ${c.dir}: ${c.copies} cop${c.copies === 1 ? 'y' : 'ies'}, ${gb(c.bytes)}${made}${over}`;
 }
 
+/** The file of the stage's cut-out, when it names one. */
+function cutoutFile(lead: RenderSession, server: PageServer): string | null {
+  return lead.info.cutout ? server.fileFor(lead.info.cutout.url) : null;
+}
+
+/**
+ * The copy a page video is served from whatever its keyframes, because Chrome cannot play it as it is: VP9 that keeps
+ * the alpha of ProRes 4444, PNG or QTRLE in a .mov, or H.264 of a picture in a codec Chrome has no decoder for. The
+ * cut-out gets no H.264 copy, which would drop its alpha and cover the graphics; it is refused by name instead.
+ */
+function recodeOf(file: string, cutout: string | null): 'vp9' | 'h264' | null {
+  if (!pictureColour(file)) return null;
+  if (alphaInputOf(file)?.webm === false) return 'vp9';
+  return file !== cutout && foreignCodecOf(file) ? 'h264' : null;
+}
+
+/** The page videos Chrome could not play that a copy makes playable, once per file. */
+function recodedUnplayable(lead: RenderSession, server: PageServer): { url: string; file: string }[] {
+  const cutout = cutoutFile(lead, server);
+  const seen = new Map<string, string>();
+  for (const url of lead.info.unplayable) {
+    const file = server.fileFor(url);
+    if (file && !seen.has(file) && existsSync(file) && recodeOf(file, cutout)) seen.set(file, url);
+  }
+  return [...seen].map(([file, url]) => ({ url, file }));
+}
+
+/** The codecs of the page's videos served from H.264 copies since Chrome cannot play them, as the cache records it; absent when none is. */
+function pageRecoded(lead: RenderSession, server: PageServer): string | undefined {
+  const cutout = cutoutFile(lead, server);
+  const files = [...lead.info.videos.map((v) => server.fileFor(v.url)), ...recodedUnplayable(lead, server).map((u) => u.file)];
+  const codecs = new Set(files.filter((f): f is string => !!f && existsSync(f) && recodeOf(f, cutout) === 'h264').map((f) => foreignCodecOf(f)!));
+  return codecs.size ? `H.264 copies of ${[...codecs].sort().join(', ')}` : undefined;
+}
+
 /** How the page's videos with alpha are served, as the cache records it; absent when it plays none. */
 function pageAlpha(lead: RenderSession, server: PageServer): string | undefined {
   const files = [...lead.info.videos.map((v) => v.url), ...lead.info.unplayable].map((u) => server.fileFor(u)).filter((f): f is string => !!f && existsSync(f));
@@ -534,8 +593,7 @@ const pictureColour = perVersion((file): ColourReport | null => {
 /** How the page's HDR videos are converted, as the cache records it; absent when the page plays none. */
 function pageConversion(lead: RenderSession, server: PageServer): string | undefined {
   const chains = new Set<string>();
-  for (const video of lead.info.videos) {
-    const file = server.fileFor(video.url);
+  for (const file of [...lead.info.videos.map((v) => server.fileFor(v.url)), ...recodedUnplayable(lead, server).map((u) => u.file)]) {
     if (!file || !existsSync(file)) continue;
     let colour: ColourReport;
     try {
@@ -752,6 +810,113 @@ async function renderStills(o: {
   return { paths: ordered, workers: groups.length };
 }
 
+/** Segment indices as runs, "1-4, 7", so a line about many segments stays one line. */
+function indexRuns(list: number[]): string {
+  const runs: string[] = [];
+  for (let k = 0; k < list.length;) {
+    let j = k;
+    while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+    runs.push(j > k ? `${list[k]}-${list[j]}` : `${list[k]}`);
+    k = j + 1;
+  }
+  return runs.join(', ');
+}
+
+const fileNames = (files: string[]): string => files.slice(0, 3).map((f) => basename(f)).join(', ') + (files.length > 3 ? `, and ${files.length - 3} more` : '');
+
+/**
+ * What differs, in words, between a sampled frame as a cached segment recorded it and as the page now shows it: its
+ * text, each video's file, time and place, and an image the segment did not show (`images`, against `shown`). Null
+ * when nothing does.
+ */
+function stateDiffers(was: TextSample, now: TextSample, shown: ReadonlySet<string>, images: string[]): string | null {
+  const image = images.find((f) => !shown.has(f));
+  if (isDeepStrictEqual(was.texts, now.texts) && isDeepStrictEqual(was.videos ?? [], now.videos ?? [])) {
+    return image ? `image ${basename(image)}, which it did not show` : null;
+  }
+  const words = (s: TextSample) => s.texts.filter((e) => e.opacity > 0.01 && e.text).map((e) => e.text);
+  const added = words(now).find((t) => !words(was).includes(t));
+  if (added !== undefined) return `text ${quoted(added)}, which it did not show`;
+  const gone = words(was).find((t) => !words(now).includes(t));
+  if (gone !== undefined) return `no text ${quoted(gone)}, which it showed`;
+  const a = was.videos ?? [];
+  const b = now.videos ?? [];
+  for (const v of b) {
+    const w = a.find((x) => x.file === v.file);
+    if (!w) return `video ${basename(v.file)}, which it did not show`;
+    if (w.time !== v.time) return `video ${basename(v.file)} at ${v.time.toFixed(3)} s of its clip, not ${w.time.toFixed(3)} s`;
+  }
+  const lost = a.find((w) => !b.some((v) => v.file === w.file));
+  if (lost) return `no video ${basename(lost.file)}, which it showed`;
+  return isDeepStrictEqual(a, b) ? 'a text in another place, size, colour or opacity' : 'a video in another place';
+}
+
+// One more Chrome to compare frames on per this many: about a second of comparing on a page that plays a video (some
+// 15 ms a frame), against the launch and load each Chrome adds while others start beside the render's workers.
+const CHECK_FRAMES_PER_SESSION = 80;
+
+/**
+ * The segments in `reuse` where the page now shows otherwise than their cached samples recorded, each with what
+ * differs at its first such frame; those it could not compare, and why. Every sampled frame is compared, on up to
+ * `sessions` Chromes of their own, each taking a contiguous share and jumping from frame to frame whatever the page's
+ * mark: a jump past state the page carries that changes what it shows reads as a change, and the segment is rendered
+ * again by stepping. `stop` ends it early, before any session's next frame.
+ */
+async function changedState(base: SessionBase, canvas: Canvas, reuse: Segment[], o: {
+  fps: Fps; every: number; sessions: number; stop: () => boolean; cached: (frame: number) => TextSample;
+  shown: (segment: Segment) => ReadonlySet<string>; videos: (videos: SampledVideo[]) => PageVideo[]; images: (urls: string[]) => string[];
+}): Promise<{ differ: Map<number, string>; unchecked: number[]; failure: string | null }> {
+  const started = performance.now();
+  const items = reuse.flatMap((seg) => sampledFrames(seg, o.every).map((frame) => ({ seg, frame })));
+  const groups = splitContiguous(items, Math.min(o.sessions, Math.ceil(items.length / CHECK_FRAMES_PER_SESSION)));
+  // Timed apart and reported as one stage: these sessions run beside the render's workers, whose per-frame figures
+  // they would otherwise swell.
+  const own = { ...base, timings: newTimings() };
+  const differ = new Map<number, string>();
+  const unchecked = new Set<number>();
+  let failure: string | null = null;
+  let stop: unknown = null;
+  let frames = 0;
+  try {
+    // Settled, not raced: a failure stops the others before their next frame, and every Chrome is closed before it is reported.
+    await Promise.allSettled(groups.map(async (group) => {
+      let session: RenderSession | null = null;
+      try {
+        session = await RenderSession.open(sessionOptions(own, canvas));
+        for (const [k, { seg, frame }] of group.entries()) {
+          if (stop !== null || o.stop()) return;
+          if (differ.has(seg.index)) continue;
+          try {
+            frames++;
+            const read = await session.peek(frame);
+            // As the cache stores it, where a -0 the page measured has become 0.
+            const now = JSON.parse(JSON.stringify(sampleAt(frame, o.fps, read.texts, o.videos(read.videos)))) as TextSample;
+            const why = stateDiffers(o.cached(frame), now, o.shown(seg), o.images(read.images));
+            if (why) differ.set(seg.index, `segment ${seg.index} at ${frameTime(frame, o.fps).toFixed(3)} s: ${why}`);
+          } catch (e) {
+            if (e instanceof DrawnLarger) throw e;
+            // A page that throws when jumped into is stepped through by the workers, as a page without the mark always is.
+            for (const rest of group.slice(k)) unchecked.add(rest.seg.index);
+            failure ??= firstLine(e);
+            return;
+          }
+        }
+      } catch (e) {
+        stop ??= e;
+        throw e;
+      } finally {
+        await session?.close();
+      }
+    }));
+    if (stop !== null) throw stop;
+  } finally {
+    const t = base.timings;
+    if (t) t.check = { ms: t.check.ms + performance.now() - started, n: t.check.n + frames };
+  }
+  const byIndex = new Map([...differ].sort(([a], [b]) => a - b));
+  return { differ: byIndex, unchecked: [...unchecked].filter((i) => !differ.has(i)).sort((a, b) => a - b), failure };
+}
+
 interface VideoResult {
   frames: number;
   rendered: number;
@@ -780,6 +945,7 @@ async function renderVideo(o: {
   const overlay = footage ? overlayFor(footage, drawnSize(o.canvas, scale), o.fps) : null;
   const sdr = pageConversion(o.lead, o.base.server);
   const alpha = pageAlpha(o.lead, o.base.server);
+  const recoded = pageRecoded(o.lead, o.base.server);
   const cache = `${o.out}.render`;
   mkdirSync(cache, { recursive: true });
   const release = acquireLock(cache);
@@ -790,6 +956,7 @@ async function renderVideo(o: {
       ...(footage && footageAt ? { footageAt } : {}),
       ...(sdr ? { sdr } : {}),
       ...(alpha ? { alpha } : {}),
+      ...(recoded ? { recoded } : {}),
       ...(o.lead.floor ? { textFloor: o.lead.floor } : {}),
       ...(o.lead.zone ? { zone: o.lead.zone.format.name } : {}),
       encoder: encoderArgs(transparent, capture, overlay, x264).join(' '),
@@ -806,6 +973,34 @@ async function renderVideo(o: {
     const sizes = new Map<number, number>();
     // The text each sampled frame shows: read as it is captured, and for a reused segment from the cache.
     const samples = new Map<number, TextSample>();
+    // The <img> files each sampled frame of a rendered segment shows; a reused one keeps the list it was rendered with.
+    const pictures = new Map<number, string[]>();
+    const before = new Map(previous?.segments.map((s) => [s.index, s]) ?? []);
+    // Each file's content id as this render first finds it; null for one that is gone or cannot be read.
+    const ids = new Map<string, string | null>();
+    const idOf = (file: string): string | null => {
+      if (!ids.has(file)) {
+        let id: string | null = null;
+        try {
+          if (existsSync(file)) id = contentId(file, mediaCache());
+        } catch {
+          // An unreadable file cannot be shown to be the one a segment was drawn from.
+        }
+        ids.set(file, id);
+      }
+      return ids.get(file)!;
+    };
+    // A video the review cannot open again (a blob, a stream, another server's file) has no clip to look into.
+    const pageVideos = (videos: SampledVideo[]): PageVideo[] => videos.flatMap(({ src, ...v }) => {
+      const file = o.base.server.fileFor(src);
+      return file && existsSync(file) ? [{ file, ...v }] : [];
+    });
+    const pageImages = (urls: string[]): string[] => urls.flatMap((u) => {
+      const file = o.base.server.fileFor(u);
+      return file && existsSync(file) ? [file] : [];
+    });
+    // Segments that pass every check of the cache and are still to be compared with what the page shows now.
+    const reuse: Segment[] = [];
 
     if (o.patch) {
       if (!previous) throw new UsageError(`nothing to patch: ${cache} holds no finished render; render once without --from/--to first`);
@@ -815,7 +1010,15 @@ async function renderVideo(o: {
       const inRange = new Set(segmentsTouching(segments, span.from, span.to).map((s) => s.index));
       targeted = inRange;
       const recorded = new Map(previous.segments.map((s) => [s.index, s.bytes]));
+      const was = previous.media;
+      const changed = new Set(Object.entries(was ?? {}).filter(([file, id]) => idOf(file) !== id).map(([file]) => file));
+      // A file no sampled frame places in a segment (a CSS background, a picture drawn into a canvas) may be in any,
+      // unless it is gone and the page no longer asks for it.
+      const placed = new Set(previous.segments.flatMap((s) => s.shows ?? []));
+      const asked = new Set(o.base.server.requested());
+      const anywhere = [...changed].filter((f) => !placed.has(f) && (existsSync(f) || asked.has(f))).sort();
       const textless: string[] = [];
+      const redrawn = new Map<string, number[]>();
       for (const s of segments) {
         const f = fileOf(s);
         const ok = existsSync(f) && statSync(f).size === recorded.get(s.index);
@@ -826,10 +1029,21 @@ async function renderVideo(o: {
           textless.push(`${s.index} (${text.unusable})`);
           continue;
         }
+        const shows = before.get(s.index)?.shows;
+        const files = shows && was ? shows.filter((file) => changed.has(file) || !(file in was)) : [];
+        const why = !shows || !was ? 'the files they show were not recorded'
+          : anywhere.length ? `${fileNames(anywhere)} changed since they were rendered, and no <video> or <img> on their sampled frames says which of them show it`
+          : files.length ? `${fileNames(files)} changed since they were rendered` : null;
+        if (why) {
+          redrawn.set(why, [...(redrawn.get(why) ?? []), s.index]);
+          continue;
+        }
         sizes.set(s.index, recorded.get(s.index)!);
         for (const sample of text) samples.set(sample.frame, sample);
+        reuse.push(s);
       }
       if (textless.length) say(`also rendering segment(s) ${textless.join(', ')} outside --from/--to again, to record the text they show`);
+      for (const [why, list] of redrawn) say(`also rendering segment(s) ${indexRuns(list)} outside --from/--to again: ${why}`);
       toRender = segments.filter((s) => !sizes.has(s.index));
     } else {
       // A full render starts from an empty cache: a segment left from a different render must never
@@ -843,39 +1057,14 @@ async function renderVideo(o: {
     }
 
     const { shrunk } = await seekableVideos(o.lead, o.base.server, o.shrink);
-    const reusedSegments = segments.length - toRender.length;
-    const renderedFrames = toRender.reduce((n, s) => n + s.frames, 0);
-    const plan = () => splitFrames(toRender, workersFor(renderedFrames, workerCount(o.workers, o.lead), MIN_FRAMES_PER_WORKER));
-    let runs = plan();
-    if (!await checkStateless(o.lead, o.base, runs, o.fps)) runs = plan();
     const attempt = `${process.pid}-${randomBytes(3).toString('hex')}`;
-    // A segment split between workers is kept as captured files, one per frame, and encoded in order
-    // once every worker has finished.
-    const spill = join(cache, `spill.${attempt}`);
-    const spillDir = (seg: Segment) => join(spill, pad(seg.index, 5));
-    const spillFrame = (dir: string, i: number) => join(dir, `f-${pad(i, 7)}.${capture}`);
-    const shared = new Map<number, Segment>();
     const drew = new Set<number>();
     // Whether any frame over the footage let it through: a page that paints a background over it everywhere
     // would render captions over that background, and never the footage, with nothing else to say so.
     let letsThrough = !footage;
     const overFootage = (i: number) => footage !== null && i >= footageAt && i < footageAt + footage.frames;
-    let doneFrames = 0;
-    let nextReport = 0.1;
-    const progress = (frames: number) => {
-      doneFrames += frames;
-      if (doneFrames / renderedFrames >= nextReport && doneFrames < renderedFrames) {
-        say(`${Math.floor((doneFrames / renderedFrames) * 100)}% (${doneFrames}/${renderedFrames} frames)`);
-        nextReport = Math.floor((doneFrames / renderedFrames) * 10) / 10 + 0.1;
-      }
-    };
     // Why the page's text could not be read, once it could not: the render goes on without a record.
     let unread: string | null = null;
-    // A video the review cannot open again (a blob, a stream, another server's file) has no clip to look into.
-    const pageVideos = (videos: SampledVideo[]): PageVideo[] => videos.flatMap(({ src, ...v }) => {
-      const file = o.base.server.fileFor(src);
-      return file && existsSync(file) ? [{ file, ...v }] : [];
-    });
     /** A segment's samples, or null when a frame of it went unread. */
     const samplesOf = (seg: Segment): TextSample[] | null => {
       const taken = sampledFrames(seg, every).map((f) => samples.get(f));
@@ -909,52 +1098,127 @@ async function renderVideo(o: {
     const look = async (session: RenderSession, shot: Buffer, i: number) =>
       inspectPng(capture === 'jpeg' ? await session.shoot(`frame ${i}`, 'png') : shot);
 
-    try {
-      await runWorkers({ ...o.base, shrunk }, o.canvas, o.lead, {
-        groups: runs,
-        startOf: (group) => group[0].from,
-        run: async (session, piece, stop) => {
-          const seg = piece.segment;
-          async function* captured() {
-            for (let i = piece.from; i < piece.to; i++) {
-              if (stop()) throw new Error('stopped');
-              const shot = await session.capture(i);
-              if (i % every === 0 && unread === null) {
-                try {
-                  const read = await session.readText();
-                  samples.set(i, sampleAt(i, o.fps, read.texts, pageVideos(read.videos)));
-                } catch (e) {
-                  // The record serves the review; a page whose text cannot be read still renders.
-                  unread = firstLine(e);
+    const workersOf = (list: Segment[], lead: RenderSession) =>
+      workersFor(list.reduce((n, s) => n + s.frames, 0), workerCount(o.workers, lead), MIN_FRAMES_PER_WORKER);
+    let workers = 0;
+    /** Renders and encodes `list`, the lead serving as its first worker; a pass after the first opens a lead of its own. */
+    const renderSegments = async (list: Segment[], given: RenderSession | null) => {
+      const lead = given ?? await RenderSession.open(sessionOptions({ ...o.base, shrunk }, o.canvas));
+      const frames = list.reduce((n, s) => n + s.frames, 0);
+      const plan = () => splitFrames(list, workersOf(list, lead));
+      let runs: ReturnType<typeof plan>;
+      try {
+        runs = plan();
+        if (!await checkStateless(lead, o.base, runs, o.fps)) runs = plan();
+      } catch (e) {
+        // runWorkers closes the lead it is given; one that never reached it is closed here, unless run's own.
+        if (!given) await lead.close();
+        throw e;
+      }
+      workers = Math.max(workers, runs.length);
+      // A segment split between workers is kept as captured files, one per frame, and encoded in order
+      // once every worker has finished.
+      const spill = join(cache, `spill.${attempt}`);
+      const spillDir = (seg: Segment) => join(spill, pad(seg.index, 5));
+      const spillFrame = (dir: string, i: number) => join(dir, `f-${pad(i, 7)}.${capture}`);
+      const shared = new Map<number, Segment>();
+      let doneFrames = 0;
+      let nextReport = 0.1;
+      const progress = (n: number) => {
+        doneFrames += n;
+        if (doneFrames / frames >= nextReport && doneFrames < frames) {
+          say(`${Math.floor((doneFrames / frames) * 100)}% (${doneFrames}/${frames} frames)`);
+          nextReport = Math.floor((doneFrames / frames) * 10) / 10 + 0.1;
+        }
+      };
+      try {
+        await runWorkers({ ...o.base, shrunk }, o.canvas, lead, {
+          groups: runs,
+          startOf: (group) => group[0].from,
+          run: async (session, piece, stop) => {
+            const seg = piece.segment;
+            async function* captured() {
+              for (let i = piece.from; i < piece.to; i++) {
+                if (stop()) throw new Error('stopped');
+                const shot = await session.capture(i);
+                if (i % every === 0 && unread === null) {
+                  try {
+                    const read = await session.readText();
+                    samples.set(i, sampleAt(i, o.fps, read.texts, pageVideos(read.videos)));
+                    pictures.set(i, pageImages(read.images));
+                  } catch (e) {
+                    // The record serves the review; a page whose text cannot be read still renders.
+                    unread = firstLine(e);
+                  }
                 }
+                if (!drew.has(seg.index) || (!letsThrough && overFootage(i))) {
+                  const seen = await look(session, shot, i);
+                  if (showsSomething(seen)) drew.add(seg.index);
+                  if (!seen.opaque && overFootage(i)) letsThrough = true;
+                }
+                yield shot;
               }
-              if (!drew.has(seg.index) || (!letsThrough && overFootage(i))) {
-                const seen = await look(session, shot, i);
-                if (showsSomething(seen)) drew.add(seg.index);
-                if (!seen.opaque && overFootage(i)) letsThrough = true;
-              }
-              yield shot;
             }
-          }
-          if (piece.from === seg.start && piece.to === seg.start + seg.frames) {
-            await encode(seg, captured());
-          } else {
-            const dir = spillDir(seg);
-            mkdirSync(dir, { recursive: true });
-            let i = piece.from;
-            for await (const shot of captured()) writeFileSync(spillFrame(dir, i++), shot);
-            shared.set(seg.index, seg);
-          }
-          progress(piece.to - piece.from);
-        },
-      });
-      await Promise.all([...shared.values()].map((seg) => {
-        const files = Array.from({ length: seg.frames }, (_, k) => spillFrame(spillDir(seg), seg.start + k));
-        return encode(seg, (function* () { for (const f of files) yield readFileSync(f); })());
-      }));
-    } finally {
-      rmSync(spill, { recursive: true, force: true });
+            if (piece.from === seg.start && piece.to === seg.start + seg.frames) {
+              await encode(seg, captured());
+            } else {
+              const dir = spillDir(seg);
+              mkdirSync(dir, { recursive: true });
+              let i = piece.from;
+              for await (const shot of captured()) writeFileSync(spillFrame(dir, i++), shot);
+              shared.set(seg.index, seg);
+            }
+            progress(piece.to - piece.from);
+          },
+        });
+        await Promise.all([...shared.values()].map((seg) => {
+          const files = Array.from({ length: seg.frames }, (_, k) => spillFrame(spillDir(seg), seg.start + k));
+          return encode(seg, (function* () { for (const f of files) yield readFileSync(f); })());
+        }));
+      } finally {
+        rmSync(spill, { recursive: true, force: true });
+      }
+    };
+
+    // The segments a patch would reuse are compared with the page while the range renders, on Chromes of their own
+    // that jump (so as many may run as a marked page's workers), and those found changed are rendered after it. They
+    // are compared on the copies the workers play, since the cached samples were read off frames drawn from them.
+    let halt = false;
+    let failed: unknown = null;
+    // Caught as it is made, since it may fail while the range still renders.
+    const checking = reuse.length ? changedState({ ...o.base, shrunk }, o.canvas, reuse, {
+      fps: o.fps, every, sessions: Math.max(1, (o.workers ?? cpuCount()) - workersOf(toRender, o.lead)), stop: () => halt,
+      cached: (f) => samples.get(f)!, shown: (s) => new Set(before.get(s.index)?.shows), videos: pageVideos, images: pageImages,
+    }).catch((e) => {
+      failed ??= e;
+      return null;
+    }) : null;
+    try {
+      await renderSegments(toRender, o.lead);
+    } catch (e) {
+      failed ??= e;
+      halt = true;
     }
+    const found = checking && await checking;
+    if (failed) throw failed;
+    if (found) {
+      const { differ, unchecked, failure } = found;
+      if (differ.size) {
+        say(`also rendering segment(s) ${indexRuns([...differ.keys()])} outside --from/--to again: the page shows other text or video there than when they `
+          + `were rendered (${[...differ.values()][0]})`);
+      }
+      if (unchecked.length) {
+        say(`also rendering segment(s) ${indexRuns(unchecked)} outside --from/--to again: the page could not be jumped into to compare what they show (${failure})`);
+      }
+      const stale = segments.filter((s) => differ.has(s.index) || unchecked.includes(s.index));
+      if (stale.length) {
+        for (const s of stale) sizes.delete(s.index);
+        await renderSegments(stale, null);
+        toRender = [...toRender, ...stale].sort((a, b) => a.index - b.index);
+      }
+    }
+    const reusedSegments = segments.length - toRender.length;
+    const renderedFrames = toRender.reduce((n, s) => n + s.frames, 0);
 
     // A patch runs on a page edited since the render it patches, which says nothing about whether this
     // one draws, so a blank range is refused where that render drew; one that was blank may stay so.
@@ -996,12 +1260,27 @@ async function renderVideo(o: {
         samples: taken.flat() as TextSample[],
       });
     }
+    const showsOf = (s: Segment): string[] | undefined => {
+      if (!toRender.includes(s)) return before.get(s.index)?.shows;
+      const taken = samplesOf(s);
+      return taken ? [...new Set(taken.flatMap((x) => [...(x.videos ?? []).map((v) => v.file), ...(pictures.get(x.frame) ?? [])]))].sort() : undefined;
+    };
+    const shows = segments.map(showsOf);
+    // What this run loaded covers every segment, since each was either drawn or compared with the page on its frames.
+    const pictured = new Set([...o.base.server.requested().filter(isPicture), ...shows.flatMap((l) => l ?? [])]);
+    const media: Record<string, string> = {};
+    for (const file of [...pictured].sort()) {
+      const id = idOf(file);
+      if (id) media[file] = id;
+    }
     writeManifest(cache, {
       version: 1,
       params,
-      segments: segments.map((s) => ({
+      media,
+      segments: segments.map((s, k) => ({
         index: s.index, start: s.start, frames: s.frames, file: basename(fileOf(s)), bytes: sizes.get(s.index)!,
         drawn: toRender.includes(s) ? drew.has(s.index) : drewBefore.get(s.index) !== false,
+        ...(shows[k] ? { shows: shows[k] } : {}),
       })),
     });
     // A transparent picture's colour planes hold whatever lies under its clear pixels, so how they look says nothing.
@@ -1011,7 +1290,7 @@ async function renderVideo(o: {
     }));
     return {
       frames: o.total, rendered: renderedFrames, reusedSegments, renderedSegments: toRender.length,
-      workers: runs.length, bytes: statSync(o.out).size, unread, picture,
+      workers, bytes: statSync(o.out).size, unread, picture,
     };
   } finally {
     release();

@@ -1,18 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TESTSRC, bandLevels, captureConsole, probeStream, scratchDir, synthClip } from './helpers/synth.ts';
 import { FFMPEG } from '../src/config.ts';
 import {
-  ducks, effectLevels, filtergraph, fits, KEY_LUFS, LOOP_CROSSFADE_SEC, mixAudio, MUSIC_FADE_OUT_SEC, parseSpec, piecesOf, setUnderVoice,
-  SFX_UNDER_VOICE_LU, speakingLoudness, SPEC_KEYS, TRACK_KEYS, usage, type MixSpec,
+  ducks, effectLevels, filtergraph, fits, KEY_LUFS, LOOP_CROSSFADE_SEC, mixAudio, MUSIC_FADE_OUT_SEC, PAGE_VIDEO_KEYS, parseSpec, piecesOf,
+  setUnderVoice, SFX_UNDER_VOICE_LU, SILENCE_FLOOR_DB, speakingLoudness, SPEC_KEYS, TRACK_KEYS, usage, type MixSpec,
 } from '../src/commands/mix-audio.ts';
 import { lastSoundOf, soundSpanIn, TAIL_SECONDS } from '../src/verify/dead-tail.ts';
-import { decode, envelopeOf } from '../src/commands/speech-probe.ts';
+import { decode, envelopeOf, SAMPLE_RATE } from '../src/commands/speech-probe.ts';
+import { EDGE_FADE_SEC, pageSounds, stemGraph, tempoOf, type PageSound } from '../src/page-sound.ts';
+import { writeRecord, type TextRecord } from '../src/render/text-record.ts';
 
 const spec = (over: Partial<MixSpec> = {}): MixSpec => ({
   durationSec: 60,
@@ -73,8 +75,10 @@ test('mix: the narration keys the duck, and the key outlives the bed', () => {
     ],
   }));
   assert.match(graph, /\[a0\]asplit=2\[a0h\]\[a0k\]/);
-  assert.match(graph, /\[a0k\]apad=whole_dur=60\[vkey\]/, 'the key is padded to the film');
-  assert.match(graph, /sidechaincompress=threshold=0\.03:ratio=8:attack=20:release=600/);
+  assert.match(graph, /\[a0k\]apad=whole_dur=60,apad=pad_dur=0\.5\[bedkey\]/, 'the key is padded to the film, then by the lead');
+  assert.match(graph, /\[a1\]adelay=500\|500\[bedlead\];\[bedlead\]\[bedkey\]amerge=inputs=2/, 'the bed meets the key half a second late');
+  assert.match(graph, /sidechaincompress=threshold=0\.03:ratio=8:attack=150:release=3000,atrim=start=0\.5,asetpts=N\/SR\/TB\[duckedbed\]/,
+    'and the half second is trimmed off after the duck');
   assert.match(graph, /\[duckedbed\]\[vmix\]/, 'the voice is mixed back in at full level');
 });
 
@@ -94,9 +98,25 @@ test('mix: music and sound effects duck under the voice by default, without the 
       { path: 'sting.wav', atSec: 3, role: 'sfx' },
     ],
   }));
-  assert.match(graph, /\[a1\]\[a2\]amix=inputs=2:normalize=0,asetpts=N\/SR\/TB\[beds\]/, 'the music and the effect are one bed');
-  assert.match(graph, /\[beds\]\[vkey\]sidechaincompress=/, 'which the voice ducks');
-  assert.match(graph, /\[duckedbed\]\[vmix\]amix=inputs=2/, 'nothing plays beside the duck');
+  assert.match(graph, /\[a0k\]asplit=2\[bedk\]\[fxk\];\[bedk\]apad=whole_dur=60,apad=pad_dur=0\.5\[bedkey\]/, 'one key for each duck');
+  assert.match(graph, /\[a1\]adelay=500\|500\[bedlead\];\[bedlead\]\[bedkey\]amerge=inputs=2.*\[bedin\]\[bedsc\]sidechaincompress=[^[]*attack=150:release=3000/,
+    'the music has room before and after the voice');
+  assert.match(graph, /\[fxk\]apad=whole_dur=60\[fxkey\];\[a2\]\[fxkey\]amerge=inputs=2.*\[fxin\]\[fxsc\]sidechaincompress=threshold=0\.03:ratio=8:attack=20:release=600\[duckedfx\]/,
+    'and the effect, on the beat between lines, a duck that lets go within it');
+  assert.match(graph, /\[duckedbed\]\[duckedfx\]\[vmix\]amix=inputs=3/, 'nothing plays beside the ducks');
+});
+
+test('mix: effects with no music to duck read the voice as it plays and let go within the beat after it', () => {
+  const { graph } = filtergraph(spec({
+    tracks: [
+      { path: 'vo.wav', atSec: 0, role: 'voice' },
+      { path: 'a.wav', atSec: 1, role: 'sfx' },
+      { path: 'b.wav', atSec: 2, role: 'sfx' },
+    ],
+  }));
+  assert.match(graph, /\[a1\]\[a2\]amix=inputs=2:normalize=0,asetpts=N\/SR\/TB\[fxs\];\[a0k\]apad=whole_dur=60\[fxkey\];\[fxs\]\[fxkey\]amerge/);
+  assert.match(graph, /sidechaincompress=threshold=0\.03:ratio=8:attack=20:release=600\[duckedfx\]/);
+  assert.doesNotMatch(graph, /bedlead|atrim=start/);
 });
 
 test('mix: a track can opt out of the duck, and with "duck": false the graph has no compressor at all', () => {
@@ -123,7 +143,7 @@ test('mix: music and effects with nothing narrating play level, and any other tr
       { path: 'hiss.wav', atSec: 0, role: 'ambience' },
     ],
   }));
-  assert.match(graph, /\[a1\]\[vkey\]sidechaincompress=/);
+  assert.match(graph, /\[a1\]adelay=500\|500\[bedlead\];\[bedlead\]\[bedkey\]amerge=inputs=2.*\[bedin\]\[bedsc\]sidechaincompress=/);
   assert.match(graph, /\[duckedbed\]\[vmix\]\[a2\]amix=inputs=3/);
 });
 
@@ -171,10 +191,10 @@ test('mix: the duck\'s key is brought to a fixed loudness, and the graph says by
     { path: 'm.wav', atSec: 0, role: 'music' },
   ];
   const { graph } = filtergraph(spec({ tracks }), [], [-29.1]);
-  assert.match(graph, /\[a0k\]volume=9\.40dB\[a0kg\];\[a0h\]anull\[vmix\];\[a0kg\]apad=whole_dur=60\[vkey\]/, `the key rises to ${KEY_LUFS} LUFS`);
+  assert.match(graph, /\[a0k\]volume=9\.40dB\[a0kg\];\[a0h\]anull\[vmix\];\[a0kg\]apad=whole_dur=60,apad=pad_dur=0\.5\[bedkey\]/, `the key rises to ${KEY_LUFS} LUFS`);
   assert.match(graph, /\[a0\]asplit=2\[a0h\]\[a0k\]/, 'the voice heard is split off before the key is raised');
   assert.match(graph, /threshold=0\.03/, 'the threshold is a stated constant, not a default nobody can see');
-  assert.match(graph, /release=600/, 'and the release is slow enough not to pump between words');
+  assert.match(graph, /release=3000/, 'and the release is slow enough not to pump between words');
   assert.match(filtergraph(spec({ tracks })).graph, /\[a0k\]apad/, 'unmeasured, the key is the voice as it is');
   // Below -50 LUFS the key is raised no further, so the duck fades out with the track instead of keying on noise.
   assert.match(filtergraph(spec({ tracks }), [], [-50]).graph, /\[a0k\]volume=30\.30dB\[a0kg\]/);
@@ -192,7 +212,7 @@ test('mix: each voice track\'s key is brought to the same loudness on its own', 
   assert.match(graph, /\[a0k\]volume=-4\.70dB\[a0kg\]/);
   assert.match(graph, /\[a1k\]volume=15\.30dB\[a1kg\]/);
   assert.match(graph, /\[a0h\]\[a1h\]amix=inputs=2:normalize=0,asetpts=N\/SR\/TB\[vmix\]/, 'the voices are heard as they are');
-  assert.match(graph, /\[a0kg\]\[a1kg\]amix=inputs=2:normalize=0,asetpts=N\/SR\/TB,apad=whole_dur=60\[vkey\]/);
+  assert.match(graph, /\[a0kg\]\[a1kg\]amix=inputs=2:normalize=0,asetpts=N\/SR\/TB\[vkey\];\[vkey\]apad=whole_dur=60,apad=pad_dur=0\.5\[bedkey\]/);
 });
 
 test('mix: the padding is bounded, or ffmpeg never finishes', () => {
@@ -257,7 +277,7 @@ test('mix: the example in --help is a spec the command accepts, and every field 
   // Whatever effect the example shows, an agent copies onto every beat at that level.
   assert.doesNotMatch(example, /"sfx"|whoosh|"gainDb": -6\b/, 'the example holds no sound effect to copy');
   assert.ok(parsed.tracks.every((t) => (t.fadeOutSec ?? 0) <= 1), 'nor a long fade into silence at the end');
-  for (const field of [...SPEC_KEYS, ...TRACK_KEYS]) {
+  for (const field of [...SPEC_KEYS, ...TRACK_KEYS, ...PAGE_VIDEO_KEYS]) {
     assert.match(notes, new RegExp(`\\b${field}\\b`), `--help documents ${field}`);
   }
   assert.match(notes, /mux-audio --video <render> --audio <run-dir>\/audio\/mix\.m4a --out <file>/);
@@ -269,7 +289,9 @@ test('mix: a malformed spec is named field by field, never a TypeError from deep
   // A bare list of tracks is the likeliest hand-written mistake.
   assert.throws(() => parseSpec([{ path: 'vo.wav', atSec: 0 }]), /not a bare list of tracks.*mix-audio --help/s);
   assert.throws(() => parseSpec({ tracks: good.tracks }), /durationSec.*positive number \(got undefined\)/);
-  assert.throws(() => parseSpec({ durationSec: 10, tracks: [] }), /tracks must be a non-empty list/);
+  // The page's videos may be the whole soundtrack, so a spec may hold no track of its own.
+  assert.deepEqual(parseSpec({ durationSec: 10 }).tracks, []);
+  assert.throws(() => parseSpec({ durationSec: 10, tracks: {} }), /tracks must be a list/);
   assert.throws(() => parseSpec({ durationSec: 10, tracks: [{ atSec: 0 }] }), /tracks\[0\]\.path must name a file/);
   assert.throws(() => parseSpec({ durationSec: 10, tracks: [{ path: 'a.wav', atSec: '2' }] }), /tracks\[0\]\.atSec/);
   assert.throws(() => parseSpec({ durationSec: 10, tracks: [{ path: 'a.wav', atSec: 0, fadeOutSec: -1 }] }), /fadeOutSec must be a non-negative number/);
@@ -306,8 +328,20 @@ test('mix: a field the spec does not know is refused by name, with the ones it d
   );
   assert.throws(
     () => parseSpec({ duration: 10, tracks: [voice] }),
-    /the spec has unknown field "duration" \(known: durationSec, tracks\)/,
+    /the spec has unknown field "duration" \(known: durationSec, tracks, pageVideos\)/,
   );
+});
+
+test('mix: pageVideos leaves a page video out or sets how it is laid, field by field, and never loops it as music', () => {
+  const ok = { durationSec: 10, pageVideos: { 'broll.mp4': false, 'game.mp4': { gainDb: -6, duck: false }, 'talk.mp4': { role: 'voice' } } };
+  assert.deepEqual(parseSpec(ok).pageVideos, ok.pageVideos);
+  assert.throws(() => parseSpec({ durationSec: 10, pageVideos: ['game.mp4'] }), /pageVideos maps a file the page plays to false or to the settings/);
+  assert.throws(() => parseSpec({ durationSec: 10, pageVideos: { 'game.mp4': true } }), /pageVideos\["game\.mp4"\] must be false, which leaves its sound out/);
+  assert.throws(() => parseSpec({ durationSec: 10, pageVideos: { 'game.mp4': { atSec: 2 } } }),
+    /pageVideos\["game\.mp4"\] has unknown field "atSec" \(known: gainDb, fadeInSec, fadeOutSec, role, duck, keepPan\)/);
+  assert.throws(() => parseSpec({ durationSec: 10, pageVideos: { 'game.mp4': { role: 'music' } } }), /role must be voice, sfx or ambience: a music track is looped/);
+  assert.throws(() => parseSpec({ durationSec: 10, pageVideos: { 'game.mp4': { gainDb: 'loud' } } }), /pageVideos\["game\.mp4"\]\.gainDb must be a number/);
+  assert.throws(() => parseSpec({ durationSec: 10, pageVideos: { 'talk.mp4': { role: 'voice', duck: true } } }), /is a voice track, which ducks the others/);
 });
 
 test('mix: the command refuses a malformed, unparsable or missing spec with a usage error', async () => {
@@ -435,6 +469,106 @@ test('mix: the music dips as deep under a quiet voice as under a loud one taking
   const dipQuiet = level.underQuiet - ducked.underQuiet;
   near(dipQuiet, dipLoud, 'the dip under the quiet voice');
   assert.ok(dipQuiet > 8, `and it is a real dip: ${dipQuiet.toFixed(1)} dB`);
+});
+
+type TrackOver = Partial<MixSpec['tracks'][number]>;
+const EFFECT_TONE = 'aevalsrc=sin(2*PI*5000*t)/8:s=48000';
+
+/**
+ * One line over a steady bed, the music a 200 Hz tone and, when asked, an effect a 5 kHz one under it all along, read
+ * in their bands. A voice given `rampSec` rises from silence over that long, as a spoken word does.
+ */
+function lineOverBed(name: string, line: [number, number], over: { music?: TrackOver; effect?: TrackOver; rampSec?: number } = {}) {
+  const dir = join(heard, name);
+  mkdirSync(join(dir, 'audio'), { recursive: true });
+  const ramp = over.rampSec ? `*min(1\\,(t-${line[0]})/${over.rampSec})` : '';
+  synthClip(dir, 'vo.m4a', { audio: `aevalsrc=${VOICE}*between(t\\,${line[0]}\\,${line[1]})${ramp}:s=48000`, seconds: 6 });
+  synthClip(dir, 'music.m4a', { audio: MUSIC, seconds: 6 });
+  const tracks: MixSpec['tracks'] = [
+    { path: 'vo.m4a', atSec: 0, role: 'voice' },
+    { path: 'music.m4a', atSec: 0, role: 'music', fadeOutSec: 0, ...over.music },
+  ];
+  if (over.effect) {
+    synthClip(dir, 'fx.m4a', { audio: EFFECT_TONE, seconds: 6 });
+    tracks.push({ path: 'fx.m4a', atSec: 0, role: 'sfx', gainDb: -6, ...over.effect });
+  }
+  writeFileSync(join(dir, 'audio', 'mix.json'), JSON.stringify({ durationSec: 6, tracks }));
+  assert.equal(captureConsole(() => mixAudio([dir])).result, 0);
+  const out = join(dir, 'audio', 'mix.m4a');
+  return (hz: number, from: number, to: number) => bandLevels(out, hz, [from, to])[0];
+}
+
+test('mix: the music is down before the first word and comes back gradually after the last', () => {
+  const ducked = lineOverBed('line-ducked', [1, 2.5]);
+  const level = lineOverBed('line-level', [1, 2.5], { music: { duck: false } });
+  const dip = (from: number, to: number) => level(200, from, to) - ducked(200, from, to);
+  assert.ok(dip(0.7, 1) > 8, `already down in the 0.3 s before the word: ${dip(0.7, 1).toFixed(1)} dB`);
+  assert.ok(dip(2.8, 3.1) > 3, `still under the voice's room 0.3 s after the last word: ${dip(2.8, 3.1).toFixed(1)} dB`);
+  assert.ok(dip(5, 5.8) < 1, `and back at its own level 2.5 s after it: ${dip(5, 5.8).toFixed(1)} dB`);
+});
+
+test('mix: a voice from the first frame to the last finds the music down from its start, and the music runs to the end', () => {
+  const ducked = lineOverBed('line-whole', [0, 6], { rampSec: 0.25 });
+  const level = lineOverBed('line-whole-level', [0, 6], { rampSec: 0.25, music: { duck: false } });
+  const dip = (from: number, to: number) => level(200, from, to) - ducked(200, from, to);
+  const deep = dip(2, 3);
+  assert.ok(Math.abs(dip(0, 0.25) - deep) < 1,
+    `down from the first frame while the voice rises, as deep as under the rest of the line: ${dip(0, 0.25).toFixed(1)} dB against ${deep.toFixed(1)}`);
+  // The duck reads the voice half a second ahead, so over the last half second it starts to let go: 1.4 dB here.
+  assert.ok(Math.abs(deep - dip(5.6, 5.95)) < 2.5,
+    `and over 5.6 to 5.95 s the music is as far under the voice as over the line: ${dip(5.6, 5.95).toFixed(1)} dB down against ${deep.toFixed(1)}`);
+});
+
+test('mix: an effect under the music keeps a duck that reads the voice as it plays and lets go within the beat after it', () => {
+  const ducked = lineOverBed('line-fx', [1, 2.5], { effect: {} });
+  const level = lineOverBed('line-fx-level', [1, 2.5], { music: { duck: false }, effect: { duck: false } });
+  const dip = (hz: number, from: number, to: number) => level(hz, from, to) - ducked(hz, from, to);
+  assert.ok(dip(200, 0.7, 1) > 8 && dip(5000, 0.7, 1) < 1,
+    `before the word the music is down and the effect is not: ${dip(200, 0.7, 1).toFixed(1)} and ${dip(5000, 0.7, 1).toFixed(1)} dB`);
+  assert.ok(dip(5000, 1.5, 2.3) > 8, `under the word the effect is ducked: ${dip(5000, 1.5, 2.3).toFixed(1)} dB`);
+  assert.ok(dip(200, 2.9, 3.2) > 3 && dip(5000, 2.9, 3.2) < 1,
+    `0.4 s after the word the music is still down and the effect is back: ${dip(200, 2.9, 3.2).toFixed(1)} and ${dip(5000, 2.9, 3.2).toFixed(1)} dB`);
+});
+
+test('mix: a mix with a voice, ducked music and a ducked effect comes out the same on every run', () => {
+  const dir = join(heard, 'same-twice');
+  mkdirSync(join(dir, 'audio'), { recursive: true });
+  synthClip(dir, 'vo.m4a', { audio: `aevalsrc=${VOICE}*between(t\\,0.5\\,2):s=48000`, seconds: 3 });
+  synthClip(dir, 'music.m4a', { audio: MUSIC, seconds: 3 });
+  synthClip(dir, 'fx.m4a', { audio: EFFECT_TONE, seconds: 3 });
+  writeFileSync(join(dir, 'audio', 'mix.json'), JSON.stringify({ durationSec: 3, tracks: [
+    { path: 'vo.m4a', atSec: 0, role: 'voice' },
+    { path: 'music.m4a', atSec: 0, role: 'music' },
+    { path: 'fx.m4a', atSec: 1, role: 'sfx', gainDb: -6 },
+  ] }));
+  for (const out of ['audio/a.wav', 'audio/b.wav']) assert.equal(captureConsole(() => mixAudio([dir, '--out', out])).result, 0);
+  assert.ok(readFileSync(join(dir, 'audio', 'a.wav')).equals(readFileSync(join(dir, 'audio', 'b.wav'))));
+});
+
+/** A float WAV's samples, both channels interleaved. */
+function samplesOf(file: string): Float32Array {
+  const raw = execFileSync(FFMPEG, ['-v', 'error', '-i', file, '-f', 'f32le', '-'], { maxBuffer: 1 << 28 });
+  return new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+}
+
+// 61 frames at 30 fps: a length no whole number of milliseconds reaches.
+test('mix: a ducked music bed and a ducked effect sound to the film\'s last sample, whatever its length', () => {
+  const durationSec = 2.033333;
+  for (const role of ['music', 'sfx'] as const) {
+    const dir = join(heard, `last-sample-${role}`);
+    mkdirSync(join(dir, 'audio'), { recursive: true });
+    synthClip(dir, 'vo.m4a', { audio: `aevalsrc=${VOICE}:s=48000`, seconds: 1 });
+    synthClip(dir, 'bed.m4a', { audio: role === 'music' ? MUSIC : EFFECT_TONE, seconds: 3 });
+    writeFileSync(join(dir, 'audio', 'mix.json'), JSON.stringify({ durationSec, tracks: [
+      { path: 'vo.m4a', atSec: 0, role: 'voice' },
+      { path: 'bed.m4a', atSec: 0, role, gainDb: -6, fadeOutSec: 0 },
+    ] }));
+    assert.equal(captureConsole(() => mixAudio([dir, '--out', 'audio/mix.wav'])).result, 0);
+    const pcm = samplesOf(join(dir, 'audio', 'mix.wav'));
+    assert.equal(pcm.length / 2, Math.round(durationSec * 48000), `the ${role} mix is the film's length`);
+    const last = pcm.findLastIndex((v) => Math.abs(v) > 1e-6);
+    assert.equal(Math.floor(last / 2), pcm.length / 2 - 1, `the ${role} sounds to the last sample, not ${pcm.length / 2 - 1 - Math.floor(last / 2)} short of it`);
+  }
 });
 
 // --- an effect set under the voice ---------------------------------------------------
@@ -652,6 +786,36 @@ test('mix: a bed that fades to silence before its file ends is looped from where
   assert.ok(lastSound(out) > 10 - TAIL_SECONDS, `sound to within a beat of the end: ${lastSound(out)}s`);
 });
 
+// A generated piece's last chord rings on far under its own level: an 82 s track with 78 s of it needed was looped, and
+// its opening restarted under the closing card.
+test('mix: a bed whose last chord decays to the end of its file plays once when the file covers the film', () => {
+  const run = join(heard, 'bed-decays-to-end');
+  mkdirSync(join(run, 'audio'), { recursive: true });
+  // At its level for 2 s, then 4 dB quieter every second to the end of the file.
+  synthClip(run, 'music.m4a', { audio: 'aevalsrc=sin(2*PI*200*t)/2*if(lt(t\\,2)\\,1\\,exp(-0.46*(t-2))):s=48000', seconds: 10 });
+  writeFileSync(join(run, 'audio', 'mix.json'), JSON.stringify({ durationSec: 9, tracks: [{ path: 'music.m4a', atSec: 0, role: 'music' }] }));
+  const source = join(run, 'music.m4a');
+  assert.ok(lastSound(source) < 8.5, `20 dB under its level ${lastSound(source)}s in, short of the film's 9 s`);
+  assert.ok(windows(source).at(-1)! > SILENCE_FLOOR_DB, 'and still sounding at the end of its file');
+  const { result, out: said } = captureConsole(() => mixAudio([run]));
+  assert.equal(result, 0);
+  assert.doesNotMatch(said, /looped/);
+  const out = join(run, 'audio', 'mix.m4a');
+  assert.ok(bandLevels(out, 200, [7.5, 8.5])[0] < bandLevels(out, 200, [0.5, 1.5])[0] - 15, 'its opening is not played again under the ending');
+});
+
+test('mix: a bed with seconds of true silence after its sound is still looped over them', () => {
+  const run = join(heard, 'bed-then-silence');
+  mkdirSync(join(run, 'audio'), { recursive: true });
+  synthClip(run, 'music.m4a', { audio: 'aevalsrc=sin(2*PI*200*t)/8*lt(t\\,7):s=48000', seconds: 10 });
+  writeFileSync(join(run, 'audio', 'mix.json'), JSON.stringify({ durationSec: 10, tracks: [{ path: 'music.m4a', atSec: 0, role: 'music' }] }));
+  const { result, out: said } = captureConsole(() => mixAudio([run]));
+  assert.equal(result, 0);
+  assert.match(said, /music\.m4a looped to 10s \(its sound ends 7(\.\d)?s in\): 1 repeat joined by a 1s crossfade/);
+  const out = join(run, 'audio', 'mix.m4a');
+  assert.ok(lastSound(out) > 10 - TAIL_SECONDS, `sound to within a beat of the end: ${lastSound(out)}s`);
+});
+
 test('mix: a music track with an endSec stops there, faded, and an earlier cue keeps its own length', () => {
   const run = join(heard, 'own-end');
   mkdirSync(join(run, 'audio'), { recursive: true });
@@ -688,4 +852,235 @@ test('mix: --video gives the mix its length, and wins over a durationSec left fr
   assert.equal(result, 0);
   assert.match(out, /durationSec is 3s in the spec and .*render\.mp4 runs 5s; the mix runs 5s/);
   assert.ok(Math.abs(length() - 5) < 0.05, `still the video's 5 s, got ${length()}`);
+});
+
+// --- the page's own videos --------------------------------------------------------------
+// The render records, every third frame at 30 fps, which second of which file each <video> of the page shows; a page
+// whose videos are given here as page time -> file time (null where the video is not shown) is recorded the same way.
+
+/** Each file's second shown at a page time: one, one per element showing it, or none. */
+type Shows = Record<string, (p: number) => number | number[] | null>;
+
+function recordOf(seconds: number, shows: Shows): TextRecord {
+  const frames = seconds * 30;
+  const samples: TextRecord['samples'] = [];
+  const box: [number, number, number, number] = [0, 0, 160, 90];
+  for (let frame = 0; frame < frames; frame += 3) {
+    const p = frame / 30;
+    const videos = Object.entries(shows).flatMap(([file, at]) => [at(p) ?? []].flat()
+      .map((f) => ({ file, time: Math.round(f * 1e6) / 1e6, box, shown: box })));
+    samples.push({ frame, time: Math.round(p * 1000) / 1000, texts: [], ...(videos.length ? { videos } : {}) });
+  }
+  return { version: 1, page: '/page.html', width: 320, height: 240, fps: '30', frames, transparent: false, framesPerSample: 3, samples };
+}
+
+const between = (from: number, to: number, f: (p: number) => number) => (p: number) => (p >= from - 1e-9 && p < to - 1e-9 ? f(p) : null);
+const sounds = (shows: Shows, seconds = 10, length = 100): PageSound[] => pageSounds(recordOf(seconds, shows), () => length);
+const near3 = (actual: number, expected: number, what: string) => assert.ok(Math.abs(actual - expected) < 1e-3, `${what}: ${actual}, expected ${expected}`);
+const ms3 = (v: number) => Math.round(v * 1000) / 1000;
+
+test('page sound: a clip plays from the moment it is shown, at the second of its file the render showed there', () => {
+  // The render plays a clip it is not told otherwise about on the page's clock, 0.1 ms ahead.
+  const [s] = sounds({ '/a.mp4': between(2, 5, (p) => p + 1e-4) });
+  assert.equal(s.stretches.length, 1);
+  near3(s.stretches[0].at, 2, 'at');
+  near3(s.stretches[0].in, 2.0001, 'in');
+  near3(s.stretches[0].out, 5.0001, 'out, at the sample after the last one that shows it');
+  assert.equal(s.stretches[0].rate, 1);
+  // A page that starts its clip from a later second: a trim.
+  const [trim] = sounds({ '/a.mp4': between(3, 6, (p) => p - 3 + 10) });
+  near3(trim.stretches[0].in, 10, 'a trimmed clip starts from its own second');
+});
+
+test('page sound: a clip started from its file\'s start between two samples starts there, not at the next sample', () => {
+  const [s] = sounds({ '/a.mp4': between(3.05, 6, (p) => p - 3.05) });
+  near3(s.stretches[0].at, 3.05, 'at');
+  near3(s.stretches[0].in, 0, 'in');
+});
+
+test('page sound: a looped clip is laid again from its start at each loop, where the loop happened between samples', () => {
+  const [s] = sounds({ '/a.mp4': between(0, 5, (p) => p % 1.55) }, 10, 1.55);
+  assert.deepEqual(s.stretches.map((x) => [ms3(x.at), ms3(x.in), ms3(x.out)]), [[0, 0, 1.55], [1.55, 0, 1.55], [3.1, 0, 1.55], [4.65, 0, 0.35]]);
+  // Two copies crossfaded into each other (a loop made of two elements) are two sounds while both show.
+  const [two] = sounds({ '/g.mp4': (p) => [...(p < 4 ? [p] : []), ...(p >= 3.6 ? [p - 3.6] : [])] }, 6, 4);
+  assert.equal(two.stretches.length, 2, 'the second copy may share a sample with the first and still be its own');
+  // Not 3.7, the first sample it shows in: its line meets the file's start at 3.6.
+  assert.deepEqual(two.stretches.map((x) => [ms3(x.at), ms3(x.in), ms3(x.out)]), [[0, 0, 4], [3.6, 0, 2.4]]);
+});
+
+test('page sound: speed is read from how fast the picture moves through its file, and only the speeds Chrome plays are heard', () => {
+  const [fast] = sounds({ '/a.mp4': between(1, 3, (p) => 2 * (p - 1)) });
+  near3(fast.stretches[0].rate, 2, 'rate');
+  near3(fast.stretches[0].out, 4, 'two seconds of page carry four of the file');
+  const [held] = sounds({ '/a.mp4': between(1, 3, () => 2) });
+  assert.deepEqual([held.stretches, held.unheard], [[], []], 'a picture held on one frame is silent, and nothing is said');
+  const [back] = sounds({ '/a.mp4': between(1, 3, (p) => 10 - p) });
+  assert.equal(back.stretches.length, 0);
+  assert.deepEqual(back.unheard.map((u) => [u.from, u.to, Math.round(u.rate)]), [[1, 3, -1]], 'backwards is named');
+  const [blur] = sounds({ '/a.mp4': between(1, 3, (p) => 20 * p) }, 10, 1000);
+  assert.deepEqual(blur.unheard.map((u) => Math.round(u.rate)), [20], 'past 16x is named');
+});
+
+test('page sound: two elements showing one file at one moment are one sound, and the sound stops where the file\'s does', () => {
+  const at = between(0, 5, (p) => p);
+  const record = recordOf(10, { '/a.mp4': at });
+  for (const s of record.samples) if (s.videos) s.videos.push({ ...s.videos[0] });
+  assert.equal(pageSounds(record, () => 100)[0].stretches.length, 1, 'a blurred copy behind the clip is not a second sound');
+  const [short] = sounds({ '/a.mp4': at }, 10, 3);
+  near3(short.stretches[0].out, 3, 'its sound ends at 3 s while its picture holds to 5 s');
+});
+
+test('page sound: each stretch is cut on the file\'s own clock, sped, faded at its edges and placed', () => {
+  assert.deepEqual(tempoOf(1), []);
+  assert.deepEqual(tempoOf(2), ['atempo=2']);
+  assert.deepEqual(tempoOf(0.1), ['atempo=0.5', 'atempo=0.5', 'atempo=0.5', 'atempo=0.8'], 'one step goes no slower than half speed');
+  const graph = stemGraph([{ at: 2.5, in: 7.5, out: 9.5, rate: 1 }, { at: 4.5, in: 0, out: 4, rate: 2 }], 2.5, 4);
+  assert.match(graph, /^\[0:a\]atrim=start=7\.5:end=9\.5,asetpts=PTS-7\.5\/TB,aresample=48000:async=1:first_pts=0,/,
+    'trimmed on its own timestamps, a gap before its sound padded, never shifted to its first sample');
+  assert.match(graph, new RegExp(`afade=t=in:d=${EDGE_FADE_SEC},afade=t=out:st=1\\.99:d=${EDGE_FADE_SEC},adelay=delays=0\\.000:all=1\\[s0\\]`));
+  assert.match(graph, /\[1:a\]atrim=start=0:end=4,.*atempo=2,asetpts=N\/SR\/TB,.*adelay=delays=2000\.000:all=1\[s1\]/);
+  assert.match(graph, /\[s0\]\[s1\]amix=inputs=2:normalize=0,asetpts=N\/SR\/TB,apad=whole_dur=4,atrim=0:4\[stem\]$/);
+});
+
+// A tone burst every second of a clip's file, at 0.5, 1.5, 2.5 and 3.5 s, so where each lands in the mix says which
+// second of the file plays there.
+const BURSTS = 'aevalsrc=sin(2*PI*2000*t)/2*lt(mod(t+0.5\\,1)\\,0.02):s=48000';
+
+/** Where each burst starts in a file, in seconds: the first sample over a tenth of full scale after 0.2 s under it. */
+function burstsIn(file: string): number[] {
+  const pcm = decode(file, null);
+  const starts: number[] = [];
+  let last = -Infinity;
+  for (let i = 0; i < pcm.length; i++) {
+    if (Math.abs(pcm[i]) < 3277) continue;
+    if (i - last > 0.2 * SAMPLE_RATE) starts.push(i / SAMPLE_RATE);
+    last = i;
+  }
+  return starts;
+}
+
+function pageRun(name: string, clips: Record<string, { audio?: string; seconds: number }>, shows: (abs: (f: string) => string) => Shows,
+  spec: object, seconds = 10): { run: string; video: string } {
+  const run = join(heard, name);
+  mkdirSync(join(run, 'audio'), { recursive: true });
+  for (const [file, c] of Object.entries(clips)) synthClip(run, file, { video: TESTSRC, ...(c.audio ? { audio: c.audio } : {}), seconds: c.seconds });
+  const video = synthClip(run, 'out.mp4', { video: 'testsrc=size=320x240:rate=30', seconds });
+  writeRecord(video, recordOf(seconds, shows((f) => join(run, f))));
+  writeFileSync(join(run, 'audio', 'mix.json'), JSON.stringify(spec));
+  return { run, video };
+}
+
+const landsAt = (actual: number[], expected: number[], within = 0.004) => {
+  const said = `bursts at ${actual.map((t) => t.toFixed(4)).join(', ')}, expected ${expected.join(', ')}`;
+  assert.equal(actual.length, expected.length, said);
+  actual.forEach((t, i) => assert.ok(Math.abs(t - expected[i]) < within, said));
+};
+
+test('page sound: a clip looped under a longer piece is heard where each loop shows, with no spec entry', () => {
+  // Shown from 1 s to 9 s, looped every 4 s: its bursts land 1.5 s into the page and every second after.
+  const { run, video } = pageRun('page-loop', { 'clip.mp4': { audio: BURSTS, seconds: 4 } },
+    (abs) => ({ [abs('clip.mp4')]: between(1, 9, (p) => (p - 1) % 4) }), { tracks: [] });
+  const { result, out } = captureConsole(() => mixAudio([run, '--video', video]));
+  assert.equal(result, 0, out);
+  assert.match(out, /^mix-audio: clip\.mp4, a video the page plays, laid in as sfx: 0-4s of the file from 1s, 0-4s of the file from 5s$/m);
+  landsAt(burstsIn(join(run, 'audio', 'mix.m4a')), [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5]);
+});
+
+test('page sound: a trimmed clip at double speed lands where its picture does, and what is left out says why', () => {
+  const { run, video } = pageRun('page-speed', {
+    'fast.mp4': { audio: BURSTS, seconds: 4 },
+    'mute.mp4': { seconds: 2 },
+    'skip.mp4': { audio: BURSTS, seconds: 2 },
+    'own.mp4': { audio: BURSTS, seconds: 4 },
+    'still.mp4': { audio: BURSTS, seconds: 2 },
+    'late.mp4': { audio: BURSTS, seconds: 2 },
+  }, (abs) => ({
+    // From its second 1, twice as fast, from 2 s to 3.5 s on the page: its bursts at 1.5, 2.5 and 3.5 land at 2.25, 2.75, 3.25.
+    [abs('fast.mp4')]: between(2, 3.5, (p) => 1 + 2 * (p - 2)),
+    [abs('mute.mp4')]: between(0, 1, (p) => p),
+    [abs('skip.mp4')]: between(5, 6, (p) => p - 5),
+    [abs('own.mp4')]: between(6, 7, (p) => p - 6),
+    // Held on its second 1, and shown from its second 3 though its sound ends at 2: neither plays any sound.
+    [abs('still.mp4')]: between(4, 5, () => 1),
+    [abs('late.mp4')]: between(7, 8, (p) => p - 4),
+  }), { tracks: [{ path: 'own.mp4', atSec: 8 }], pageVideos: { 'skip.mp4': false } });
+  const { result, out } = captureConsole(() => mixAudio([run, '--video', video]));
+  assert.equal(result, 0, out);
+  assert.match(out, /^mix-audio: fast\.mp4, a video the page plays, laid in as sfx: 1-4s of the file from 2s at 2x$/m);
+  assert.match(out, /^mix-audio: mute\.mp4, a video the page plays from 0s to 1s, is left out: it has no sound$/m);
+  assert.match(out, /^mix-audio: skip\.mp4, a video the page plays from 5s to 6s, is left out: the spec's pageVideos sets it false$/m);
+  assert.match(out, /^mix-audio: own\.mp4, a video the page plays from 6s to 7s, is left out: the spec lays that file as a track of its own$/m);
+  for (const [file, span] of [['still', '4s to 5s'], ['late', '7s to 8s']]) {
+    assert.match(out, new RegExp(`^mix-audio: ${file}\\.mp4, a video the page plays from ${span}, is left out: it holds still or shows only frames after its sound ends, so none of its sound plays$`, 'm'));
+  }
+  // Time-stretching moves a burst after silence by up to half of atempo's 43 ms window, here under a 30 fps frame.
+  landsAt(burstsIn(join(run, 'audio', 'mix.m4a')), [2.25, 2.75, 3.25, 8.5, 9.5], 1 / 30);
+});
+
+test('page sound: the newest render in the run is read without --video, a page video can be the voice, and the rest duck under it', () => {
+  const { run } = pageRun('page-voice', {
+    'talk.mp4': { audio: `aevalsrc=${VOICE}:s=48000`, seconds: 3 },
+    'game.mp4': { audio: MUSIC, seconds: 3 },
+  }, (abs) => ({ [abs('talk.mp4')]: between(0, 3, (p) => p), [abs('game.mp4')]: between(0, 3, (p) => p) }),
+  { durationSec: 3, pageVideos: { 'talk.mp4': { role: 'voice' } } }, 3);
+  const { result, out } = captureConsole(() => mixAudio([run]));
+  assert.equal(result, 0, out);
+  assert.match(out, /^mix-audio: the page's videos are read from .*out\.mp4\.text\.json, the run's newest render; --video names another$/m);
+  assert.match(out, /^mix-audio: talk\.mp4, a video the page plays, laid in as voice: 0-3s of the file from 0s$/m);
+  assert.match(out, /^mix-audio: game\.mp4, a video the page plays, laid in as sfx, ducked under the voice: 0-3s of the file from 0s$/m);
+  assert.match(out, /^mix-audio: game\.mp4 at 0s set -?[\d.]+ dB, its loudest moment from .* 8 LU under the voice/m, 'set under the voice by measuring both');
+  const mixed = join(run, 'audio', 'mix.m4a');
+  assert.ok(bandLevels(mixed, 1000, [0.5, 2.5])[0] - bandLevels(mixed, 200, [0.5, 2.5])[0] > 10, 'the voice on top, the game under it');
+});
+
+test('page sound: a pageVideos entry the page does not play, or with no render to read, is refused as a spec mistake', () => {
+  const { run, video } = pageRun('page-unplayed', { 'game.mp4': { audio: BURSTS, seconds: 2 } },
+    (abs) => ({ [abs('game.mp4')]: between(0, 2, (p) => p) }), { tracks: [], pageVideos: { 'gameplay.mp4': false } }, 2);
+  const refused = captureConsole(() => mixAudio([run, '--video', video]));
+  assert.equal(refused.result, 2);
+  assert.match(refused.err, /pageVideos names gameplay\.mp4, which the page does not play in .*out\.mp4 \(it plays game\.mp4\)/);
+  const bare = join(heard, 'page-none');
+  mkdirSync(join(bare, 'audio'), { recursive: true });
+  synthClip(bare, 'vo.m4a', { audio: `aevalsrc=${VOICE}:s=48000`, seconds: 1 });
+  writeFileSync(join(bare, 'audio', 'mix.json'), JSON.stringify({ durationSec: 1, tracks: [], pageVideos: { 'game.mp4': false } }));
+  const none = captureConsole(() => mixAudio([bare]));
+  assert.equal(none.result, 2);
+  assert.match(none.err, /pageVideos names game\.mp4, but no render in .* has a record of its page's videos beside it/);
+  writeFileSync(join(bare, 'audio', 'mix.json'), JSON.stringify({ durationSec: 1 }));
+  const empty = captureConsole(() => mixAudio([bare]));
+  assert.equal(empty.result, 2);
+  assert.match(empty.out, /no render in .* has a record of its page's videos beside it .*, so no page video's sound is laid in; --video names the render/);
+  assert.match(empty.err, /nothing to mix: the spec has no tracks, and no video the page plays has sound to lay in/);
+});
+
+// --- a ducked bed's timing ---------------------------------------------------------------
+// Bursts in a bed under a voice that speaks throughout and stays under burstsIn's threshold, so where each burst lands
+// in the ducked mix says whether the duck's lead was trimmed back off every layer of the bed.
+
+function bedsUnderVoice(name: string, layers: string[], duck: boolean): number[] {
+  const dir = join(heard, name);
+  mkdirSync(join(dir, 'audio'), { recursive: true });
+  synthClip(dir, 'vo.m4a', { audio: `aevalsrc=${VOICE}:s=48000`, seconds: 6 });
+  layers.forEach((audio, k) => synthClip(dir, `bed${k}.m4a`, { audio, seconds: 6 }));
+  writeFileSync(join(dir, 'audio', 'mix.json'), JSON.stringify({ durationSec: 6, tracks: [
+    { path: 'vo.m4a', atSec: 0, role: 'voice', gainDb: -6 },
+    ...layers.map((_, k) => ({ path: `bed${k}.m4a`, atSec: 0, role: 'ambience', duck })),
+  ] }));
+  assert.equal(captureConsole(() => mixAudio([dir])).result, 0);
+  return burstsIn(join(dir, 'audio', 'mix.m4a'));
+}
+
+test('mix: a ducked bed plays in time with the voice, its lead trimmed back off', () => {
+  const level = bedsUnderVoice('bursts-level', [BURSTS], false);
+  assert.deepEqual(level.map((t) => Math.round(t * 10) / 10), [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]);
+  landsAt(bedsUnderVoice('bursts-ducked', [BURSTS], true), level);
+});
+
+// A second layer bursting a quarter second after each of the first's, so one layer moved alone moves its own bursts.
+const LATE_BURSTS = 'aevalsrc=sin(2*PI*2000*t)/2*lt(mod(t+0.75\\,1)\\,0.02):s=48000';
+
+test('mix: two ducked beds share one lead, so both play in time', () => {
+  const level = bedsUnderVoice('two-beds-level', [BURSTS, LATE_BURSTS], false);
+  assert.equal(level.length, 12);
+  landsAt(bedsUnderVoice('two-beds-ducked', [BURSTS, LATE_BURSTS], true), level);
 });

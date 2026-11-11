@@ -130,7 +130,8 @@ async function run(planPath: string, values: Values, made: { url?: string }): Pr
     if (p.type === 'edl') {
       const loaded = loadEdl(at(p.file));
       const ids = sourceOrder(loaded.edl.ranges);
-      const ranges = snapRanges(loaded.edl.ranges, new Map(ids.map((id) => [id, probeFps(sourcePath(loaded, id))])));
+      const ranges = snapRanges(loaded.edl.ranges, new Map(ids.map((id) => [id, probeFps(sourcePath(loaded, id))])),
+        new Map(ids.map((id) => [id, videoDurationOf(sourcePath(loaded, id))])));
       // Laid at 1x, a range at another speed would change the length of the cut and move every later range.
       const sped = ranges.findIndex((r) => (r.speed ?? 1) !== 1);
       if (sped >= 0) {

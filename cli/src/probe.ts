@@ -94,6 +94,12 @@ export function codecOf(video: string): string {
   return String(videoStream(video, 'stream=codec_name', 'codec').codec_name ?? '');
 }
 
+/** codecOf, or null when the first video stream is a sound file's cover art rather than a picture that plays. */
+export function pictureCodecOf(video: string): string | null {
+  const s = videoStream(video, 'stream=codec_name:stream_disposition=attached_pic', 'codec');
+  return (s.disposition as { attached_pic?: number } | undefined)?.attached_pic === 1 ? null : String(s.codec_name ?? '');
+}
+
 /** The first video stream's pixel format as ffmpeg names it, e.g. `yuv420p10le`. */
 export function pixelFormatOf(video: string): string {
   return String(videoStream(video, 'stream=pix_fmt', 'pixel format').pix_fmt ?? '');

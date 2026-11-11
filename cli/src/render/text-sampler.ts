@@ -1,4 +1,4 @@
-// The script that lists the text a page draws, and the <video> elements it shows, injected beside the page runtime.
+// The script that lists the text a page draws, and the <video> and <img> elements it shows, injected beside the page runtime.
 // The renderer calls it right after capturing a frame, so it reads the layout that frame was drawn from: the static
 // HTML cannot answer this, since text animates, appears, moves and changes. It reads layout and style only, so the
 // next frame draws the same.
@@ -14,8 +14,8 @@ export interface SampledVideo {
   shown: [number, number, number, number];
 }
 
-/** What the sampler reads off one frame. */
-export interface SampledFrame { texts: TextEntry[]; videos: SampledVideo[] }
+/** What the sampler reads off one frame; `images` are the source URLs of the <img> elements it shows. */
+export interface SampledFrame { texts: TextEntry[]; videos: SampledVideo[]; images: string[] }
 
 /** One text the frame shows: an element's own text nodes, measured in the output video's pixels. */
 export interface TextEntry {
@@ -331,7 +331,16 @@ const SOURCE = String.raw`
       if (shown[2] <= shown[0] || shown[3] <= shown[1]) continue;
       videos.push({ src, time: Math.round(v.currentTime * 1e6) / 1e6, box: toOut(box), shown: toOut(shown) });
     }
-    return { texts: out, videos };
+    const images = [];
+    for (const img of document.images) {
+      const src = img.currentSrc || img.src;
+      if (!src || !img.naturalWidth || images.includes(src)) continue;
+      if (styleOf(img).cs.visibility !== 'visible' || opacityOf(img) < 0.01) continue;
+      const r = img.getBoundingClientRect();
+      const shown = meet(meet(clipOf(img), canvas), [r.left, r.top, r.right, r.bottom]);
+      if (shown[2] > shown[0] && shown[3] > shown[1]) images.push(src);
+    }
+    return { texts: out, videos, images };
   };
   const KEYWORD = { left: 0, top: 0, center: 0.5, right: 1, bottom: 1 };
   // A computed object-position's offsets across the slack either way, or null for a form it does not know: never a guess.

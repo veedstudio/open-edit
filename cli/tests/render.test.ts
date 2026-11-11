@@ -522,6 +522,52 @@ test('render: a <video> shows the picture for each frame, from a long-GOP source
   assert.equal(copiesIn(dir).length, 2, 'the old copy stays until the cache needs its room');
 });
 
+const x265 = execFileSync(FFMPEG, ['-hide_banner', '-encoders'], { encoding: 'utf8' }).includes('libx265') ? false : 'this ffmpeg has no libx265 to make HEVC with';
+
+test('render: a <video> in HEVC of 10 bits, which Chrome has no decoder for, plays from an H.264 copy, with a sound track or without', { skip: skip || x265 }, () => {
+  const dir = scratchDir('render-hevc');
+  // The bar clip, as an image-to-video model returns it: HEVC Main 10. The one with a sound track is all-intra, so
+  // only its codec can get it a copy; Chrome plays its sound without its picture rather than report it unplayable.
+  const hevc = (name: string, sound: boolean) => {
+    const h264 = barClip(dir, `${name}.h264.mp4`, { frames: 90 });
+    const audio = sound ? ['-f', 'lavfi', '-i', 'sine=d=3', '-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-shortest'] : [];
+    execFileSync(FFMPEG, ['-v', 'error', '-y', '-i', h264, ...audio, '-c:v', 'libx265', '-x265-params', `log-level=error${sound ? ':keyint=1' : ''}`,
+      '-pix_fmt', 'yuv420p10le', '-tag:v', 'hvc1', join(dir, `${name}.mp4`)]);
+  };
+  hevc('silent', false);
+  hevc('sound', true);
+  assert.equal(probe(join(dir, 'silent.mp4'), 'stream=codec_name,profile,pix_fmt'), 'hevc,Main 10,yuv420p10le');
+  const file = page(dir, 'hevc.html', `<video src="silent.mp4" muted playsinline style="position:absolute;left:0;top:0;width:${W}px;height:${H / 2}px;object-fit:fill"></video>
+<video src="sound.mp4" muted playsinline style="position:absolute;left:0;top:${H / 2}px;width:${W}px;height:${H / 2}px;object-fit:fill"></video>`);
+  const out = join(dir, 'out.mp4');
+  const go = (...more: string[]) => render([file, '--out', out, '--fps', '30', '--frames', '45', '--workers', '2', '--segment', '1', ...more]);
+  const r = go();
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /made an H\.264 copy of silent\.mp4, since Chrome cannot play its picture \(hevc\)/);
+  assert.match(r.err, /made an H\.264 copy of sound\.mp4, since Chrome cannot play its picture \(hevc\)/);
+  assert.doesNotMatch(r.err, /failed to load or play/);
+  const frames = grayFrames(out);
+  const bars = Array.from({ length: 45 }, (_, i) => i);
+  assert.deepEqual(frames.map((f) => Math.round(edge(f, H / 4) / 4)), bars, 'the silent clip shows, frame-exact');
+  assert.deepEqual(frames.map((f) => Math.round(edge(f, (3 * H) / 4) / 4)), bars, 'the clip with a sound track shows, frame-exact');
+
+  const stills = render([file, '--out', join(dir, 'stills'), '--stills', '1.2']);
+  assert.equal(stills.code, 0, stills.err);
+  assert.doesNotMatch(stills.err, /H\.264 copy/, 'stills play the copies the render made');
+  const still = grayPng(join(dir, 'stills', 'f000036-1.200s.png'));
+  assert.deepEqual([edge(still, H / 4), edge(still, (3 * H) / 4)].map((x) => Math.round(x / 4)), [36, 36]);
+
+  // A render cached before these copies drew the clips blank, so a patch never splices its segments in.
+  const manifest = join(`${out}.render`, 'manifest.json');
+  const m = JSON.parse(readFileSync(manifest, 'utf8')) as { params: { recoded?: string } };
+  assert.equal(m.params.recoded, 'H.264 copies of hevc');
+  delete m.params.recoded;
+  writeFileSync(manifest, JSON.stringify(m));
+  const patch = go('--from', '0.5', '--to', '1');
+  assert.equal(patch.code, 2, patch.err);
+  assert.match(patch.err, /the cached render was made differently \(recoded undefined → "H\.264 copies of hevc"/);
+});
+
 test('render: stills into two directories, and a video render after them, share one copy of the source, and a changed source gets its own', { skip }, () => {
   const dir = scratchDir('render-shared-copy');
   barClip(dir, 'clip.mp4', { frames: 90 });
@@ -656,6 +702,67 @@ window.__seek = (t) => { const target = ((Math.round(t * 30) * 7) % 50 + 0.5) / 
   const r = render([file, '--out', out, '--frames', '150', '--workers', '2']);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(grayFrames(out).map((f) => Math.round(edge(f, 90) / 4)), Array.from({ length: 150 }, (_, i) => (i * 7) % 50));
+});
+
+test('render: once __seek has placed a <video>, a frame __seek places it in again seeks it only there', { skip }, () => {
+  const dir = scratchDir('render-placed-once');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
+    `color=c=black:s=${W}x${H}:r=30:d=2,format=yuv420p,geq=lum='if(between(X\\,4*N\\,4*N+3)\\,235\\,16)':cb=128:cr=128`,
+    '-c:v', 'libx264', '-g', '1', '-pix_fmt', 'yuv420p', join(dir, 'clip.mp4')]);
+  // A frame that seeks the clip twice can be captured showing the first seek's picture on some platforms only, so
+  // the page counts the seeks instead: each __seek writes how many seeks since the last went anywhere but its own time.
+  const file = page(dir, 'count.html', `<video id="v" src="clip.mp4" muted playsinline style="position:absolute;left:0;top:0;width:${W}px;height:${H}px"></video>
+<div id="n" style="position:absolute;left:10px;top:10px;color:#fff;font:24px sans-serif">-</div>
+<script>
+const v = document.getElementById('v'), n = document.getElementById('n');
+let seeks = 0, placed = null;
+v.addEventListener('seeking', () => { if (placed === null || Math.abs(v.currentTime - placed) > 1e-3) seeks += 1; });
+window.__seek = (t) => {
+  n.textContent = 'renderer seeks ' + seeks;
+  seeks = 0;
+  if (t >= 1) { placed = t - 1; v.currentTime = placed; }
+};
+</script>`);
+  const out = join(dir, 'out.mp4');
+  const r = render([file, '--out', out, '--frames', '60', '--workers', '2']);
+  assert.equal(r.code, 0, r.err);
+  const said = (from: number, to: number) => readRecord(recordPath(out)).samples.filter((s) => s.frame >= from && s.frame < to).map((s) => s.texts.map((e) => e.text).join());
+  // Before the page places the clip the renderer seeks it every frame, which shows the count is read.
+  assert.deepEqual(said(1, 30), Array(9).fill('renderer seeks 1'));
+  assert.deepEqual(said(31, 60), Array(9).fill('renderer seeks 0'));
+});
+
+test('render: a <video> __seek places for part of a data-stateless page shows the page time elsewhere, whatever the workers or a patch skip', { skip }, () => {
+  const dir = scratchDir('render-placed-span');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
+    `color=c=black:s=${W}x${H}:r=30:d=3,format=yuv420p,geq=lum='if(between(X\\,4*N\\,4*N+3)\\,235\\,16)':cb=128:cr=128`,
+    '-c:v', 'libx264', '-g', '1', '-pix_fmt', 'yuv420p', join(dir, 'clip.mp4')]);
+  // Held on clip frame 15 over frames 42-50 only, and set only when it reads elsewhere. The workers start at frames 30
+  // and 60 and the patch at 60, so the frames after the hold come from a worker that ran it and from ones that never did.
+  const file = page(dir, 'span.html', `<video id="v" src="clip.mp4" muted playsinline style="position:absolute;left:0;top:0;width:${W}px;height:${H}px"></video>
+<script>
+const v = document.getElementById('v');
+window.__seek = (t) => { const f = Math.round(t * 30); if (f >= 42 && f < 51 && Math.abs(v.currentTime - 0.51) > 1e-3) v.currentTime = 0.51; };
+</script>`, '', STATELESS);
+  const one = join(dir, 'one.mp4');
+  const three = join(dir, 'three.mp4');
+  const r1 = render([file, '--out', one, '--frames', '90', '--workers', '1', '--segment', '0.5']);
+  assert.equal(r1.code, 0, r1.err);
+  const r3 = render([file, '--out', three, '--frames', '90', '--workers', '3', '--segment', '0.5']);
+  assert.equal(r3.code, 0, r3.err);
+  assert.match(r3.out, /3 worker\(s\)/);
+  assert.doesNotMatch(r3.err, /marked data-stateless, but/);
+  assert.doesNotMatch(r3.out, PREROLL, 'the workers jumped to frames 30 and 60');
+  // The bar of clip frame N sits at x = 4N, off the stage from frame 80.
+  assert.deepEqual(grayFrames(three).slice(0, 80).map((f) => Math.round(edge(f, 90) / 4)), Array.from({ length: 80 }, (_, i) => (i >= 42 && i < 51 ? 15 : i)));
+  const full = hashes(one, true);
+  assert.deepEqual(hashes(three, true), full, 'three workers write the same bytes as one');
+  const patch = render([file, '--out', one, '--frames', '90', '--segment', '0.5', '--from', '2', '--to', '2.5']);
+  assert.equal(patch.code, 0, patch.err);
+  assert.match(patch.out, /segments: 1 rendered, 5 reused/);
+  assert.doesNotMatch(patch.err, /marked data-stateless, but/);
+  assert.doesNotMatch(patch.out, PREROLL, 'the patch jumped to frame 60');
+  assert.deepEqual(hashes(one, true), full, 'the patch writes the bytes the full render did');
 });
 
 /** A clip twice the stage's size, frame n carrying a bright bar at x = 4n, with the keyframes `gop` apart. */
@@ -947,6 +1054,46 @@ test('render: a patch re-renders only the segments it touches and leaves the res
   utimesSync(lock, stale, stale);
   const late = render([file, '--out', out, '--fps', '30', '--frames', '90', '--segment', '1', '--from', '1.2', '--to', '1.5']);
   assert.equal(late.code, 0, late.err);
+});
+
+test('render: a patch renders again a segment whose clip was replaced at the same path since it was rendered', { skip }, () => {
+  const dir = scratchDir('render-patch-swapped-clip');
+  // Frame n of the first clip has its bar at x = n, of the second at x = n + 100.
+  barClip(dir, 'clip.mp4', { frames: 90, scale: 1 });
+  const file = page(dir, 'clip.html', `<video src="clip.mp4" muted playsinline style="position:absolute;left:0;top:0;width:${W}px;height:${H}px"></video>`);
+  const out = join(dir, 'out.mp4');
+  const args = [file, '--out', out, '--fps', '30', '--frames', '90', '--segment', '1'];
+  const full = render(args);
+  assert.equal(full.code, 0, full.err);
+
+  barClip(dir, 'clip.mp4', { frames: 90, scale: 1, from: 100 });
+  const patch = render([...args, '--from', '0', '--to', '2']);
+  assert.equal(patch.code, 0, patch.err);
+  const frames = grayFrames(out);
+  for (const i of [0, 59, 60, 75, 89]) near(edge(frames[i], 90), i + 100, `the new clip's bar at frame ${i}`);
+  assert.match(patch.err, /also rendering segment\(s\) 2 outside --from\/--to again: clip\.mp4 changed since they were rendered/);
+  assert.match(patch.out, /segments: 3 rendered, 0 reused/);
+});
+
+test('render: a patch renders again a segment whose cues moved since it was rendered, as a full render draws it', { skip }, () => {
+  const dir = scratchDir('render-patch-moved-cues');
+  // A caption on screen from start to end, placed from t, beside a box that keeps every frame drawn.
+  const cued = (start: number, end: number) => page(dir, 'cues.html', `<div class="box" style="left:280px;top:140px"></div>
+<div id="cap" style="position:absolute;left:20px;top:60px;color:#fff;font:40px sans-serif"></div>
+<script>window.__seek = (t) => { document.getElementById('cap').textContent = t >= ${start} && t < ${end} ? 'Hello' : ''; };</script>`);
+  const out = join(dir, 'out.mp4');
+  const args = [cued(1.5, 2.5), '--out', out, '--fps', '30', '--frames', '120', '--segment', '1'];
+  const full = render(args);
+  assert.equal(full.code, 0, full.err);
+
+  cued(2.5, 3.5);
+  const patch = render([...args, '--from', '0', '--to', '2']);
+  assert.equal(patch.code, 0, patch.err);
+  const fresh = join(dir, 'fresh.mp4');
+  const whole = render([...args.slice(0, 1), '--out', fresh, ...args.slice(3)]);
+  assert.equal(whole.code, 0, whole.err);
+  assert.deepEqual(hashes(out, false), hashes(fresh, false), 'the patched video is the one a full render of the moved cues draws');
+  assert.match(patch.err, /also rendering segment\(s\) 2-3 outside --from\/--to again: the page shows other text or video there than when they were rendered \(segment 2 at 2\.000 s: no text "Hello", which it showed\)/);
 });
 
 test('render: a patch is refused when the --chrome binary changed since the cached render, its version line alike', {
