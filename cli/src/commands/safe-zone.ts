@@ -44,6 +44,9 @@ export interface Format {
   canvas: Size;
   /** How far in from each edge the sources keep text, in px of `canvas`, before the sides are evened out. */
   insets: Insets;
+  /** Steps up the type scale every size but the floor takes, for a player that shows the picture smaller than the
+   *  floor assumes. */
+  lift: number;
 }
 
 const SHAPES: Record<Shape, { aspect: Size; canvas: Size }> = {
@@ -54,8 +57,8 @@ const SHAPES: Record<Shape, { aspect: Size; canvas: Size }> = {
   '4:5': { aspect: { width: 4, height: 5 }, canvas: { width: 1080, height: 1350 } },
 };
 
-function zone(name: string, shape: Shape, platforms: string, keeps: string, insets: Insets): Format {
-  return { name, shape, platforms, keeps, ...SHAPES[shape], insets };
+function zone(name: string, shape: Shape, platforms: string, keeps: string, insets: Insets, lift = 0): Format {
+  return { name, shape, platforms, keeps, ...SHAPES[shape], insets, lift };
 }
 
 // A shape's default goes to several apps at once, so each side takes the deepest inset any of them needs there,
@@ -92,15 +95,18 @@ const YOUTUBE = zone('16:9', '16:9', 'YouTube',
 // A feed player draws its controls along the bottom only, at a fixed size, so they take the most of the frame on a
 // phone, where the player is narrowest. No UI reaches the other edges, which keep the television title-safe margin.
 const TITLE_SAFE = 'inside the television title-safe margin (5%) where no UI reaches';
+// The feed lays the picture's long side across an upright phone, so a pixel shows about 1.7 times smaller than on
+// the full screen the floor is set for; three steps up the type scale (1.73) give the larger sizes that back.
+const FEED_LIFT = 3;
 const LINKEDIN_WIDE = zone('linkedin 16:9', '16:9', 'LinkedIn\'s feed',
   `clear of LinkedIn's player controls (progress bar and buttons) at a phone's width, ${TITLE_SAFE}`,
-  { top: 54, right: 96, bottom: 289, left: 96 });
+  { top: 54, right: 96, bottom: 289, left: 96 }, FEED_LIFT);
 const X_WIDE = zone('x', '16:9', 'X\'s feed',
   `clear of X's duration, view count and sound button at a phone's width, ${TITLE_SAFE}`,
-  { top: 54, right: 96, bottom: 190, left: 96 });
+  { top: 54, right: 96, bottom: 190, left: 96 }, FEED_LIFT);
 const FACEBOOK_WIDE = zone('facebook 16:9', '16:9', 'Facebook\'s feed',
   `clear of Facebook's sound button at a phone's width, ${TITLE_SAFE}`,
-  { top: 54, right: 96, bottom: 217, left: 96 });
+  { top: 54, right: 96, bottom: 217, left: 96 }, FEED_LIFT);
 
 // A 4:3 picture plays pillarboxed in the 16:9 player, so it shares that player's top and bottom bands; no UI
 // reaches its sides, which keep the television title-safe margin.
@@ -236,6 +242,11 @@ export interface Zone {
   bottom: number;
   /** The format's smallest text size, in px, which text inside it is set at by default. */
   minText: number;
+  /** The sizes for captions, for cards (a title, a question, a list item) and for the hook that opens the piece, in px,
+   *  each larger than the one before and all larger than `minText`. */
+  captionText: number;
+  cardText: number;
+  hookText: number;
 }
 
 /**
@@ -252,11 +263,21 @@ export function zoneFor(format: Format, canvas: Size): Zone {
   // Both sides take the larger inset, so a title centred in the container sits on the frame's centre: worth
   // more than the width the narrower side would give back.
   const side = Math.ceil(Math.max(i.left, i.right) * sx);
+  const min = minText(canvas);
+  // Each size is stepped up from the one under it, so the order holds on any canvas, however the rounding falls.
+  const captionText = stepUp(min, 2 + format.lift);
+  const cardText = stepUp(captionText, 1);
   return {
     format, canvas,
     left: side, top: Math.ceil(i.top * sy), right: canvas.width - side, bottom: canvas.height - Math.ceil(i.bottom * sy),
-    minText: minText(canvas),
+    minText: min, captionText, cardText, hookText: stepUp(cardText, 1),
   };
+}
+
+// The type scale's step is a minor third, 6:5, close to Apple's own between its 17 pt body and 20 pt Title 3 and
+// between 28 pt Title 1 and 34 pt Large Title; kept a fraction so a size that lands on a whole pixel stays on it.
+function stepUp(px: number, steps: number): number {
+  return Math.ceil(px * 6 ** steps / 5 ** steps);
 }
 
 /** The default zone of the shape a canvas has, on that canvas; null for a shape with none, such as 2:3 or 21:9. */
@@ -309,6 +330,9 @@ ${sel} {
   --safe-bottom: ${canvas.height - zone.bottom}px;
   --safe-left: ${zone.left}px;
   --min-text: ${zone.minText}px;
+  --caption-text: ${zone.captionText}px;
+  --card-text: ${zone.cardText}px;
+  --hook-text: ${zone.hookText}px;
 }
 /* The container's place on the zone, and a size container so cqw and cqh measure the zone for what is inside it.
    This rule is specific on purpose: a page rule must outrank it to move the container or change these properties. */
@@ -322,14 +346,18 @@ ${sel} [data-safe] {
   container-type: size;
 }
 /* Every rule below has no specificity, so any rule the page writes for the same property wins. Text without a
-   size of its own, and the elements a browser sets smaller, start at the format's minimum; a word too long
-   for its line breaks rather than sticking out. Nothing is clipped. */
+   size of its own, and the elements a browser sets smaller, start at the format's minimum, and a caption track
+   (data-captions) at the caption size; a word too long for its line breaks rather than sticking out. Nothing is
+   clipped. */
 :where(${sel} [data-safe]) {
   font-size: var(--min-text);
   overflow-wrap: break-word;
 }
 :where(${sel} [data-safe]) :where(small, sub, sup, h5, h6, button, input, select, textarea) {
   font-size: var(--min-text);
+}
+:where(${sel} [data-safe]) :where([data-captions]) {
+  font-size: var(--caption-text);
 }
 /* A box inside keeps within the width it is given, padding included. One meant to run past the zone, such as
    a ticker's track, sets width: max-content and max-width: none. An svg keeps the size it is given, since its
@@ -376,13 +404,17 @@ export const usage = {
     '- Text inside it starts at --min-text, the shape\'s smallest size, and so do small, sub, sup, h5, h6 and form',
     '  controls, which a browser sets smaller. Set base text sizes on [data-safe] or inside it: one on body or #stage',
     '  does not reach in, since the container sets its own. Render draws any text set smaller than the minimum at the',
-    '  minimum. On elements inside the container cqw and cqh measure the zone; on the container itself, the viewport.',
+    '  minimum. A caption track (data-captions) starts at --caption-text instead: a size set on the track or its words',
+    '  wins, one on [data-safe] does not reach it. On elements inside the container cqw and cqh measure the zone; on',
+    '  the container itself, the viewport.',
     '- A word too long for its line breaks; a row of word spans keeps words whole with flex-wrap: wrap.',
     '- A box inside keeps within the container\'s width, so one set wider is narrowed to it, unless it sets max-width:',
     '  none. A ticker\'s track meant to run past the zone sets width: max-content and max-width: none. An svg keeps the',
     '  size it is given, and a picture narrowed to fit keeps its proportions.',
     '- Nothing is clipped: text the page carries out of the container by its own position, white-space: nowrap or',
     '  max-width: none shows outside it.',
+    '--caption-text, --card-text and --hook-text are the zone\'s sizes for captions, for cards (a title, a question, a',
+    'list item) and for the hook that opens the piece, each larger than the one before and all larger than --min-text.',
     '--safe-top, --safe-right, --safe-bottom and --safe-left are the zone\'s distance from each edge. A shape with no',
     'zone here, such as 2:3 or 21:9, skips this step.',
   ].join('\n'),
@@ -433,6 +465,7 @@ export async function safeZone(argv: string[]): Promise<number> {
     + `${height - zone.bottom} at the bottom, ${zone.left} on the left and ${width - zone.right} on the right`);
   console.log(`  keeps text ${format.keeps}`);
   console.log(`  minimum text size: ${zone.minText} px, where text inside the container starts unless the page sizes it there`);
+  console.log(`  text sizes: captions ${zone.captionText} px, where a data-captions track starts unless the page sizes it, cards ${zone.cardText} px, hook ${zone.hookText} px (--caption-text, --card-text, --hook-text)`);
   console.log(`  page: <link rel="stylesheet" href="safe-zone.css">, <div id="stage" data-safe-zone="${format.shape}">, all text inside <div data-safe>`);
   return 0;
 }

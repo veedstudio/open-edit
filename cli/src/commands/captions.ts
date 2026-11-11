@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
-import { captionsScript, CLOSE_GAP, HEADER, LAG_OUT, LINE_CHARS, LINES, trackOf } from '../captions/page-script.ts';
+import { captionsScript, CLOSE_GAP, HEADER, KEY_WORDS, LAG_OUT, LINE_CHARS, LINES, trackOf } from '../captions/page-script.ts';
 import { writeTextAtomic } from '../providers/exclusive-files.ts';
 import { mappedNote, readTranscriptFile } from '../transcript/read-transcript.ts';
 import { HOLD } from '../verify/captions.ts';
@@ -20,7 +20,8 @@ export const usage = {
   },
   notes: [
     'Load captions.js with a <script> tag and give the page an empty element marked data-captions where the captions',
-    'go (inside <div data-safe> when the page has a safe zone). Each frame it holds the cue on screen:',
+    'go (inside <div data-safe> when the page has a safe zone, where it starts at --caption-text). Each frame it holds',
+    'the cue on screen:',
     '  <div data-cue="7"><div data-line="0"><span data-word="41" data-state="now">Hello<span data-punct="trail">,</span></span> ...',
     "data-state is next, now (from its start until the cue's next word starts) or said. Custom properties for CSS",
     'calc(): --since (seconds since the word began, below 0 before) and --progress (0-1 through it) on each word;',
@@ -31,10 +32,15 @@ export const usage = {
     `end, a pause, a clause) and speak for at most ${HOLD.max} s. Lines fit the container's width in the page's own font,`,
     `at most ${LINES} a cue and ${LINE_CHARS} characters a line. Options, on the container: data-lines, data-words (1 shows one`,
     "word at a time), data-chars; data-at (the page second the transcript's clip starts at), data-from and data-to",
-    '(the stretch of the clip the page plays, its own seconds); data-transcript (which, with several loaded). With',
-    'faces.js loaded each cue is placed off the faces, within the [data-safe] around it (data-clip and data-video pass',
-    "place() its clip and video). openeditCaptions.words() is the words: change a word's text there before the first",
-    'frame to show it otherwise. A speech-to-text JSON that `whisper` maps is read too.',
+    '(the stretch of the clip the page plays, its own seconds); data-transcript (which, with several loaded).',
+    'data-key-words="forty@12.34 Tuesday@11.70" names key words by their text and start as `words` prints them, and',
+    `marks their spans data-emphasis, at most ${KEY_WORDS} a line: where a line holds more, the first named keep it and the`,
+    'console names the rest. With faces.js loaded the cues are placed off the faces and the graphics burned into the',
+    'footage, within the [data-safe] around them (data-clip and data-video name the clip and video to faces.js), at one',
+    'place through each shot: they can move only at a cut, and inside a shot only where no single place stays clear for',
+    'every cue up in it, however briefly, as few times as that takes, which the console says. openeditCaptions.words()',
+    "is the words: change a word's text there before the first frame to show it otherwise. A speech-to-text JSON that",
+    '`whisper` maps is read too.',
   ].join('\n'),
 } satisfies Usage;
 

@@ -35,9 +35,12 @@ export interface Edl {
   ranges: EdlRange[];
 }
 
-/** A range whose edges sit on its source's frame grid. */
+/** A range whose in-point sits on its source's frame grid and whose length is whole frames of the cut. */
 export interface SnappedRange extends EdlRange {
+  /** The source's frame rate, whose grid the in-point is on. */
   fps: number;
+  /** The cut's frame rate when the source runs at another; its length is whole frames of this one. */
+  cutFps?: number;
 }
 
 /** The range checks both tools share, with one set of messages between them. */
@@ -161,28 +164,46 @@ export function sourceOrder(ranges: EdlRange[]): string[] {
 }
 
 /**
+ * How far past its source's last frame an out-point may sit and still be read as that end: an out-point meant as the
+ * end is often a container's duration, which counts the longer stream and runs about a frame past the last picture
+ * frame, and the snap can move it up one more.
+ */
+export const END_FRAMES = 2;
+
+/**
  * Both edges moved UP to the next frame instant. ffmpeg's `trim` keeps the frames whose time is at or
  * after `start` and before `end`, so a range cut between frames keeps a whole number of frames that
  * `end - start` does not describe; audio cut to the raw edges then differs from the picture by up to
  * a frame per range, in either direction, and the drift grows with every join. On the grid, picture,
  * sound and the retimed transcript are all exactly (end - start) long.
+ *
+ * A source at another rate than the cut (`cutFps`) keeps its in-point on its own grid, where its first frame is,
+ * and its length is rounded up to whole frames of the cut, which is what its picture plays once converted. An
+ * out-point within END_FRAMES of the source's picture end (`end`) is moved back onto it.
  */
-export function snapToFrames(range: EdlRange, fps: number, index = 0): SnappedRange {
+export function snapToFrames(range: EdlRange, fps: number, index = 0, o: { cutFps?: number; end?: number } = {}): SnappedRange {
   const up = (t: number) => Math.ceil(t * fps - 1e-6) / fps;
-  const snapped = { ...range, start: up(range.start), end: up(range.end), fps };
+  const cutFps = o.cutFps !== undefined && Math.abs(o.cutFps - fps) > 1e-6 ? o.cutFps : undefined;
+  const start = up(range.start);
+  const lengthTo = (t: number, round: (x: number) => number) => start + round((t - start) * cutFps!) / cutFps!;
+  let end = cutFps === undefined ? up(range.end) : lengthTo(range.end, (x) => Math.ceil(x - 1e-6));
+  if (o.end !== undefined && end > o.end + 1e-6 && range.end <= o.end + END_FRAMES / fps + 1e-6) {
+    end = cutFps === undefined ? Math.floor(o.end * fps + 1e-6) / fps : lengthTo(o.end, (x) => Math.floor(x + 1e-6));
+  }
+  const snapped = { ...range, start, end, fps, ...(cutFps === undefined ? {} : { cutFps }) };
   if (!(snapped.end > snapped.start)) {
-    throw new Error(`range ${index} of "${range.source}" (${range.start}-${range.end}) is shorter than one frame at ${fps} fps`);
+    throw new Error(`range ${index} of "${range.source}" (${range.start}-${range.end}) is shorter than one frame at ${cutFps ?? fps} fps`);
   }
   return snapped;
 }
 
 /**
- * The frames a snapped range takes from its source and the frames it plays on the cut. A range at another
+ * The frames a snapped range lasts at the cut's rate and the frames it plays on the cut. A range at another
  * speed plays a whole number of frames too, so its picture, its sound and its words are all stretched by
  * played/kept rather than by the speed as written, which would leave a fraction of a frame at every join.
  */
 export function framesOf(range: SnappedRange): { kept: number; played: number } {
-  const kept = Math.round((range.end - range.start) * range.fps);
+  const kept = Math.round((range.end - range.start) * (range.cutFps ?? range.fps));
   const speed = range.speed ?? 1;
   return { kept, played: speed === 1 ? kept : Math.max(1, Math.round(kept / speed)) };
 }
@@ -190,7 +211,7 @@ export function framesOf(range: SnappedRange): { kept: number; played: number } 
 /** Seconds the range lasts on the cut's timeline. */
 export function playedLength(range: SnappedRange): number {
   if ((range.speed ?? 1) === 1) return range.end - range.start;
-  return framesOf(range).played / range.fps;
+  return framesOf(range).played / (range.cutFps ?? range.fps);
 }
 
 /** How much longer the range plays than it lasted in its source: 2 at half speed. */
@@ -213,11 +234,19 @@ export function soundOf(range: EdlRange): 'kept' | 'stretched' | 'muted' {
   return speed >= STRETCHED_SPEEDS.min && speed <= STRETCHED_SPEEDS.max ? 'stretched' : 'muted';
 }
 
-/** Every range on its source's grid; `fpsBySource` is probed once per source, never per range. */
-export function snapRanges(ranges: EdlRange[], fpsBySource: ReadonlyMap<string, number>): SnappedRange[] {
-  return ranges.map((range, index) => {
-    const fps = fpsBySource.get(range.source);
-    if (fps === undefined) throw new Error(`no frame rate known for source "${range.source}"`);
-    return snapToFrames(range, fps, index);
-  });
+/**
+ * Every range on its source's grid, and its length on the cut's: the first range's source's rate, which the cut is
+ * encoded at. `fpsBySource` is probed once per source, never per range; `endBySource`, each source's picture length,
+ * moves an out-point just past it back onto it.
+ */
+export function snapRanges(
+  ranges: EdlRange[], fpsBySource: ReadonlyMap<string, number>, endBySource?: ReadonlyMap<string, number>,
+): SnappedRange[] {
+  const fpsOf = (id: string) => {
+    const fps = fpsBySource.get(id);
+    if (fps === undefined) throw new Error(`no frame rate known for source "${id}"`);
+    return fps;
+  };
+  const cutFps = ranges.length ? fpsOf(ranges[0].source) : undefined;
+  return ranges.map((range, index) => snapToFrames(range, fpsOf(range.source), index, { cutFps, end: endBySource?.get(range.source) }));
 }

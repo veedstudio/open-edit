@@ -1,7 +1,8 @@
 // captions.js: the words of one transcript and the code that lays them out as caption cues on the page's clock. The
 // page loads it with a <script> tag and gives it an empty element marked data-captions; the script fills that element
 // with the cue on screen, one element per line and per word, and sets each frame's state on them as attributes and
-// custom properties for the page's own CSS. It owns which words, in which cues, shown when; the look is the page's.
+// custom properties for the page's own CSS. It owns which words, in which cues, shown when, and which of them are
+// emphasised; the look is the page's.
 //
 // Kept as plain JavaScript source, not a function to be stringified: a transpiler may wrap named functions in helpers
 // that do not exist inside the page. The cue shaping runs in Node too, from the same source, for the command and tests.
@@ -22,6 +23,9 @@ export const LAG_OUT = 0.5;
  */
 export const CLOSE_GAP = 0.5;
 
+/** Most key words a line emphasises: past two, none of them stands out from the rest. */
+export const KEY_WORDS = 2;
+
 /** One word as the page gets it: its text and its spoken span, seconds of the transcript. */
 export type CaptionWord = [text: string, start: number, end: number];
 
@@ -33,16 +37,19 @@ export interface CaptionTrack {
   words: CaptionWord[];
 }
 
-/** A cue as shaped: its words by index into the track's words, in lines, and when it is up, seconds of the transcript. */
-export interface Cue { index: number; start: number; end: number; words: number[]; lines: number[][] }
+/**
+ * A cue as shaped: its words by index into the track's words, in lines, and when it is up, seconds of the transcript;
+ * `emphasis` is the key words it marks.
+ */
+export interface Cue { index: number; start: number; end: number; words: number[]; lines: number[][]; emphasis: number[] }
 
 export interface CaptionsApi {
   add(track: CaptionTrack): void;
   /** Cues of a track at these options, lines fitted by characters alone, as no page is there to measure. */
-  cues(name?: string, options?: { lines?: number; words?: number; chars?: number; from?: number; to?: number }): Cue[];
+  cues(name?: string, options?: { lines?: number; words?: number; chars?: number; from?: number; to?: number; keyWords?: string }): Cue[];
 }
 
-const CONFIG = { lines: LINES, chars: LINE_CHARS, holdMin: HOLD.min, holdMax: HOLD.max, lagOut: LAG_OUT, closeGap: CLOSE_GAP, pause: PHRASE_PAUSE };
+const CONFIG = { lines: LINES, chars: LINE_CHARS, holdMin: HOLD.min, holdMax: HOLD.max, lagOut: LAG_OUT, closeGap: CLOSE_GAP, pause: PHRASE_PAUSE, keyWords: KEY_WORDS };
 
 export const PAGE_SOURCE = String.raw`
 (function () {
@@ -176,6 +183,53 @@ export const PAGE_SOURCE = String.raw`
     return out;
   }
 
+  // A word as it is named and matched: its punctuation off the ends, in lower case.
+  function plain(text) {
+    var t = String(text), lead = LEAD.exec(t), body = t.slice(lead ? lead[0].length : 0).replace(TRAIL, '');
+    return (body || t).toLowerCase();
+  }
+
+  // The key words named as word@seconds, each its text and start as openedit words prints them, as indices into the
+  // track's words in the order named. Words repeat, so the start finds the word, to the precision it is written in.
+  // A name no word matches is left out and its note added to 'missed': a typo costs that word its mark, not the render.
+  function keyWordsOf(raw, track, missed) {
+    var keys = [];
+    String(raw || '').split(/\s+/).filter(Boolean).forEach(function (token) {
+      var at = token.lastIndexOf('@'), sec = /^\d+(?:\.(\d+))?$/.exec(token.slice(at + 1));
+      if (at < 1 || !sec) fail('data-key-words: "' + token + '" is not word@seconds, a word and its start as openedit words prints them (forty@12.34)');
+      var text = plain(token.slice(0, at)), t = Number(sec[0]), near = 0.5 * Math.pow(10, -(sec[1] || '').length) + 1e-6, best = -1;
+      var off = function (k) { return Math.abs(track.words[k].start - t); };
+      track.words.forEach(function (w, k) {
+        if (off(k) <= near && (plain(w.text) === text || plain(w.heard) === text) && (best < 0 || off(k) < off(best))) best = k;
+      });
+      if (best < 0) {
+        var nearest = track.words.map(function (w, k) { return k; }).sort(function (a, b) { return off(a) - off(b); }).slice(0, 3);
+        if (missed) missed.push('data-key-words: no "' + token.slice(0, at) + '" starts at ' + sec[0] + ' s in ' + track.name +
+          ', so it is not emphasised; the words that start nearest it are ' + nearest.map(function (k) { return named(track, k); }).join(', '));
+        return;
+      }
+      if (keys.indexOf(best) < 0) keys.push(best);
+    });
+    return keys;
+  }
+  function named(track, k) { return track.words[k].heard + '@' + track.words[k].start.toFixed(2); }
+
+  // Marks each cue's key words, at most CFG.keyWords a line: where a line holds more, the first named keep it, so no
+  // list a page names can break the cap. Returns the key words that lost it, in the order named.
+  function emphasise(cues, keys) {
+    var rank = {}, dropped = [];
+    keys.forEach(function (k, i) { rank[k] = i; });
+    var byRank = function (a, b) { return rank[a] - rank[b]; };
+    cues.forEach(function (c) {
+      var kept = [];
+      c.lines.forEach(function (line) {
+        line.filter(function (w) { return w in rank; }).sort(byRank).forEach(function (w, i) { (i < CFG.keyWords ? kept : dropped).push(w); });
+      });
+      c.emphasis = kept.sort(function (a, b) { return a - b; });
+    });
+    return dropped.sort(byRank);
+  }
+
   // Cues by characters alone, for Node, where no page measures the words.
   function byChars(track, o) {
     var words = windowed(track, o.from, o.to), count = charCount(words);
@@ -183,7 +237,9 @@ export const PAGE_SOURCE = String.raw`
       var c = count(i, j);
       return { fits: c <= o.chars, full: Math.min(1, c / o.chars) };
     };
-    return reindexed(words, timed(words, shape(words, o, fit), o.to));
+    var cues = reindexed(words, timed(words, shape(words, o, fit), o.to));
+    emphasise(cues, keyWordsOf(o.keyWords, track));
+    return cues;
   }
   function reindexed(words, cues) {
     return cues.map(function (c) {
@@ -234,8 +290,9 @@ export const PAGE_SOURCE = String.raw`
     el.setAttribute(attr, value);
     return el;
   }
-  function wordEl(word, index) {
+  function wordEl(word, index, marks) {
     var el = span('span', 'data-word', String(index));
+    if (marks[index]) el.setAttribute('data-emphasis', '');
     var text = word.text, lead = LEAD.exec(text), trail = TRAIL.exec(text.slice(lead ? lead[0].length : 0));
     var body = text.slice(lead ? lead[0].length : 0, text.length - (trail ? trail[0].length : 0));
     if (!body) { lead = null; trail = null; body = text; }
@@ -244,13 +301,18 @@ export const PAGE_SOURCE = String.raw`
     if (trail) el.appendChild(span('span', 'data-punct', 'trail')).textContent = trail[0];
     return el;
   }
-  function lineEl(words, list, k) {
+  function lineEl(words, list, k, marks) {
     var line = span('div', 'data-line', String(k));
     list.forEach(function (w, i) {
       if (i) line.appendChild(document.createTextNode(' '));
-      line.appendChild(wordEl(words[w], w));
+      line.appendChild(wordEl(words[w], w, marks));
     });
     return line;
+  }
+  function marksOf(list) {
+    var marks = {};
+    list.forEach(function (w) { marks[w] = true; });
+    return marks;
   }
   // The settled look, every word said, which is how a cue is measured and placed whatever frame first shows it.
   function rest(cueEl) {
@@ -274,7 +336,8 @@ export const PAGE_SOURCE = String.raw`
   }
 
   // The words measured as the page lays them out, so lines fit the room the container gives them, in its own font.
-  function measure(el, track, words, chars) {
+  // Every key word named is measured as emphasised: one the cap leaves plain then takes no more room than it had.
+  function measure(el, track, words, chars, keys) {
     el.textContent = '';
     var probe = span('div', 'data-cue', '');
     el.appendChild(probe);
@@ -286,7 +349,7 @@ export const PAGE_SOURCE = String.raw`
     var cs = getComputedStyle(wide);
     var room = wide.offsetWidth - ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'].reduce(function (s, p) { return s + (parseFloat(cs[p]) || 0); }, 0);
     probe.textContent = '';
-    var line = lineEl(track.words, words.map(function (w) { return w.index; }), 0);
+    var line = lineEl(track.words, words.map(function (w) { return w.index; }), 0, marksOf(keys));
     probe.appendChild(line);
     rest(probe);
     atFloor(line, floorOf());
@@ -306,17 +369,25 @@ export const PAGE_SOURCE = String.raw`
   }
 
   function layout(el, s) {
-    var o = optionsOf(el), track = pick(el.getAttribute('data-transcript'));
-    var key = [track.path, o.lines, o.words, o.chars, o.from, o.to, el.offsetWidth, fonts, floorOf()].join('|');
+    var o = optionsOf(el), track = pick(el.getAttribute('data-transcript')), listed = el.getAttribute('data-key-words');
+    var key = [track.path, o.lines, o.words, o.chars, o.from, o.to, listed, el.offsetWidth, fonts, floorOf()].join('|');
     if (s.key === key) return;
-    var words = windowed(track, o.from, o.to);
-    var fit = measure(el, track, words, o.chars);
+    var words = windowed(track, o.from, o.to), missed = [], keys = keyWordsOf(listed, track, missed);
+    var fit = measure(el, track, words, o.chars, keys);
     s.key = key;
     s.track = track;
     s.o = o;
     s.cues = reindexed(words, timed(words, shape(words, o, fit), o.to));
+    var dropped = emphasise(s.cues, keys).map(function (k) { return named(track, k); });
+    var notes = missed.map(function (m) { return 'openeditCaptions: ' + m; });
+    if (dropped.length) notes.push('openeditCaptions: a line emphasises at most ' + CFG.keyWords + ' key words, the first named, so ' +
+      dropped.join(', ') + (dropped.length === 1 ? ' is' : ' are') + ' not emphasised');
+    // A layout runs again when the width or fonts change; a note already given is not repeated.
+    notes.forEach(function (n) { if ((s.notes || []).indexOf(n) < 0) console.warn(n); });
+    s.notes = notes;
     s.shown = -1;
     s.cueEl = null;
+    s.placing = null;
   }
 
   function cueAt(cues, c) {
@@ -330,27 +401,73 @@ export const PAGE_SOURCE = String.raw`
     return -1;
   }
 
-  function show(el, s, k) {
+  function cueNode(s, k) {
+    var cue = s.cues[k], words = s.track.words;
+    var cueEl = span('div', 'data-cue', String(k));
+    var marks = marksOf(cue.emphasis);
+    cue.lines.forEach(function (list, i) { cueEl.appendChild(lineEl(words, list, i, marks)); });
+    return cueEl;
+  }
+
+  // Where cue k is laid out, settled, unmoved and at the size the render holds text to: built alone in the container,
+  // which holds no other cue while the placer measures, and taken out again whatever happens.
+  function measureCue(el, s, k) {
+    var probe = cueNode(s, k);
+    el.appendChild(probe);
+    try {
+      rest(probe);
+      atFloor(probe, floorOf());
+      var r = probe.getBoundingClientRect();
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
+    } finally {
+      el.removeChild(probe);
+    }
+  }
+
+  // A faces.js from before placer(), loaded first, is the one whose openeditFaces the page has.
+  function older() {
+    var loaded = [].slice.call(document.querySelectorAll('script[src]')).map(function (sc) { return sc.getAttribute('src'); })
+      .filter(function (src) { return /faces[^\/?#]*\.js([?#]|$)/.test(src); });
+    fail((loaded.length > 1 ? 'of ' + loaded.join(', ') + ', the first loaded' : (loaded[0] || 'the page\'s faces.js')) +
+      ' was written by an older openedit and has no openeditFaces.placer, which captions.js needs: load the faces.js that "openedit faces <clip>" prints instead');
+  }
+
+  // The cues as one faces.js placer, so they hold one place through each shot: made again when the cues, or the clip,
+  // video or [data-safe] the container names, change.
+  function placerOf(el, s) {
+    var faces = window.openeditFaces, within = el.closest('[data-safe]'), clip = el.getAttribute('data-clip'), named = el.getAttribute('data-video');
+    var video = named ? document.querySelector(named) : null;
+    if (named && !video) fail('data-video="' + named + '" matches no element');
+    if (s.placing && s.placing.within === within && s.placing.clip === clip && s.placing.video === video) return s.placing.placer;
+    if (typeof faces.placer !== 'function') older();
+    // A note said once stays said when the cues are laid again.
+    var notes = s.faceNotes = s.faceNotes || {};
+    var options = { what: 'the captions', say: function (line) { if (!notes[line]) { notes[line] = true; console.warn(line); } } };
+    if (clip) options.clip = clip;
+    if (video) options.video = video;
+    var spans = s.cues.map(function (c) { return { from: c.start, to: c.end }; });
+    s.placing = { within: within, clip: clip, video: video, placer: faces.placer(spans, function (k) { return measureCue(el, s, k); }, options) };
+    return s.placing.placer;
+  }
+  function placeCue(placer, s, k, c) {
+    s.part = placer.part(k, c);
+    placer.place(s.cueEl, k, c);
+  }
+
+  function show(el, s, k, c) {
     el.textContent = '';
     s.cueEl = null;
     s.shown = k;
     if (k < 0) return;
-    var cue = s.cues[k], words = s.track.words;
-    var cueEl = span('div', 'data-cue', String(k));
-    cue.lines.forEach(function (list, i) { cueEl.appendChild(lineEl(words, list, i)); });
+    // The cues of the shots this one is up in are measured now, while the container is empty, so measuring never
+    // touches a cue on screen.
+    var placer = window.openeditFaces ? placerOf(el, s) : null;
+    if (placer) placer.prepare(k);
+    var cueEl = cueNode(s, k);
     el.appendChild(cueEl);
     rest(cueEl);
     s.cueEl = cueEl;
-    if (window.openeditFaces) {
-      var options = {}, within = el.closest('[data-safe]'), clip = el.getAttribute('data-clip'), video = el.getAttribute('data-video');
-      if (within) options.within = within;
-      if (clip) options.clip = clip;
-      if (video) {
-        options.video = document.querySelector(video);
-        if (!options.video) fail('data-video="' + video + '" matches no element');
-      }
-      window.openeditFaces.place(cueEl, cue.start, cue.end, options);
-    }
+    if (placer) placeCue(placer, s, k, c);
   }
 
   // The cue on screen at page second t, and each word's state in it.
@@ -361,7 +478,9 @@ export const PAGE_SOURCE = String.raw`
     // A microsecond on, so a frame due at the very instant a word starts, rounded a hair low, shows it.
     var c = t - s.o.at + s.o.from + 1e-6;
     var k = cueAt(s.cues, c);
-    if (k !== s.shown || (k >= 0 && s.cueEl && s.cueEl.parentNode !== el)) show(el, s, k);
+    if (k !== s.shown || (k >= 0 && s.cueEl && s.cueEl.parentNode !== el)) show(el, s, k, c);
+    // A cue up across a cut takes the next shot's place there, left in the state it is drawn in.
+    else if (k >= 0 && s.placing && s.placing.placer.part(k, c) !== s.part) placeCue(s.placing.placer, s, k, c);
     if (k < 0) return;
     var cue = s.cues[k], words = s.track.words;
     setVars(s.cueEl, { '--cue-since': c - cue.start, '--cue-until': cue.end - c, '--cue-progress': Math.min(1, Math.max(0, (c - cue.start) / (cue.end - cue.start))) });
@@ -373,6 +492,8 @@ export const PAGE_SOURCE = String.raw`
       var long = word.end - word.start;
       setVars(spans[i], { '--since': c - word.start, '--progress': long > 0 ? Math.min(1, Math.max(0, (c - word.start) / long)) : c >= word.start ? 1 : 0 });
     });
+    // A look the page gives a cue as it is said, larger than the settled one it was placed for, can reach a face.
+    if (s.placing) s.placing.placer.check(s.cueEl, k, c);
   }
 
   function tick(ms) {
@@ -384,7 +505,8 @@ export const PAGE_SOURCE = String.raw`
 
   window.openeditCaptions = {
     add: function (track) {
-      var words = track.words.map(function (w) { return { text: String(w[0]), start: w[1], end: w[2] }; });
+      // 'heard' keeps the text as transcribed, by which a key word is still named once the page changes 'text'.
+      var words = track.words.map(function (w) { return { text: String(w[0]), heard: String(w[0]), start: w[1], end: w[2] }; });
       tracks = tracks.filter(function (t) { return t.path !== track.path; }).concat([{ name: track.name, path: track.path, words: words }]);
     },
     // The track's words, text and times. A page may change a word's text here before its first frame, to show it
@@ -392,13 +514,13 @@ export const PAGE_SOURCE = String.raw`
     words: function (name) { return pick(name).words; },
     cues: function (name, options) {
       var o = options || {};
-      return byChars(pick(name), { lines: o.lines || CFG.lines, words: o.words || 0, chars: o.chars || CFG.chars, from: o.from || 0, to: o.to === undefined ? Infinity : o.to });
+      return byChars(pick(name), { lines: o.lines || CFG.lines, words: o.words || 0, chars: o.chars || CFG.chars, from: o.from || 0, to: o.to === undefined ? Infinity : o.to, keyWords: o.keyWords });
     },
     // The cues a container lays, in page seconds, and the cue and word on screen there at page second t.
     laid: function (el) {
       var s = state && state.get(el);
       if (!s || !s.cues) return [];
-      return s.cues.map(function (c) { return { index: c.index, start: c.start - s.o.from + s.o.at, end: c.end - s.o.from + s.o.at, words: c.words, lines: c.lines }; });
+      return s.cues.map(function (c) { return { index: c.index, start: c.start - s.o.from + s.o.at, end: c.end - s.o.from + s.o.at, words: c.words, lines: c.lines, emphasis: c.emphasis }; });
     },
   };
   if (typeof requestAnimationFrame === 'function' && typeof document !== 'undefined') requestAnimationFrame(tick);

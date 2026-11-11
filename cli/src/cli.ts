@@ -25,6 +25,7 @@ import * as facesCmd from "./commands/faces.ts";
 import * as behindCmd from "./commands/behind.ts";
 import * as captionsCmd from "./commands/captions.ts";
 import * as reframeCmd from "./commands/reframe.ts";
+import * as zoomCmd from "./commands/zoom.ts";
 import * as renderCmd from "./commands/render.ts";
 import * as installBrowser from "./commands/install-browser.ts";
 import * as fontsCmd from "./commands/fonts.ts";
@@ -33,6 +34,7 @@ import * as speechProbe from "./commands/speech-probe.ts";
 import * as applyEdl from "./commands/apply-edl.ts";
 import * as retimeTranscript from "./commands/retime-transcript.ts";
 import * as stills from "./commands/stills.ts";
+import * as sfx from "./commands/sfx.ts";
 import * as fal from "./commands/fal.ts";
 import * as veedProject from "./commands/veed-project.ts";
 import * as veedPull from "./commands/veed-pull.ts";
@@ -87,6 +89,7 @@ const COMMANDS: Record<string, Command> = {
   behind: { usage: behindCmd.usage, run: behindCmd.behind },
   captions: { usage: captionsCmd.usage, run: captionsCmd.captions },
   reframe: { usage: reframeCmd.usage, run: reframeCmd.reframe },
+  zoom: { usage: zoomCmd.usage, run: zoomCmd.zoom },
   render: { usage: renderCmd.usage, run: renderCmd.render },
   "install-browser": { usage: installBrowser.usage, run: installBrowser.installBrowser },
   fonts: { usage: fontsCmd.usage, run: fontsCmd.fonts },
@@ -95,6 +98,7 @@ const COMMANDS: Record<string, Command> = {
   "apply-edl": { usage: applyEdl.usage, run: applyEdl.applyEdl },
   "retime-transcript": { usage: retimeTranscript.usage, run: retimeTranscript.retimeTranscript },
   stills: { usage: stills.usage, run: stills.stillsCommand },
+  sfx: { usage: sfx.usage, run: sfx.sfxCommand },
   fal: { usage: fal.usage, run: fal.falCommand },
   "veed-project": { usage: veedProject.usage, run: veedProject.veedProject },
   "veed-pull": { usage: veedPull.usage, run: veedPull.veedPull },

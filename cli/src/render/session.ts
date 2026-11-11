@@ -25,9 +25,9 @@ import { frameTime, type Fps } from './timing.ts';
  * load and readiness; `encode` is the time a worker was held back by ffmpeg, and `scan` the look at the joined output.
  * `draw` and `prerollDraw` count the draws forced on a stalled step, inside `page` and `preroll`; a preroll steps
  * through many frames at once, so it draws on its way without having stalled. `probe` is the check of a
- * data-stateless mark, whatever stages it went through.
+ * data-stateless mark, and `check` a patch's look at the segments it would reuse, whatever stages each went through.
  */
-const STAGES = ['launch', 'load', 'preroll', 'page', 'loads', 'capture', 'text', 'encode', 'copy', 'join', 'scan', 'draw', 'prerollDraw', 'probe'] as const;
+const STAGES = ['launch', 'load', 'preroll', 'page', 'loads', 'capture', 'text', 'encode', 'copy', 'join', 'scan', 'draw', 'prerollDraw', 'probe', 'check'] as const;
 export type Stage = (typeof STAGES)[number];
 export type Timings = Record<Stage, { ms: number; n: number }>;
 
@@ -368,6 +368,8 @@ export class RenderSession {
   private failedUrls = new Set<string>();
   /** Set once the page's data-stateless mark was found not to hold. */
   private stepping = false;
+  /** Set once peek() jumped past frames a page without a holding mark must be stepped through; reload() clears it. */
+  private peeked = false;
 
   private clip: SessionOptions['clip'];
   private readonly footage: string | null;
@@ -613,6 +615,7 @@ export class RenderSession {
    */
   async reload(): Promise<void> {
     this.next = 0;
+    this.peeked = false;
     this.o.failedLoads.clear();
     this.failedUrls.clear();
     await timed(this.o.timings, 'load', () => this.load());
@@ -658,7 +661,7 @@ export class RenderSession {
     this.stepping = true;
   }
 
-  private async advance(i: number, step: boolean): Promise<void> {
+  private async advance(i: number, step: boolean, jump = false): Promise<void> {
     const at = `frame ${i} (${frameTime(i, this.o.fps).toFixed(3)} s)`;
     try {
       // A page is stepped through the frames a worker skips, __seek or not: pages carry state from
@@ -666,7 +669,7 @@ export class RenderSession {
       // state renders a different picture than a one-worker render would. Only a page that declares
       // itself stateless (data-stateless) is jumped into; render first checks the mark on one frame (probeStateless).
       const budget = this.o.budgetMs;
-      if (i > this.next && (step || !this.jumps)) {
+      if (i > this.next && !jump && (step || !this.jumps)) {
         const steps = i - this.next;
         const stepped = await timed(this.o.timings, 'preroll', () => this.drawn('prerollDraw', deadline(this.pw.evaluate(`window.__openedit.preroll(${this.next}, ${i}, ${budget})`) as Promise<FrameReport>,
           2 * budget + steps * 1000, `stepping through frames ${this.next}-${i - 1}`)), steps);
@@ -699,8 +702,21 @@ export class RenderSession {
 
   /** Steps the page to frame i without capturing it; a session only steps forward. */
   async seek(i: number, step = false): Promise<void> {
+    if (this.peeked) throw new Error(`frame ${i} was asked for on a page peek() jumped into; reload it first`);
     if (i < this.next) throw new Error(`frame ${i} was asked for after frame ${this.next - 1}; a page only steps forward`);
     await this.advance(i, step);
+  }
+
+  /**
+   * The text and videos the page shows at frame i, reached by a jump whatever its mark says, to compare with what an
+   * earlier render read there. A jump past state the page carries can show otherwise than a step would, so a session
+   * that jumped where it should have stepped captures no frame until it is reloaded.
+   */
+  async peek(i: number): Promise<SampledFrame> {
+    if (i < this.next) throw new Error(`frame ${i} was asked for after frame ${this.next - 1}; a page only steps forward`);
+    if (i > this.next && !this.jumps) this.peeked = true;
+    await this.advance(i, false, true);
+    return this.readText();
   }
 
   /** What the page shows now, in the session's capture format unless one is given. */

@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { join, resolve } from 'node:path';
 import { FFPROBE, runsDir } from '../config.ts';
 import { oneSourceFree } from '../hdr.ts';
-import { alphaInput, NoVideoStream } from '../probe.ts';
+import { alphaInput, NoVideoStream, pictureCodecOf } from '../probe.ts';
 import { ffmpegInto } from './encode.ts';
 
 /** Past this many frames between keyframes a seek decodes enough to matter, and the file gets a copy. */
@@ -109,6 +109,25 @@ export function perVersion<T>(probe: (file: string) => T): (file: string) => T {
 export const alphaInputOf = perVersion((file): { args: string[]; webm: boolean } | null => {
   try {
     return alphaInput(file);
+  } catch (e) {
+    if (e instanceof NoVideoStream) return null;
+    throw e;
+  }
+});
+
+// The codecs Chrome decodes itself, 10-bit and 4:4:4 included; it plays any other (HEVC, ProRes, MPEG-4 part 2) only
+// where the platform lends it a decoder.
+const CHROME_CODECS: ReadonlySet<string> = new Set(['h264', 'vp8', 'vp9', 'av1']);
+
+/**
+ * `file`'s picture codec as ffprobe names it, when Chrome has no decoder of its own for it; null when it has, or the file
+ * has no picture. Read from the file, not from whether Chrome played it: a file whose sound Chrome can play is played
+ * without its picture rather than refused, and a host that lends a decoder would make the render differ by machine.
+ */
+export const foreignCodecOf = perVersion((file): string | null => {
+  try {
+    const codec = pictureCodecOf(file);
+    return codec !== null && !CHROME_CODECS.has(codec) ? codec : null;
   } catch (e) {
     if (e instanceof NoVideoStream) return null;
     throw e;

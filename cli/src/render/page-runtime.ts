@@ -543,13 +543,23 @@ const SOURCE = String.raw`
     }
   }
 
-  // Videos the page set a time on in this frame. A time of 0 is as much a placement as any other (a
+  // Videos the page set a time on in this frame's __seek. A time of 0 is as much a placement as any other (a
   // scene that starts on this frame), so it is the write that counts, not the value it left.
   let pageTimed = new WeakSet();
+  // Videos __seek has placed in any frame, which the renderer seeks to the page time only after __seek, and only in a
+  // frame __seek leaves them alone: a frame that seeks a video twice can be captured showing the first seek's picture.
+  const pagePlaced = new WeakSet();
+  // While __seek runs, a placed video it has not set reads as the time it will be sought to, as one the renderer sought
+  // first does, so a page that compares before it seeks decides alike whatever frames its worker ran before.
+  const unsought = new Map();
   const mediaTime = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
   Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
     ...mediaTime,
+    get() {
+      return unsought.has(this) ? unsought.get(this) : mediaTime.get.call(this);
+    },
     set(v) {
+      unsought.delete(this);
       mediaTime.set.call(this, v);
       pageTimed.add(this);
     },
@@ -561,7 +571,6 @@ const SOURCE = String.raw`
     // The first frame a worker runs need not be 0 (a stateless page is jumped into), so whatever
     // animates before it is dated from the page's load, not from this frame.
     if (!started) { for (const a of document.getAnimations()) born.set(a, 0); started = true; }
-    pageTimed = new WeakSet();
     runTimers(t);
     now = t;
     tuneGsap();
@@ -572,8 +581,8 @@ const SOURCE = String.raw`
     // The speaker's box, if a script of the page dropped it, goes back before its picture is sought.
     let speakerBack = speaker ? speaker.sync() : false;
     if (speaker && speaker.show(cutoutShows(sec))) speakerBack = true;
-    // A video plays from frame 0 by default; a page that places one elsewhere sets its time in __seek,
-    // which runs after this and wins.
+    // A video plays from frame 0 by default; a page that places one elsewhere sets its time in __seek, which runs
+    // after this and wins.
     let videos = liveVideos();
     const snapshot = () => {
       const at = new Map();
@@ -581,21 +590,45 @@ const SOURCE = String.raw`
       return at;
     };
     const before = snapshot();
+    const sought = [];
     for (const v of videos) {
       if (!playable(v)) continue;
       if (!v.paused) v.pause();
+      if (pagePlaced.has(v)) continue;
       const target = targetOf(v, sec);
-      if (Math.abs(v.currentTime - target) > 1e-6) mediaTime.set.call(v, target);
+      if (Math.abs(v.currentTime - target) > 1e-6) { mediaTime.set.call(v, target); sought.push(v); }
     }
-    // The default seek's picture is presented before __seek can move the video again. A picture Chrome
-    // presents late for it would otherwise count as the one for __seek's time, and the frame would show
-    // the default time's picture (the clip's last, once the page time is past its end) for one frame.
+    // The default seek's picture is presented before __seek can move the video again, or a picture Chrome presents
+    // late for it would count as the one for __seek's time. That still matters on the first frame __seek places a
+    // video, the one frame that seeks it twice; a video placed before has no seek here to wait for.
     await Promise.all(videos.map((v) => presentVideo(v, budget, before.get(v))));
+    pageTimed = new WeakSet();
     if (typeof window.__seek === 'function') {
       const placed = snapshot();
-      await within(Promise.resolve(window.__seek(sec)), budget, 'window.__seek(' + sec + ')',
-        'the clock stands still while it runs, so it must not wait on requestAnimationFrame or a timer');
+      for (const v of videos) if (pagePlaced.has(v) && playable(v)) unsought.set(v, targetOf(v, sec));
+      try {
+        await within(Promise.resolve(window.__seek(sec)), budget, 'window.__seek(' + sec + ')',
+          'the clock stands still while it runs, so it must not wait on requestAnimationFrame or a timer');
+      } finally {
+        unsought.clear();
+      }
+      // A placed video __seek left alone shows the page time, as it does in a worker that never saw it placed, so what a
+      // frame shows never depends on the frames before it; this is its one seek in the frame.
+      for (const v of videos) {
+        if (!pagePlaced.has(v) || pageTimed.has(v) || !playable(v)) continue;
+        const target = targetOf(v, sec);
+        if (Math.abs(v.currentTime - target) > 1e-6) mediaTime.set.call(v, target);
+      }
       await Promise.all(videos.map((v) => presentVideo(v, budget, placed.get(v))));
+      // Even waited out, the first seek's picture can still be the one captured (Chrome on Linux), so the video is sought
+      // once more to the page's picture, a hair from its time since Chrome skips a seek to the time already shown.
+      await Promise.all(sought.filter((v) => pageTimed.has(v) && playable(v)).map((v) => {
+        const at = v.currentTime;
+        const was = { count: track(v).count, time: at };
+        mediaTime.set.call(v, at + 1e-4 < v.duration ? at + 1e-4 : at - 1e-4);
+        return presentVideo(v, budget, was);
+      }));
+      for (const v of liveVideos()) if (pageTimed.has(v)) pagePlaced.add(v);
     }
     // A video __seek gave a source to, or made, plays from frame 0 like any other: it is put at this
     // frame's time unless the page set its time in this frame. Either way it is sought once it has data

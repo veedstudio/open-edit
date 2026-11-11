@@ -52,6 +52,9 @@ const TYPES: Record<string, string> = {
   '.gltf': 'model/gltf+json',
 };
 
+/** Whether the server answers `file` as an image or a video. */
+export const isPicture = (file: string): boolean => /^(image|video)\//.test(TYPES[extname(file).toLowerCase()] ?? '');
+
 export interface Refusal {
   /** Why the file is not served. */
   reason: string;
@@ -241,7 +244,7 @@ export async function startPageServer(o: PageServerOptions): Promise<PageServer>
       return;
     }
     const file = substitutes.get(named) ?? named;
-    asked.add(file);
+    asked.add(named);
     let size: number;
     try {
       const st = await stat(file);

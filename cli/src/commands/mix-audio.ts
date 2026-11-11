@@ -8,17 +8,22 @@
 // This takes a spec and produces the mixed track. Every piece states WHERE it starts and how loud it
 // sits; music and effects under narration are ducked by the narration itself rather than by a gain somebody
 // guessed at, an effect given no gain is set under the narration by measuring both, a mono or one-sided
-// piece is centred in both channels, and the music bed runs to the last frame.
+// piece is centred in both channels, and the music bed runs to the last frame. The page's own videos need no
+// entry: each one's sound is laid where the render played it, from the record the render left beside it.
 //
 //   openedit mix-audio <run-dir> [--spec audio/mix.json] [--out audio/mix.m4a] [--video <render>]
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, dirname, extname, isAbsolute } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG } from '../config.ts';
 import { channelLevels, describeBalance, toStereo } from '../channels.ts';
-import { hasAudioStream, pictureDurationOf } from '../probe.ts';
-import { soundSpanIn, type SoundSpan } from '../verify/dead-tail.ts';
+import { layStem, pageRecordOf, pageSounds, sameFile, shownPath, type Stretch } from '../page-sound.ts';
+import { audioDurationOf, hasAudioStream, pictureDurationOf } from '../probe.ts';
+import { recordPath } from '../render/text-record.ts';
+import { soundSpanOf, WINDOW_MS, type SoundSpan } from '../verify/dead-tail.ts';
+import { decode, envelopeOf, SAMPLE_RATE } from './speech-probe.ts';
 
 export interface Track {
   /** Relative to the run dir, or absolute. */
@@ -40,10 +45,15 @@ export interface Track {
   keepPan?: boolean;
 }
 
+/** How the sound of a video the page plays is laid: a track's own settings, placed where the render played it. */
+export type PageVideoSettings = Pick<Track, 'gainDb' | 'fadeInSec' | 'fadeOutSec' | 'role' | 'duck' | 'keepPan'>;
+
 export interface MixSpec {
   /** The film's length. Anything past it is trimmed, so one long cue cannot extend the deliverable. */
   durationSec: number;
   tracks: Track[];
+  /** By the file it plays: false leaves a page video's sound out, settings lay it otherwise. Unnamed, each is laid as sfx. */
+  pageVideos?: Record<string, false | PageVideoSettings>;
 }
 
 function label(i: number): string {
@@ -67,11 +77,41 @@ export function ducks(track: Track, hasVoice: boolean): boolean {
 export const KEY_LUFS = -19.7;
 
 /**
- * The quietest voice track whose key is raised in full: 11 dB under the quietest of those 68 tracks (-39.0 LUFS)
- * and 20 dB over the -70 LUFS ebur128 reports for silence. A quieter track is raised no further, so the duck
- * fades out with it instead of keying on a silent or near-silent track's noise.
+ * 20 dB over the -70 LUFS ebur128 reports for silence: a voice track quieter than this, or a 100 ms stretch of a music
+ * file, is taken for noise rather than sound.
  */
-const QUIETEST_KEY_LUFS = -50;
+export const SILENCE_FLOOR_DB = -50;
+
+/**
+ * The quietest voice track whose key is raised in full: 11 dB under the quietest of those 68 tracks (-39.0 LUFS),
+ * at the silence floor. A quieter track is raised no further, so the duck fades out with it instead of keying on a
+ * silent or near-silent track's noise.
+ */
+const QUIETEST_KEY_LUFS = SILENCE_FLOOR_DB;
+
+/** How a ducked track follows the voice: how far ahead of the bed the voice is read, and the compressor's attack and release. */
+interface DuckTiming {
+  leadSec: number;
+  attackMs: number;
+  releaseMs: number;
+}
+
+/**
+ * A compressor only reacts once a word has begun, so music is read leadSec behind the voice to be down before it, and
+ * the slow release holds it through short pauses and lets it back gradually. The attack moves with the release: this
+ * one keeps the dip under speech at the depth KEY_LUFS was set for.
+ */
+const MUSIC_DUCK: DuckTiming = { leadSec: 0.5, attackMs: 150, releaseMs: 3000 };
+
+/**
+ * Effects mostly land between lines, where `effectLevels` sets one given no gainDb against the voice, so a lead or a
+ * slow release would duck them there too.
+ */
+const EFFECT_DUCK: DuckTiming = { leadSec: 0, attackMs: 20, releaseMs: 600 };
+
+/** The duck each ducked track goes through: an sfx track its own, every other role the music's. */
+const DUCKS = { bed: MUSIC_DUCK, fx: EFFECT_DUCK };
+const duckOf = (t: Track): keyof typeof DUCKS => (t.role === 'sfx' ? 'fx' : 'bed');
 
 /** The gain that brings one voice track's key to KEY_LUFS; unmeasured, the key is the voice as it is. */
 function keyGainDb(lufs: number | undefined): number {
@@ -117,15 +157,27 @@ export interface Fit {
 
 const sec = (v: number) => Number(v.toFixed(3));
 
+/** `adelay`'s value for a delay of `v` seconds, one per channel of a stereo track. */
+const ms = (v: number) => `${Math.round(v * 1000)}|${Math.round(v * 1000)}`;
+
+/** Where a music file's sound starts and ends, as `musicSpans` measures it. */
+export interface MusicSpan extends SoundSpan {
+  /**
+   * Seconds to where the file stays under SILENCE_FLOOR_DB, never before `end`: a last chord decays well past `end`,
+   * which is where a loop joins. Unset, `end`.
+   */
+  silentFrom?: number;
+}
+
 /**
  * The stretches of a file whose sound spans `span` that carry it from `at` to `until` on the film: the file as it is
- * when its sound lasts that long, else the file to its last sound, then its sound again from its first, as often as
- * it takes, each joined to the one before by LOOP_CROSSFADE_SEC. A file with no sound, or with too little to hold a
- * crossfade at each end, plays once.
+ * when its sound, a slow last decay included, lasts that long, else the file to its last sound, then its sound again
+ * from its first, as often as it takes, each joined to the one before by LOOP_CROSSFADE_SEC. A file with no sound, or
+ * with too little to hold a crossfade at each end, plays once.
  */
-export function piecesOf(span: SoundSpan | null, at: number, until: number): Piece[] {
+export function piecesOf(span: MusicSpan | null, at: number, until: number): Piece[] {
   const c = LOOP_CROSSFADE_SEC;
-  if (!span || at + span.end >= until - SILENCE_SLOP_SEC || span.end - span.start < 2 * c) {
+  if (!span || at + (span.silentFrom ?? span.end) >= until - SILENCE_SLOP_SEC || span.end - span.start < 2 * c) {
     return [{ at, in: 0, out: sec(until - at) }];
   }
   const unit = span.end - span.start;
@@ -145,7 +197,7 @@ export function piecesOf(span: SoundSpan | null, at: number, until: number): Pie
  * whose sound would end last on the film is the bed and runs to durationSec, so the film never ends on a bed that
  * stopped short or on nothing at all; an earlier cue keeps its own length. Tracks of other roles play as set.
  */
-export function fits(spec: MixSpec, spans: readonly (SoundSpan | null | undefined)[]): (Fit | undefined)[] {
+export function fits(spec: MixSpec, spans: readonly (MusicSpan | null | undefined)[]): (Fit | undefined)[] {
   const music = spec.tracks.flatMap((t, i) => (t.role === 'music' ? [i] : []));
   const endOf = (i: number): number | undefined => {
     const t = spec.tracks[i];
@@ -185,7 +237,6 @@ function chainOf(t: Track, input: number, levels: readonly number[] | undefined,
   if (!Number.isFinite(t.atSec) || t.atSec < 0) {
     throw new Error(`mix-audio: "${t.path}" starts at ${t.atSec}s — a start must be a non-negative number`);
   }
-  const ms = (v: number) => `${Math.round(v * 1000)}|${Math.round(v * 1000)}`;
   const stereo = toStereo(t.keepPan ? undefined : levels);
   const pieces: string[] = [];
   let chain: string[];
@@ -241,12 +292,18 @@ export function filtergraph(
   }
   const parts: string[] = [];
   const voices: { l: string; i: number }[] = [];
-  const ducked: string[] = [];
+  const ducked: Record<keyof typeof DUCKS, string[]> = { bed: [], fx: [] };
   const plain: string[] = [];
   const hasVoice = spec.tracks.some((t) => t.role === 'voice');
   const sum = (ls: string[], out: string, then = '') => (ls.length === 1
     ? `[${ls[0]}]${then || 'anull'}[${out}]`
     : `${ls.map((l) => `[${l}]`).join('')}${sumOf(ls.length)}${then ? `,${then}` : ''}[${out}]`);
+  // The label that carries several: the one itself, else their sum as `out`.
+  const joined = (ls: string[], out: string): string => {
+    if (ls.length === 1) return ls[0];
+    parts.push(`${ls.map((l) => `[${l}]`).join('')}${sumOf(ls.length)}[${out}]`);
+    return out;
+  };
 
   const inputs: number[] = [];
   spec.tracks.forEach((t, i) => {
@@ -254,26 +311,21 @@ export function filtergraph(
     parts.push(`${chainOf(t, inputs.length, levels[i], spec.durationSec, setDb[i], fitted[i])}[${l}]`);
     inputs.push(...Array<number>(Math.max(1, fitted[i]?.pieces.length ?? 1)).fill(i));
     if (t.role === 'voice') voices.push({ l, i });
-    else if (ducks(t, hasVoice)) ducked.push(l);
+    else if (ducks(t, hasVoice)) ducked[duckOf(t)].push(l);
     else plain.push(l);
   });
 
-  if (ducked.length && !voices.length) {
+  const groups = (Object.keys(DUCKS) as (keyof typeof DUCKS)[]).filter((name) => ducked[name].length);
+  if (groups.length && !voices.length) {
     throw new Error('mix-audio: a track asks to be ducked, but no track is marked role "voice" to duck it');
   }
 
   const beds: string[] = [];
-  if (ducked.length) {
-    // The narration itself opens the gap, with a slow release so the bed does not pump between words.
-    //
+  if (groups.length) {
     // The threshold is absolute, so on the voice's own level the dip followed how loud the narration was:
     // 15dB under -16.6 LUFS, under 2dB under -32.6. Each voice track is split before the bus, and only its
     // key copy is brought to KEY_LUFS, on its own: one level for the whole bus left a quiet voice taking
     // turns with a loud one barely ducking at all. The narration is still heard at its own level.
-    // The key is padded to the film's length. `sidechaincompress` ends its OUTPUT when the sidechain
-    // ends, so an unpadded key truncated the bed at the last word — measured at -91dB against -33dB
-    // for the same music one second later. Music dying when narration stops is the exact opposite of
-    // what ducking is for.
     const keys = voices.map(({ l, i }) => {
       parts.push(`[${l}]asplit=2[${l}h][${l}k]`);
       const gain = keyGainDb(voiceLufs[i]);
@@ -282,11 +334,32 @@ export function filtergraph(
       return `${l}kg`;
     });
     parts.push(sum(voices.map(({ l }) => `${l}h`), 'vmix'));
-    parts.push(sum(keys, 'vkey', `apad=whole_dur=${spec.durationSec}`));
-    const bed = ducked.length === 1 ? ducked[0] : 'beds';
-    if (ducked.length > 1) parts.push(`${ducked.map((l) => `[${l}]`).join('')}${sumOf(ducked.length)}[beds]`);
-    parts.push(`[${bed}][vkey]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=600[duckedbed]`);
-    beds.push('duckedbed', 'vmix');
+    const key = joined(keys, 'vkey');
+    if (groups.length > 1) parts.push(`[${key}]asplit=2${groups.map((name) => `[${name}k]`).join('')}`);
+    for (const name of groups) {
+      const { leadSec, attackMs, releaseMs } = DUCKS[name];
+      // Rounded once to the whole milliseconds `ms` writes for `adelay`, so the key's pad and the trim match the bed's delay.
+      const lead = Math.round(leadSec * 1000) / 1000;
+      let bed = joined(ducked[name], `${name}s`);
+      // The duck ends with the shorter of bed and key, so the key is padded to the film's length as the mix is, then by
+      // the lead the bed is delayed by.
+      parts.push(`[${groups.length > 1 ? `${name}k` : key}]apad=whole_dur=${spec.durationSec}`
+        + `${lead ? `,apad=pad_dur=${lead}` : ''}[${name}key]`);
+      // Delayed against its key, the bed reaches a compressor that has already answered the word, one at the film's
+      // first frame included; the delay is trimmed off after.
+      if (lead) {
+        parts.push(`[${bed}]adelay=${ms(lead)}[${name}lead]`);
+        bed = `${name}lead`;
+      }
+      // The compressor stops at either input's end and drops what the other has not matched; ffmpeg 7 decodes the two on
+      // separate threads, so the bed lost a different length of its end each run. Joined first, the two end together.
+      parts.push(`[${bed}][${name}key]amerge=inputs=2,asplit=2[${name}0][${name}1]`, `[${name}0]pan=stereo|c0=c0|c1=c1[${name}in]`,
+        `[${name}1]pan=stereo|c0=c2|c1=c3[${name}sc]`);
+      parts.push(`[${name}in][${name}sc]sidechaincompress=threshold=0.03:ratio=8:attack=${attackMs}:release=${releaseMs}`
+        + `${lead ? `,atrim=start=${lead},asetpts=N/SR/TB` : ''}[ducked${name}]`);
+      beds.push(`ducked${name}`);
+    }
+    beds.push('vmix');
   } else if (voices.length) {
     parts.push(sum(voices.map(({ l }) => l), 'vox'));
     beds.push('vox');
@@ -306,8 +379,9 @@ export function filtergraph(
 }
 
 const ROLES = ['voice', 'music', 'sfx', 'ambience'] as const;
-export const SPEC_KEYS = ['durationSec', 'tracks'] as const;
+export const SPEC_KEYS = ['durationSec', 'tracks', 'pageVideos'] as const;
 export const TRACK_KEYS = ['path', 'atSec', 'endSec', 'gainDb', 'fadeInSec', 'fadeOutSec', 'role', 'duck', 'keepPan'] as const;
+export const PAGE_VIDEO_KEYS = ['gainDb', 'fadeInSec', 'fadeOutSec', 'role', 'duck', 'keepPan'] as const;
 
 /**
  * The spec as written by hand, checked field by field. Unchecked, a malformed one fails deep in the graph
@@ -327,14 +401,30 @@ export function parseSpec(raw: unknown, lengthSec?: number): MixSpec {
     bad('the spec is an object, { "durationSec": <seconds>, "tracks": [ ... ] }, not a bare list of tracks');
   }
   onlyKnown('the spec', raw as object, SPEC_KEYS);
-  const { tracks } = raw as { tracks?: unknown };
+  const { tracks, pageVideos } = raw as { tracks?: unknown; pageVideos?: unknown };
   const durationSec = (raw as { durationSec?: unknown }).durationSec ?? lengthSec;
   if (typeof durationSec !== 'number' || !Number.isFinite(durationSec) || durationSec <= 0) {
     bad(`durationSec, the film's length in seconds, must be a positive number (got ${JSON.stringify(durationSec)}); `
       + '--video supplies it from a render');
   }
-  if (!Array.isArray(tracks) || tracks.length === 0) bad('tracks must be a non-empty list');
-  (tracks as unknown[]).forEach((t, i) => {
+  // The fields a track and a page video's sound share.
+  const settings = (at: string, track: Record<string, unknown>): void => {
+    for (const key of ['gainDb', 'fadeInSec', 'fadeOutSec'] as const) {
+      const v = track[key];
+      if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || (key !== 'gainDb' && v < 0))) {
+        bad(`${at}.${key} must be a ${key === 'gainDb' ? '' : 'non-negative '}number`);
+      }
+    }
+    if (track.role !== undefined && !(ROLES as readonly unknown[]).includes(track.role)) {
+      bad(`${at}.role must be one of ${ROLES.join(', ')} (got ${JSON.stringify(track.role)})`);
+    }
+    if (track.duck !== undefined && typeof track.duck !== 'boolean') bad(`${at}.duck must be true or false`);
+    if (track.keepPan !== undefined && typeof track.keepPan !== 'boolean') bad(`${at}.keepPan must be true or false`);
+    // The voice tracks are the key the others duck under, so a ducked voice would be ignored.
+    if (track.duck === true && track.role === 'voice') bad(`${at} is a voice track, which ducks the others and cannot be ducked itself`);
+  };
+  if (tracks !== undefined && !Array.isArray(tracks)) bad('tracks must be a list');
+  ((tracks ?? []) as unknown[]).forEach((t, i) => {
     const at = `tracks[${i}]`;
     if (typeof t !== 'object' || t === null || Array.isArray(t)) bad(`${at} must be an object`);
     const track = t as Record<string, unknown>;
@@ -350,21 +440,23 @@ export function parseSpec(raw: unknown, lengthSec?: number): MixSpec {
     if (track.endSec !== undefined && (typeof track.endSec !== 'number' || !Number.isFinite(track.endSec) || track.endSec <= (track.atSec as number))) {
       bad(`${at}.endSec, where it stops in seconds, must be a number after its atSec`);
     }
-    for (const key of ['gainDb', 'fadeInSec', 'fadeOutSec'] as const) {
-      const v = track[key];
-      if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || (key !== 'gainDb' && v < 0))) {
-        bad(`${at}.${key} must be a ${key === 'gainDb' ? '' : 'non-negative '}number`);
-      }
-    }
-    if (track.role !== undefined && !(ROLES as readonly unknown[]).includes(track.role)) {
-      bad(`${at}.role must be one of ${ROLES.join(', ')} (got ${JSON.stringify(track.role)})`);
-    }
-    if (track.duck !== undefined && typeof track.duck !== 'boolean') bad(`${at}.duck must be true or false`);
-    if (track.keepPan !== undefined && typeof track.keepPan !== 'boolean') bad(`${at}.keepPan must be true or false`);
-    // The voice tracks are the key the others duck under, so a ducked voice would be ignored.
-    if (track.duck === true && track.role === 'voice') bad(`${at} is a voice track, which ducks the others and cannot be ducked itself`);
+    settings(at, track);
   });
-  return { ...(raw as MixSpec), durationSec: durationSec as number };
+  if (pageVideos !== undefined) {
+    if (typeof pageVideos !== 'object' || pageVideos === null || Array.isArray(pageVideos)) {
+      bad('pageVideos maps a file the page plays to false or to the settings its sound is laid with');
+    }
+    for (const [file, v] of Object.entries(pageVideos as object)) {
+      const at = `pageVideos[${JSON.stringify(file)}]`;
+      if (v === false) continue;
+      if (typeof v !== 'object' || v === null || Array.isArray(v)) bad(`${at} must be false, which leaves its sound out, or the settings it is laid with`);
+      onlyKnown(at, v as object, PAGE_VIDEO_KEYS);
+      // A music track is looped to the film's end, and a page video's sound plays only where its picture does.
+      if ((v as Track).role === 'music') bad(`${at}.role must be voice, sfx or ambience: a music track is looped to the end, and a page video's sound plays where its picture does`);
+      settings(at, v as Record<string, unknown>);
+    }
+  }
+  return { ...(raw as MixSpec), durationSec: durationSec as number, tracks: (tracks ?? []) as Track[] };
 }
 
 /** A spec file's JSON, unchecked. */
@@ -415,21 +507,30 @@ export function trackLevels(runDir: string, spec: MixSpec): (number[] | undefine
   });
 }
 
+/** A music file's sound span, and where it falls silent, from one decode. */
+function musicSpanIn(file: string): MusicSpan | null {
+  const envelope = envelopeOf(decode(file, null), (SAMPLE_RATE * WINDOW_MS) / 1000);
+  const span = soundSpanOf(envelope, WINDOW_MS);
+  if (!span) return null;
+  const heard = ((envelope.findLastIndex((db) => db > SILENCE_FLOOR_DB) + 1) * WINDOW_MS) / 1000;
+  return { ...span, silentFrom: Math.max(span.end, heard) };
+}
+
 /**
- * Where each music track's sound starts and ends in its file, gated as the review gates a delivered video's, indexed
- * like the spec's tracks. Measured from the sound, not read off the file's length, because a generated piece writes its
- * own fade to silence before its file ends. Null for a file with nothing loud enough to count; tracks of other roles,
- * and files that are not there, are left unmeasured.
+ * Where each music track's sound starts and ends in its file, gated as the review gates a delivered video's, and where
+ * it falls silent, indexed like the spec's tracks. Measured from the sound, not read off the file's length, because a
+ * generated piece writes its own fade to silence before its file ends. Null for a file with nothing loud enough to
+ * count; tracks of other roles, and files that are not there, are left unmeasured.
  */
-export function musicSpans(runDir: string, spec: MixSpec): (SoundSpan | null | undefined)[] {
+export function musicSpans(runDir: string, spec: MixSpec): (MusicSpan | null | undefined)[] {
   const resolve = resolver(runDir);
-  const measured = new Map<string, SoundSpan | null>();
+  const measured = new Map<string, MusicSpan | null>();
   return spec.tracks.map((t) => {
     const file = resolve(t.path);
     if (t.role !== 'music' || !existsSync(file)) return undefined;
     if (!measured.has(file)) {
       try {
-        measured.set(file, soundSpanIn(file));
+        measured.set(file, musicSpanIn(file));
       } catch (error) {
         throw new Error(`mix-audio: could not measure where the sound of ${t.path} ends: ${(error as Error).message.trim().split('\n').pop()}`);
       }
@@ -501,7 +602,7 @@ export function speakingLoudness(momentary: readonly number[]): number | undefin
 }
 
 /** Each named ebur128 instance's momentary loudness, one value per 100 ms, read from its `framelog=info` lines. */
-function momentaryOf(stderr: string): Map<string, number[]> {
+export function momentaryOf(stderr: string): Map<string, number[]> {
   const series = new Map<string, number[]>();
   for (const [, name, m] of stderr.matchAll(/^\[ebur128@(\w+) @ [^\]]+\] t: *\S+ +TARGET:\S+ LUFS +M: *(\S+)/gm)) {
     if (!series.has(name)) series.set(name, []);
@@ -565,6 +666,106 @@ export function effectLevels(runDir: string, spec: MixSpec, levels: (readonly nu
   });
 }
 
+/** A mistake in what the spec asks of the page's videos, refused as a malformed spec is. */
+class PageVideoError extends Error {}
+
+/** The tracks the page's videos add to a spec, the names to print them by (indexed after the spec's own), and a line for each. */
+export interface PageTracks {
+  tracks: Track[];
+  names: Map<number, string>;
+  lines: string[];
+}
+
+const secs = (v: number) => `${Number(v.toFixed(2))}s`;
+
+function describeStretches(stretches: readonly Stretch[]): string {
+  const one = (x: Stretch) => `${Number(x.in.toFixed(2))}-${secs(x.out)} of the file from ${secs(x.at)}${x.rate === 1 ? '' : ` at ${Number(x.rate.toFixed(2))}x`}`;
+  const shown = stretches.slice(0, 3).map(one).join(', ');
+  return stretches.length > 3 ? `${shown}, and ${stretches.length - 3} more` : shown;
+}
+
+/**
+ * The sound of each <video> the page plays, as one track per file laid where the render played it, read from the
+ * record of `video` or, without one, of the run's newest render. Its stretches are written as stems into `stems`. A
+ * file the spec leaves out in pageVideos, lays as a track of its own, or that render laid as --footage is not laid
+ * again, and one with no audio stream has nothing to lay; each says so.
+ */
+export function pageTracks(runDir: string, spec: MixSpec, video: string | undefined, stems: string): PageTracks {
+  const resolve = resolver(runDir);
+  const lines: string[] = [];
+  const asked = new Map(Object.entries(spec.pageVideos ?? {}).map(([path, settings]) => [sameFile(resolve(path)), { path, settings }]));
+  let found: ReturnType<typeof pageRecordOf>;
+  try {
+    found = pageRecordOf(runDir, video);
+  } catch (error) {
+    throw new Error(`mix-audio: ${(error as Error).message}`);
+  }
+  if (!found) {
+    const where = video === undefined ? `no render in ${runDir} has a` : `${video} has no`;
+    if (asked.size) {
+      throw new PageVideoError(`mix-audio: pageVideos names ${[...asked.values()].map((a) => a.path).join(', ')}, but ${where} record of `
+        + 'its page\'s videos beside it (<render>.text.json); --video names the render');
+    }
+    lines.push(`mix-audio: ${where} record of its page's videos beside it (<render>.text.json), so no page video's sound is laid in`
+      + (video === undefined ? '; --video names the render' : ''));
+    return { tracks: [], names: new Map(), lines };
+  }
+  if (video === undefined) lines.push(`mix-audio: the page's videos are read from ${recordPath(found.video)}, the run's newest render; --video names another`);
+  const files = [...new Set(found.record.samples.flatMap((s) => (s.videos ?? []).map((v) => v.file)))];
+  const heard = new Map<string, number>();
+  for (const file of files) {
+    if (!existsSync(file)) throw new Error(`mix-audio: the page played ${file}, which is no longer there; render the page again`);
+    try {
+      if (hasAudioStream(file)) heard.set(file, audioDurationOf(file));
+    } catch (error) {
+      throw new Error(`mix-audio: could not read the sound of ${file}: ${(error as Error).message}`);
+    }
+  }
+  const unplayed = [...asked].filter(([key]) => !files.some((f) => sameFile(f) === key)).map(([, a]) => a.path);
+  if (unplayed.length) {
+    throw new PageVideoError(`mix-audio: pageVideos names ${unplayed.join(', ')}, which the page does not play in ${found.video} `
+      + `(it plays ${files.map((f) => shownPath(runDir, f)).join(', ') || 'no video'})`);
+  }
+  const own = new Set(spec.tracks.map((t) => sameFile(resolve(t.path))));
+  const footage = found.record.footage && sameFile(found.record.footage.file);
+  const d = spec.durationSec;
+  const laid: { name: string; track: Track; stretches: Stretch[]; unheard: string }[] = [];
+  for (const sound of pageSounds(found.record, (file) => heard.get(file) ?? 0)) {
+    const name = shownPath(runDir, sound.file);
+    const key = sameFile(sound.file);
+    const settings = asked.get(key)?.settings;
+    const out = (why: string) => lines.push(`mix-audio: ${name}, a video the page plays from ${secs(sound.from)} to ${secs(sound.to)}, is left out: ${why}`);
+    if (settings === false) { out('the spec\'s pageVideos sets it false'); continue; }
+    if (own.has(key)) { out('the spec lays that file as a track of its own'); continue; }
+    if (key === footage) { out('it is the footage render laid under the page, which the spec lays itself'); continue; }
+    if (!heard.has(sound.file)) { out('it has no sound'); continue; }
+    // Cut at the film's end, so a stem never holds sound the mix trims.
+    const stretches = sound.stretches.filter((x) => x.at < d - 0.001)
+      .map((x) => (x.at + (x.out - x.in) / x.rate > d ? { ...x, out: x.in + (d - x.at) * x.rate } : x));
+    const unheard = sound.unheard.map((u) => `; silent from ${secs(u.from)} to ${secs(u.to)}, where it `
+      + (u.rate < 0 ? 'plays backwards' : `moves at ${Number(u.rate.toFixed(2))}x, a speed Chrome plays no sound at`)).join('');
+    if (!stretches.length) {
+      out(sound.stretches.length ? `it plays only after the mix ends at ${secs(d)}`
+        : unheard.slice(2) || 'it holds still or shows only frames after its sound ends, so none of its sound plays');
+      continue;
+    }
+    const stem = join(stems, `${laid.length}.wav`);
+    const { atSec, lengthSec } = layStem(sound.file, stretches, stem);
+    // Laid as a sound effect, which is what a page video's own sound is to the piece: ducked under the voice and, given no
+    // gain, set under it by measuring both. As music it would be looped to the film's end, and as ambience it would play
+    // at its own level over the words.
+    const track: Track = { path: stem, atSec, endSec: Number((atSec + lengthSec).toFixed(3)), role: 'sfx', ...settings };
+    laid.push({ name, track, stretches, unheard });
+  }
+  const hasVoice = [...spec.tracks, ...laid.map((l) => l.track)].some((t) => t.role === 'voice');
+  for (const { name, track, stretches, unheard } of laid) {
+    const level = track.gainDb === undefined ? '' : ` at ${track.gainDb >= 0 ? '+' : ''}${track.gainDb} dB`;
+    const ducked = ducks(track, hasVoice) ? ', ducked under the voice' : '';
+    lines.push(`mix-audio: ${name}, a video the page plays, laid in as ${track.role}${level}${ducked}: ${describeStretches(stretches)}${unheard}`);
+  }
+  return { tracks: laid.map((l) => l.track), names: new Map(laid.map((l, j) => [spec.tracks.length + j, l.name])), lines };
+}
+
 export function mix(
   runDir: string,
   spec: MixSpec,
@@ -595,7 +796,7 @@ export const usage = {
   flags: {
     spec: { type: 'string', value: '<file>', help: 'Mix spec, relative to the run (default audio/mix.json)' },
     out: { type: 'string', value: '<file>', help: 'Output, relative to the run (default audio/mix.m4a)' },
-    video: { type: 'string', value: '<file>', help: 'The render the mix is for: its length is the mix\'s, durationSec or not' },
+    video: { type: 'string', value: '<file>', help: 'The render the mix is for: its length is the mix\'s, durationSec or not, and its record names the videos its page plays' },
     'print-graph': { type: 'boolean', help: 'Print the ffmpeg filtergraph and write nothing' },
   },
   notes: [
@@ -612,25 +813,43 @@ export const usage = {
     'meant to sit on one side).',
     'The music track whose sound would end last runs to durationSec, and a music track with an endSec runs to that:',
     `looped from its first sound when its sound ends sooner, joined by ${LOOP_CROSSFADE_SEC}s crossfades, and faded out over its last`,
-    `${MUSIC_FADE_OUT_SEC}s unless it sets fadeOutSec; the command prints each loop it made. Its sound ends where the file falls`,
-    '20 dB under its own level, so a piece that fades to silence before its file ends is looped too. Earlier music cues',
-    'and every other track play to their own end, or to their endSec.',
+    `${MUSIC_FADE_OUT_SEC}s unless it sets fadeOutSec; the command prints each loop it made. It plays once when the file is still`,
+    `over ${SILENCE_FLOOR_DB} dBFS where it stops, so a last chord decaying to the file's end is not looped; a loop joins where the`,
+    'file falls 20 dB under its own level, so a piece that fades to silence before its file ends is looped too. Earlier',
+    'music cues and every other track play to their own end, or to their endSec.',
     `An sfx track given no gainDb, in a spec with a voice track, is set so its loudest moment sits ${SFX_UNDER_VOICE_LU} LU under`,
     'the voice\'s loudness while it speaks, both measured as the mix plays them; the command prints the gain it set.',
     'Give an sfx track its own gainDb for a deliberate loud hit: it keeps that gain. With no voice track, every',
     'track plays at its own gain.',
     'Music and sfx tracks are ducked by default whenever a voice track exists, and "duck": false keeps one from',
-    'dipping; any other non-voice track is ducked with "duck": true. Each voice track keys the duck at one loudness,',
-    'so a ducked track dips as deep under a quiet narration as under a loud one; under one quieter than -50 LUFS the',
-    'dip fades out with it. A mono file, or a two-channel one with its sound on one channel, is centred in both channels',
-    'unless it sets keepPan; one leaning 12 dB or more to a side is named and left as it is. Files with more',
-    'than two channels are downmixed to stereo by ffmpeg and not checked.',
+    'dipping; any other non-voice track is ducked with "duck": true. A ducked track other than an sfx track is already',
+    'down when a line starts and comes back over about a second and a half after it; an sfx track\'s duck lets go within',
+    'the beat after a line. Each voice track keys the duck at one loudness, so a ducked track dips as deep under a quiet',
+    'narration as under a loud one; under one quieter than -50 LUFS the dip fades out with it. A mono file, or a',
+    'two-channel one with its sound on one channel, is centred in both channels unless it sets keepPan; one leaning',
+    '12 dB or more to a side is named and left as it is. Files with more than two channels are downmixed to stereo by',
+    'ffmpeg and not checked.',
+    'The sound of each <video> the page plays is laid in as an sfx track where the render played it, its trims, loops',
+    'and speed included, read from the record beside --video (else beside the run\'s newest render), unless a track names',
+    'its file or render laid it with --footage; pageVideos maps a file the page plays (named as path is) to false, which',
+    'leaves its sound out, or to the fields gainDb, fadeInSec, fadeOutSec, role (voice, sfx or ambience), duck and keepPan,',
+    'which lay it otherwise, tracks may be empty when these are the whole soundtrack, and the command prints a line for each.',
     'The result is audio only. Lay it on a render at delivery loudness with',
     '  mux-audio --video <render> --audio <run-dir>/audio/mix.m4a --out <file>',
   ].join('\n'),
 } satisfies Usage;
 
 export function mixAudio(argv: string[]): number {
+  // The page's videos are laid as stems, each a file of this attempt's own.
+  const stems = mkdtempSync(join(tmpdir(), 'openedit-page-sound-'));
+  try {
+    return mixInto(argv, stems);
+  } finally {
+    rmSync(stems, { recursive: true, force: true });
+  }
+}
+
+function mixInto(argv: string[], stems: string): number {
   const { values, positionals } = parseUsage('mix-audio', usage, argv);
   const [runDir] = positionals;
   if (!runDir) {
@@ -662,6 +881,20 @@ export function mixAudio(argv: string[]): number {
     console.error((error as Error).message);
     return 2;
   }
+  let page: PageTracks;
+  try {
+    page = pageTracks(runDir, spec, values.video, stems);
+  } catch (error) {
+    console.error((error as Error).message);
+    return error instanceof PageVideoError ? 2 : 1;
+  }
+  spec = { ...spec, tracks: [...spec.tracks, ...page.tracks] };
+  if (!spec.tracks.length) {
+    for (const line of page.lines) console.log(line);
+    console.error('mix-audio: nothing to mix: the spec has no tracks, and no video the page plays has sound to lay in');
+    return 2;
+  }
+  const nameOf = (i: number) => page.names.get(i) ?? spec.tracks[i].path;
   let levels: (number[] | undefined)[];
   let voiceLufs: (number | undefined)[];
   let effects: (EffectLevel | undefined)[];
@@ -679,18 +912,19 @@ export function mixAudio(argv: string[]): number {
     console.log(filtergraph(spec, levels, voiceLufs, effects.map((e) => e?.gainDb), fitted).graph);
     return 0;
   }
+  for (const line of page.lines) console.log(line);
   // A mono file is centred as a matter of course; a one-sided or leaning two-channel one is worth saying.
   spec.tracks.forEach((t, i) => {
     const l = levels[i];
     const said = l && !t.keepPan ? describeBalance(l) : null;
-    if (said) console.log(`mix-audio: ${t.path} ${said}`);
+    if (said) console.log(`mix-audio: ${nameOf(i)} ${said}`);
   });
   // The gain each effect was given, with both measurements it came from, so a level that sounds wrong can be traced.
   const lufs = (v: number) => `${v.toFixed(1)} LUFS`;
   spec.tracks.forEach((t, i) => {
     const e = effects[i];
     if (!e) return;
-    console.log(`mix-audio: ${t.path} at ${t.atSec}s set ${e.gainDb >= 0 ? '+' : ''}${e.gainDb.toFixed(1)} dB, its loudest moment from `
+    console.log(`mix-audio: ${nameOf(i)} at ${t.atSec}s set ${e.gainDb >= 0 ? '+' : ''}${e.gainDb.toFixed(1)} dB, its loudest moment from `
       + `${lufs(e.loudestLufs)} to ${lufs(e.loudestLufs + e.gainDb)}, ${SFX_UNDER_VOICE_LU} LU under the voice speaking at ${lufs(e.voiceLufs)}`);
   });
   spec.tracks.forEach((t, i) => {

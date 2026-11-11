@@ -223,14 +223,16 @@ npx @veedstudio/openedit-cli render page.html --out stills --stills 0.5,2,4 --sh
 ```
 
 Segments and a manifest are cached in `<out>.render/`, so `--from`/`--to`
-re-renders only the segments it overlaps and rejoins the rest by stream copy;
-every frame of the joined file is checked against its time. A page marked
+re-renders the segments it overlaps, and any other whose page or files changed
+since it was drawn (a cue that moved, a clip replaced at its path), and rejoins
+the rest by stream copy; every frame of the joined file is checked against its
+time. A page marked
 `data-stateless` is checked on one frame before the workers start, and rendered
 as an unmarked page, with a line saying why, when the mark does not hold.
-The all-intra copies that a page's long-GOP videos are served from are made once
-per source, keyed by its content, in the workspace's `runs/.media`, which stills
-into any directory, renders and patches share (`render --help` says how much it
-keeps).
+A page's long-GOP videos, and any in a codec Chrome has no decoder for (HEVC
+or ProRes, say), are served from all-intra copies, made once per source, keyed
+by its content, in the workspace's `runs/.media`, which stills into any
+directory, renders and patches share (`render --help` says how much it keeps).
 It fails naming the cause when Chrome does not start or stops answering, the
 page throws, or every frame is one flat colour, and a signal stops it with the
 Chromes and ffmpegs it started. A video render then looks at what it made, as the
@@ -282,12 +284,17 @@ next when the gap is under half a second, so the screen clears only in a silence
 of a second or more. Cues break where the speech does (a sentence end, a pause,
 a clause), speak for at most 7 seconds, and take at most two lines of 42
 characters, fitted to the element's width in the page's own font. With
-`faces.js` loaded each cue is placed off the faces, inside the safe zone. The
-script sets structure and state only, never a look: the cue on screen is a
-`[data-cue]` of `[data-line]`s of `[data-word]` spans (punctuation in a
-`[data-punct]` of its own), each word's `data-state` is `next`, `now` or `said`,
-and `--since`, `--progress`, `--cue-since`, `--cue-until` and `--cue-progress`
-give the page's CSS each frame's timing to animate from. `data-lines`,
+`faces.js` loaded the cues are placed off the faces and the graphics burned into
+the footage, inside the safe zone, at one place through each shot: they can move
+only at a cut, and inside a shot only where no single place stays clear for every
+cue up in it, however briefly, as few times as that takes, which the console
+says. The script sets
+structure and state only, never a look: the cue
+on screen is a `[data-cue]` of `[data-line]`s of `[data-word]` spans
+(punctuation in a `[data-punct]` of its own), each word's `data-state` is
+`next`, `now` or `said`, and `--since`, `--progress`, `--cue-since`,
+`--cue-until` and `--cue-progress` give the page's CSS each frame's timing to
+animate from. `data-lines`,
 `data-words` (1 for one word at a time), `data-chars`, `data-at` (where the
 transcript's clip starts on the page), `data-from` and `data-to` on the element
 change the cues; `captions --help` lists them all. A speech-to-text JSON is read
@@ -311,7 +318,10 @@ effects — per the run's mix spec, with music and effects ducked under the voic
 effects given no gain set under it by measured loudness (give an effect a
 gain for a deliberate loud hit), and the music bed run to the end of the film:
 looped with a crossfade when its sound ends sooner, faded out at the end.
-`--video` takes the mix's length from the render:
+`--video` takes the mix's length from the render, and the sound of each
+`<video>` its page plays is laid in where the render played it, trims, loops
+and speed included, under the voice; the spec's `pageVideos` leaves one out or
+lays it otherwise:
 
 ```sh
 npx @veedstudio/openedit-cli mix-audio runs/<key> --video runs/<key>/out.mp4   # → runs/<key>/audio/mix.m4a
@@ -426,19 +436,21 @@ stops and pauses; assemble the kept ranges of an EDL (edit decision list) with
 crossfaded joins, each range snapped to the frame grid and optionally at its own
 speed (slow motion by repeated or interpolated frames, sound time-stretched or
 silenced) and grade (exposure, contrast, saturation, temperature, a LUT, grain),
-moving the per-word timings, the face boxes and the burned-in graphics the
+a source at another frame rate converted to the first's and each source's speech
+levelled to the quietest's, moving the per-word timings, the face boxes and the burned-in graphics the
 sources already have onto the cut instead of finding them again. Each range's picture is kept in `<cut>.ranges/` under
 a name made of its source's content and everything applied to it, so a second run
 that changes one range encodes only that range. A path in the EDL is read beside
 it, else from the working directory or the workspace when the file is there.
-After the cut, `apply-edl` prints each range whose picture runs on past its last
-sound, and each stretch held still with nothing heard, measured on the cut, and
-a line when the cut misses the length in the piece's brief.
+After the cut, `apply-edl` prints what it removed from each source, with times,
+each range whose picture runs on past its last sound, and each stretch held
+still with nothing heard, measured on the cut, and a line when the cut misses
+the length in the piece's brief.
 `--gap` and `--crossfade` are milliseconds; the EDL is seconds.
 
 ```sh
 npx @veedstudio/openedit-cli speech-probe <video> [--range a:b] [--gap 250] [--window 10] [--json]
-npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20] [--fit crop|letterbox]
+npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20] [--fit crop|letterbox] [--keep-levels]
 npx @veedstudio/openedit-cli retime-transcript --edl edl.json --out <transcript.json>
 ```
 
@@ -461,7 +473,8 @@ out around them and for `reframe` (and the joins, which cut a clip of another
 shape as it does). They go to `runs/<key>/faces-<hash>/`, a folder of the clip's
 own named by its real path, so two clips of one name never share one; `faces`
 prints the path, and every reader looks there (and in a `runs/<key>/faces.json`
-an older `faces` wrote, when it names that same clip). One decode finds the cuts and samples four
+an older `faces` wrote, when it names that same clip). One decode finds the cuts, those between two
+shots of one set that change the picture little included, and samples four
 frames a second (`--every 0.25`), each labelled by its presentation time, so
 variable-frame-rate footage is sampled in time; a shot sampled fewer than four
 times also gets its first frame and the first at or past the middle of each
@@ -476,6 +489,16 @@ content in a still shot, each with the seconds it is up. `faces.json`
 holds the boxes per sampled frame of each shot and the graphics; `faces.js` holds them too, with
 `openeditFaces.place(el, from, to)`, which moves a laid-out element the least
 distance that clears every face on screen, and every graphic up, between those seconds of the clip.
+For elements shown one after another in one spot, such as caption cues,
+`openeditFaces.placer(spans, measure)` gives them one place through each shot,
+moving them only at a cut, or where no single place stays clear for every element
+up in a shot, however briefly. `measure(i)` gives the box `{x, y, w, h}` element
+i is laid out in, in viewport pixels, and is called by `prepare(i)`, which the
+page runs while none of the elements is on screen, before showing one; a page
+that never calls `prepare` still works, with `place()` measuring each time.
+`place(el, i, sec)` takes an element's index and one second of the clip rather
+than a span. `part(i, sec)` changes at each cut, and the page places an element
+up across it again there. `captions.js` places its cues with it.
 `install-mediapipe` puts MediaPipe, every package it runs on at the versions
 verified together (OpenCV's headless build) and the model into an environment
 of their own under the app-data directory, never the system Python: with uv
@@ -497,7 +520,11 @@ followed when it shows one face only (never two at once, each found
 overlapping the one before), the crop holding still while the face stays inside
 it and easing to a new place only when it must, and held at one place when it
 shows more, where the faces wholly inside add up to the most height; at a cut
-or a split it jumps. Without them it cuts the clip from the middle. The crop is
+or a split it jumps. A face less than half the height of the tallest found with
+it is someone in the background and does not count. Without them it cuts the
+clip from the middle. Where a face does not lie wholly inside the crop, larger
+than it or beside another face a held shot keeps, it prints those seconds. The
+crop is
 scaled (lanczos) to 1080 px on its short side, the platforms' canvas for their
 shapes: 1080x1920 for 9:16, 1080x1080 for 1:1, 1080x1350 for 4:5, 1920x1080 for
 16:9. `--size` names another size of the shape, such as 2160x3840 for 4K, and
@@ -508,9 +535,52 @@ the output's folder where `faces` would write them, each box and burned-in
 graphic moved and scaled with the crop and cut where the crop cuts it, so
 `faces` need not run on the clip it made.
 
+When the crop cuts in part a graphic `faces` found (old subtitles, a lower
+third), a last line says so, with the rows it is in and what erasing them
+costs. `--erase` erases those rows, across the whole width and for the whole
+clip, since the search misses a line of text that is up for under a second and
+a half. The first run cuts the clip into parts of at most 6 s for the eraser,
+a video editor on fal told to remove the subtitles and keep the rest, beside
+`--out`, and prints the price of every part as one total: an estimate, each
+run's seconds, in whole seconds as fal bills them, at fal's price per second,
+with a quote id. Nothing is spent, and no run exists, until `--approve` passes
+that price and quote back once the user has said yes to it. That run writes
+each part's input and prints the fal runs to make: one batch for `openedit
+fal` on a fal key, or, with no key set, one run a part for the environment's
+own `fal` command, one whose help says it runs a model with its input. A quote
+approves once, so one yes prints each run once: running a part again may buy
+it twice, so a part that is not back is priced again, under a quote of its
+own, and its run printed only for an `--approve` of that. `reframe` never runs
+the eraser itself. Once the parts are back, the same command lays only the
+erased rows over the clip, keeping every other pixel, every frame and the
+sound, writes that clip with its boxes and its graphics searched for again,
+and reframes it. Text the crop still cuts is said in a last line; the parts it
+is in that last 2 s or more are cut in two for the eraser again, and sending
+them is a second spend, with a price and an `--approve` of its own. A shorter
+part is left as it is, and the line says so.
+
 ```sh
-npx @veedstudio/openedit-cli reframe video.mp4 --aspect 9:16 --out tall.mp4 [--faces <faces.json>] [--size WxH|native]
+npx @veedstudio/openedit-cli reframe video.mp4 --aspect 9:16 --out tall.mp4 [--faces <faces.json>] [--size WxH|native] [--erase [--approve <usd:quote>]]
 npx @veedstudio/openedit-cli reframe video.mp4 --out runs/<key>/tall.mp4   # the shape of the platform in the piece's brief
+```
+
+### zoom
+
+Find the clicks in a screen recording and write `zoom.js`, a camera that holds
+each click zoomed until the text there reaches the minimum text size of the
+stage it is shown on. One decode compares small grey frames a tenth of a second
+apart, with no model: the drawn cursor is followed where it leaves a patch of its
+own outline and shows the same outline elsewhere, and a click is a rest of the
+cursor that the screen answers near it, or a page changing wholesale soon after
+it arrives; with no cursor drawn, the first change after half a second of none.
+The text nearest each click is measured on its frame, from the line's top to its
+baseline. `--clicks` names points of your own instead. The page loads `zoom.js`
+and calls `openeditZoom.apply(el, t)` each frame on the element showing the clip,
+whose parent the camera fills; `zoom.json` beside it also lists the stretches
+in which nothing changes.
+
+```sh
+npx @veedstudio/openedit-cli zoom recording.mp4 [--clicks <clicks.json>] [--aspect 16:9,9:16] [--out <dir>] [--every 0.1] [--json]
 ```
 
 ### stills
@@ -520,6 +590,19 @@ file's terms beside it (`search` / `show` / `save`):
 
 ```sh
 npx @veedstudio/openedit-cli stills search "berlin skyline" --limit 10
+```
+
+### sfx
+
+`sfx` takes recorded sound effects from a stock library, where the environment
+serves one at `OPEN_EDIT_LIBRARY_URL`. A search takes a plain description and
+lists each sound's id, length and title. With `--run`, it leaves out the sounds
+that run already saved, so the next search finds a different one. `save`
+downloads a sound into the run's `assets/` and records it in the asset manifest:
+
+```sh
+npx @veedstudio/openedit-cli sfx search "a door slamming in an empty hallway" --run runs/<key> --max-seconds 3
+npx @veedstudio/openedit-cli sfx save <id> --run runs/<key> --as door-slam
 ```
 
 ### init
@@ -568,6 +651,7 @@ npx @veedstudio/openedit-cli init --update <version> --workspace <dir>
 | `OPENEDIT_CHROME` | The Chrome or Chromium `render`, `behind` and `veed-project` drive when `render --chrome` is not given (default: the pinned Chrome Headless Shell; an empty value counts as unset). |
 | `WHISPERX_BIN` / `WHISPERX_MODEL` | WhisperX binary and fallback model tier (defaults: `whisperx` on `PATH`, `small.en`). |
 | `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE` | WhisperX device/compute (defaults: `cpu`/`int8`). |
+| `OPEN_EDIT_LIBRARY_URL` | The stock sound library `sfx` searches and saves from (unset: `sfx` says there is none, and effects come from `fal`). |
 | `OPEN_EDIT_MEDIAPIPE_PYTHON` | The Python version `install-mediapipe` asks uv for (default: `3.12`; the pinned packages need 3.12 or newer). |
 
 Login state lives in the platform's per-user app-data directory:

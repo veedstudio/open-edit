@@ -575,12 +575,16 @@ location.href='/edit/'+B.project}catch(e){alert('OpenEdit to VEED failed: '+e.me
 
 /**
  * The way back: on a project open in the VEED editor, save its timeline, captions and the records of the files it
- * plays (with their download links) as openedit-<project id>.json in Downloads, for veed-pull to fetch.
+ * plays (with their download links) as openedit-<project id>.json in Downloads, for veed-pull to fetch. The project
+ * itself is read through GraphQL, and only the fields veed-pull reads are kept.
  */
 export const PULL_BOOKMARKLET = `(async()=>{try{if(location.origin!=='__ORIGIN__'){alert('OpenEdit: click this bookmark on __ORIGIN__');return}const U=new RegExp('__ID__','i');
 await fetch('/api/v1/auth/token/refresh',{method:'POST',credentials:'include'}).catch(()=>{});const id=(location.pathname.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)||[])[0];if(!id){alert('OpenEdit: open a project in the VEED editor first');return}
 const get=async p=>{const r=await fetch('/api'+p,{credentials:'include'});if(!r.ok)throw new Error('GET '+p+' '+r.status);const j=await r.json();return j&&j.data!==undefined?j.data:j};
-const project=await get('/v1/project/'+id+'/');const timeline=await get('/v1/project/'+id+'/timeline/?expand=effects&expand=animations');const subtitles=await get('/v1/subtitles/?projectId='+id);
+const Q='query OpenEditPullProject($id:ID!){getProjectById(id:$id){__typename ...on Project{id name aspect fps}...on HTTPError{message statusCode}}}';
+const gr=await fetch('/api/v2/graphql?operationName=OpenEditPullProject',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({operationName:'OpenEditPullProject',query:Q,variables:{id}})});if(!gr.ok)throw new Error('reading the project failed: '+gr.status);
+const gj=await gr.json(),g=gj&&gj.data&&gj.data.getProjectById;if(!g||g.__typename!=='Project')throw new Error('reading the project failed: '+((g&&g.statusCode)||(gj&&gj.errors&&gj.errors[0]&&gj.errors[0].message)||'no answer'));
+const project={id:g.id,name:g.name,aspect:g.aspect,fps:g.fps};const timeline=await get('/v1/project/'+id+'/timeline/?expand=effects&expand=animations');const subtitles=await get('/v1/subtitles/?projectId='+id);
 const assets=[];for(const a of [...new Set(timeline.map(i=>i.assetId).filter(a=>a&&U.test(a)))]){try{assets.push(await get('/v1/asset/'+a))}catch(e){assets.push({id:a,error:e.message})}}
 const a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob([JSON.stringify({v:1,project,timeline,subtitles,assets},null,2)],{type:'application/json'})),download:'openedit-'+id+'.json'});
 document.body.appendChild(a);a.click();a.remove()}catch(e){alert('Send to Claude failed: '+e.message)}})();`;

@@ -41,16 +41,20 @@ smooth and encodes far slower (worst at 4K). A range's sound is time-stretched, 
 of the light (6500 unchanged, lower is warmer), `lut` (a .cube, .3dl, .dat, .m3d or .csp file) and `grain`
 (0 to 100).
 ```
-npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20] [--fit letterbox]
+npx @veedstudio/openedit-cli apply-edl --edl edl.json --out cut.mp4 [--crossfade 40] [--crf 20] [--fit letterbox] [--keep-levels]
 ```
 One canvas (the first range's source's, as shown), joins crossfaded, and one colour, the first source's (BT.709
 for an untagged one): every other source is converted to it as `concat-videos` converts, an HDR one to SDR first,
 and a line names each one converted. A range from a source of another shape is cut to the canvas's shape as
 `reframe` cuts it, around its faces when `faces` has run on that source, else from the middle, and a line says
-which; `--fit letterbox` keeps it whole and pads it instead. A wide-gamut source among others, and sources at
-different frame rates, are refused. `--crossfade` is milliseconds.
+which; `--fit letterbox` keeps it whole and pads it instead. A wide-gamut source among others is refused. One
+frame rate, the first range's source's: a source at another is converted to it, and a line names it. An
+out-point at a source's last frame, or up to two frames past it, ends the range on that frame. Each source's
+speech is levelled to the quietest source's, measured on its transcript's words, and a line gives each gain;
+`--keep-levels` keeps a deliberate difference. `--crossfade` is milliseconds.
 Each range is snapped to the frame grid, so the assembled timeline is exactly the sum of the snapped ranges
-as they play. It prints the seconds kept and, when a range changes speed, where every range lands on the
+as they play. It prints the seconds kept, every stretch of each source that no range kept with its times in
+that source, and, when a range changes speed, where every range lands on the
 cut and how long the cut runs, and a line when the cut misses the length in the piece's brief. Each range's
 picture is kept in `<cut>.ranges/`, so a run
 that changes one range encodes only that one; iterate on the EDL, never on an ffmpeg pass of your own.

@@ -5,7 +5,7 @@ import type { FaceBox, FacesClip, GraphicBox, Rect, Sample, Shot } from './page-
 
 /** One range of the cut, as its picture was made from its source. */
 export interface RangeOnCut {
-  /** The stretch of the source it keeps, in the source's seconds, on the source's frame grid. */
+  /** The stretch of the source it keeps, in the source's seconds, as snapToFrames snapped it; `fps` is the source's. */
   start: number;
   end: number;
   fps: number;

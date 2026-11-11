@@ -1,5 +1,6 @@
 // Where a clip's face boxes live: runs/<key>/faces-<hash of the clip's real path>/, a folder of that clip's own, so
-// two clips of one name never compete for it; faces writes there and every reader looks there.
+// two clips of one name never compete for it; faces writes there and every reader looks there. zoom writes a clip's
+// camera to a folder named the same way.
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -32,10 +33,13 @@ export function boxesOwner(path: string): string | undefined {
 const runOf = (video: string) => join(runsDir(), runKeyOf(video));
 const isOwnFolder = (name: string) => /^faces-[0-9a-f]{8}$/.test(name);
 
-/** The folder faces writes `video`'s boxes to when no --out is given. */
-export function facesFolder(video: string): string {
-  return join(runOf(video), `faces-${createHash('sha256').update(real(video)).digest('hex').slice(0, 8)}`);
+/** A folder of `video`'s own under its run, named `<kind>-<hash of its real path>`. */
+export function clipFolder(video: string, kind: string): string {
+  return join(runOf(video), `${kind}-${createHash('sha256').update(real(video)).digest('hex').slice(0, 8)}`);
 }
+
+/** The folder faces writes `video`'s boxes to when no --out is given. */
+export const facesFolder = (video: string): string => clipFolder(video, 'faces');
 
 /** Where faces writes `video`'s boxes when --out does not say. */
 export const facesPathFor = (video: string): string => join(facesFolder(video), 'faces.json');

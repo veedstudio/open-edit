@@ -13,7 +13,7 @@ import {
   assertRanges, loadEdl, locate, playedLength, relocated, snapRanges, soundOf, sourceOrder, sourcePath, stretchOf,
   type EdlRange, type LoadedEdl, type SnappedRange,
 } from '../edl.ts';
-import { probeFps } from '../probe.ts';
+import { probeFps, videoDurationOf } from '../probe.ts';
 import { mappedNote, readTranscriptFile } from '../transcript/read-transcript.ts';
 import { collidingRunKey, transcriptPathFor, wordCount } from '../transcript/transcript-cache.ts';
 import type { Transcript, TranscriptChunk, TranscriptWord } from '../transcript/transcript-types.ts';
@@ -181,7 +181,9 @@ export function retimeTranscript(argv: string[]): number {
   // The same snapping apply-edl cuts on, from the same probe, so the two tools agree to the frame.
   const ids = sourceOrder(loaded.edl.ranges);
   const videos = new Map(ids.map((id) => [id, sourcePath(loaded, id)]));
-  const ranges = snapRanges(loaded.edl.ranges, new Map(ids.map((id) => [id, probeFps(videos.get(id)!)])));
+  const ranges = snapRanges(
+    loaded.edl.ranges, new Map(ids.map((id) => [id, probeFps(videos.get(id)!)])), new Map(ids.map((id) => [id, videoDurationOf(videos.get(id)!)])),
+  );
   const paths = transcriptPathsOf(loaded, videos);
 
   const load = (id: string): Transcript => {

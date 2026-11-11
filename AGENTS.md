@@ -24,9 +24,15 @@ A map for changing this repo. Making a video is the `open-edit` skill's job:
 - `cli/src/faces/`: face detection for `faces` (MediaPipe in a Python environment `install-mediapipe` makes
   under the app-data dir), the search for graphics burned into the footage on the same decode's frames
   (`graphics.ts`, which review's graphics check also runs), and `faces.js`, the page code that keeps text off both; `reframe`
-  and `shots` read the same boxes, from the clip's own folder that `folder.ts` names by its real path.
+  and `shots` read the same boxes, from the clip's own folder that `folder.ts` names by its real path. `erase.ts` finds
+  the graphics a reframe's crop cuts, cuts the clip into parts for the eraser, prices them, writes their fal runs only
+  once `reframe --erase --approve` passes that price and its quote back, each quote once (it never runs one), and lays
+  the erased rows back over the clip.
   `concat-videos` and `apply-edl` cut a clip of another shape through reframe's `planShape` and
   `shapeChain`, never a reshaping crop of their own; `render --footage` refuses footage of another shape.
+- `cli/src/zoom/`: the camera `zoom` writes for a screen recording: the cursor, clicks and wholesale changes read from
+  frame differences (`activity.ts`), the text size near a point (`text.ts`), and `zoom.js`, whose planner the page and
+  the command's summary both run (`page-script.ts`).
 - `cli/src/verify/`: the delivery checks `openedit review` runs on a render. A check reports and never
   changes the video; a new one is a module here, one entry in `CHECKS` in `checks.ts`, and its sentence
   in the README's review section.

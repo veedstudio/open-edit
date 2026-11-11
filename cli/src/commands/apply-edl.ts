@@ -1,13 +1,13 @@
 // Assemble an EDL's kept ranges into one file. An EDL (edit decision list) is the list of source intervals to
 // keep, in order, each at its own speed and grade.
 //
-//   openedit apply-edl --edl <edl.json> --out <cut.mp4> [--crossfade 40] [--crf 20] [--fit crop|letterbox]
+//   openedit apply-edl --edl <edl.json> --out <cut.mp4> [--crossfade 40] [--crf 20] [--fit crop|letterbox] [--keep-levels]
 //
 // Each range's picture is encoded on its own into `<cut>.ranges/`, under a name made of everything that went into
 // it, so a run that changes one range encodes that range alone and stream-copies the rest into the join. The sound
 // is cut afresh on every run in the join's one pass: decoding sound is cheap, and every join is crossfaded over
 // sound from beyond its out-point, since a butt join clicks.
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, execFileSync, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism, tmpdir } from 'node:os';
@@ -16,7 +16,7 @@ import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
 import { joinColour } from '../colour.ts';
 import { FFMPEG } from '../config.ts';
 import {
-  STRETCHED_SPEEDS, framesOf, loadEdl, locate, playedLength, relocated, snapRanges, soundOf, sourceOrder, sourcePath, stretchOf,
+  END_FRAMES, STRETCHED_SPEEDS, framesOf, loadEdl, locate, playedLength, relocated, snapRanges, soundOf, sourceOrder, sourcePath, stretchOf,
   type LoadedEdl, type SnappedRange,
 } from '../edl.ts';
 import { boxesOwner, facesFolder, ownFaces, sameFile } from '../faces/folder.ts';
@@ -40,13 +40,12 @@ import { soundGateOf, soundIn, TAIL_SECONDS, WINDOW_MS, type Sound } from '../ve
 import { lengthAgainstBrief } from '../verify/length.ts';
 import { seconds as inSeconds } from '../verify/report.ts';
 import { notFacesOf, readFaces } from './faces.ts';
+import { momentaryOf, speakingLoudness } from './mix-audio.ts';
 import { cropFor, describeShape, parseFit, placeAt, planShape, shapeChain, type Fit, type Shaping } from './reframe.ts';
 import { droppedNote, relocatedTranscripts, retime, transcriptPathsOf } from './retime-transcript.ts';
 
 const seconds = (t: number) => t.toFixed(6);
 const AUDIO_RATE = 48000;
-/** One AAC block at the lowest common source rate: the most a file's audio ends short of its picture by design. */
-const AAC_BLOCK_SEC = 1024 / 44100;
 /**
  * x264's settings for every range, which its cache name carries. The profile is left to x264: the same settings
  * pick the same one for every range, and --crf 0 needs one that a pinned High would refuse.
@@ -72,7 +71,8 @@ export function inputSeeks(ranges: SnappedRange[]): number[] {
 /**
  * One range's picture, from its own input opened at `seek`, onto the canvas, graded and at its speed.
  *
- * The range arrives snapped to its source's frame grid, so it keeps a whole number of frames. The trim edges
+ * The range arrives snapped to its source's frame grid, so it keeps a whole number of frames, and a range from a
+ * source at another rate is brought to the cut's (`rate`) by the same `fps` filter. The trim edges
  * sit half a frame before those instants: a frame's timestamp can land a few microseconds either side of k/fps
  * once rounded to the container's timebase, and a boundary exactly on it would keep or drop that frame by luck.
  *
@@ -107,7 +107,8 @@ export function rangeGraph(
   // The last frame cloned for a few output frames past the range, so fps and minterpolate, which drop the last
   // frames they hold at the end of a stream, drop only clones; the encode's frame count ends the range. Padded
   // straight after the trim: some builds drop the clones of a pad placed after a scale.
-  const clones = [`tpad=stop_mode=clone:stop=${Math.ceil((4 * kept) / played) + 1}`];
+  const sourcePerCut = range.cutFps === undefined ? 1 : range.fps / range.cutFps;
+  const clones = [`tpad=stop_mode=clone:stop=${Math.ceil((4 * kept * sourcePerCut) / played) + 1}`];
   const speed = sped ? [
     // In microseconds, so the stretched instants are not rounded to a coarse container timebase first.
     'settb=AVTB', `setpts=PTS*${played}/${kept}`,
@@ -136,10 +137,13 @@ export function rangeGraph(
  * and `amix` sums them without renormalising. Two linear fades sum to unity, so the sound that bleeds across a
  * join is the room tone that genuinely followed the last kept frame. At another speed the sound, tail included,
  * is time-stretched by atempo to exactly the range's played length. The last range is padded to its length, so
- * the mix is exactly as long as the joined picture even when a source's audio ends a few milliseconds before
- * its last frame does.
+ * the mix is exactly as long as the joined picture even when a source's audio ends before its last frame does;
+ * another range whose sound runs out is silent to its join and fades over what sound is left. `gainsDb[i]` levels
+ * range i's sound first, so a join crossfades two levelled sounds.
  */
-export function audioGraph(ranges: SnappedRange[], seeks: number[], crossfadeSec: number, heard: boolean[]): string {
+export function audioGraph(
+  ranges: SnappedRange[], seeks: number[], crossfadeSec: number, heard: boolean[], gainsDb: readonly number[] = [],
+): string {
   const parts: string[] = [];
   let offset = 0;
   let input = 1;
@@ -157,6 +161,8 @@ export function audioGraph(ranges: SnappedRange[], seeks: number[], crossfadeSec
         'asetpts=PTS-STARTPTS',
         `aformat=sample_rates=${AUDIO_RATE}:channel_layouts=stereo`,
       ];
+      const gain = gainsDb[i] ?? 0;
+      if (Math.abs(gain) >= 0.005) chain.push(`volume=${gain.toFixed(2)}dB`);
       if (stretch !== 1) {
         const whole = Math.round((length + tail) * AUDIO_RATE);
         chain.push(`atempo=${(1 / stretch).toFixed(6)}`, `apad=whole_len=${whole}`, `atrim=end_sample=${whole}`);
@@ -350,24 +356,103 @@ export function rangeNotes(ranges: SnappedRange[], heard: boolean[], sound: Soun
   return lines;
 }
 
+/** ebur128's momentary loudness: a value every 100 ms, each over the 400 ms before it. */
+const MOMENTARY = { step: 0.1, length: 0.4 } as const;
+
+/** Word spans in their source's own seconds. */
+type WordSpans = readonly (readonly [number, number])[];
+
+const wordSpansOf = (transcript: Transcript): WordSpans => transcript.chunks.flatMap((c) => c.words.map((w) => w.timestamp));
+
 /**
- * The cut's own transcript, retimed from its sources' as retime-transcript retimes them, written where a
- * transcription of the cut would land so no transcription route overwrites it; lines say where, or why none was
- * written. A source whose sound plays but has no transcript adds no words, and a line names it.
+ * The momentary loudness values of one range that are speech: windows wholly inside the range and centred on a word
+ * its source's transcript times, so neither the pauses between lines nor the room before them is read. `momentary` is
+ * ebur128's series from the range's in-point.
  */
-function retimeCut(loaded: LoadedEdl, ranges: SnappedRange[], videos: ReadonlyMap<string, string>, heard: boolean[], out: string): string[] {
+export function speechWindows(range: { start: number; end: number }, momentary: readonly number[], words: WordSpans): number[] {
+  const near = words.filter(([a, b]) => b > range.start && a < range.end);
+  return momentary.filter((_, k) => {
+    const to = range.start + (k + 1) * MOMENTARY.step;
+    const mid = to - MOMENTARY.length / 2;
+    return to - MOMENTARY.length >= range.start - 1e-6 && to <= range.end + 1e-6 && near.some(([a, b]) => mid >= a && mid <= b);
+  });
+}
+
+/**
+ * The gain in dB that brings each source's speech to one level, the quietest source's: every gain then lowers, so
+ * levelling never lifts a peak into clipping, and mux-audio sets the delivery loudness of the whole cut afterwards.
+ */
+export function levelGains(speech: ReadonlyMap<string, number>): { target: number; gains: Map<string, number> } | null {
+  if (speech.size < 2) return null;
+  const target = Math.min(...speech.values());
+  return { target, gains: new Map([...speech].map(([id, lufs]) => [id, target - lufs])) };
+}
+
+/**
+ * Each source's speech loudness as the cut plays it: every range that plays the source's sound and holds its words,
+ * from an input seeked as the cut's sound is, all in one ffmpeg pass; their speech windows (speechWindows) are gated
+ * and averaged as mix-audio reads a voice's (speakingLoudness). A source with no such range is not measured.
+ */
+function speechLoudness(
+  ranges: SnappedRange[], seeks: number[], heard: boolean[], pathOf: (id: string) => string, words: ReadonlyMap<string, WordSpans>,
+): Map<string, number> {
+  const measured = ranges.flatMap((range, i) => (heard[i] && words.get(range.source)?.some(([a, b]) => b > range.start && a < range.end) ? [i] : []));
+  if (measured.length === 0) return new Map();
+  const args = ['-nostdin', '-hide_banner', '-nostats'];
+  for (const i of measured) args.push(...(seeks[i] > 0 ? ['-ss', String(seeks[i])] : []), '-vn', '-i', pathOf(ranges[i].source));
+  args.push('-filter_complex', measured.map((i, k) => `[${k}:a]atrim=start=${seconds(ranges[i].start - seeks[i])}:end=${seconds(ranges[i].end - seeks[i])},`
+    + `asetpts=PTS-STARTPTS,aformat=sample_rates=${AUDIO_RATE}:channel_layouts=stereo,ebur128@r${i}=framelog=info[m${k}]`).join(';'));
+  measured.forEach((_, k) => args.push('-map', `[m${k}]`, '-f', 'null', '-'));
+  // A line per range every 100 ms: a long cut logs megabytes.
+  const run = spawnSync(FFMPEG, args, { encoding: 'utf8', maxBuffer: 1 << 28 });
+  if (run.error || run.status !== 0) throw new Error(run.error?.message ?? (run.stderr ?? '').trim().split('\n').pop());
+  const momentary = momentaryOf(run.stderr ?? '');
+  const windows = new Map<string, number[]>();
+  for (const i of measured) {
+    const { source } = ranges[i];
+    windows.set(source, [...(windows.get(source) ?? []), ...speechWindows(ranges[i], momentary.get(`r${i}`) ?? [], words.get(source)!)]);
+  }
+  return new Map([...windows].flatMap(([id, values]): [string, number][] => {
+    const lufs = speakingLoudness(values);
+    return lufs === undefined ? [] : [[id, lufs]];
+  }));
+}
+
+/** Each source's stretches that no range keeps, in its own seconds, from its start to the end of its picture (`ends`). */
+export function removedOf(ranges: SnappedRange[], ends: ReadonlyMap<string, number>): Map<string, Span[]> {
+  return new Map(sourceOrder(ranges).map((id) => {
+    const kept = ranges.filter((r) => r.source === id).sort((a, b) => a.start - b.start);
+    const gaps: Span[] = [];
+    let at = 0;
+    for (const range of kept) {
+      if (range.start > at + 1e-6) gaps.push({ start: at, end: range.start });
+      at = Math.max(at, range.end);
+    }
+    const end = ends.get(id)!;
+    if (end > at + 1e-6) gaps.push({ start: at, end });
+    return [id, gaps];
+  }));
+}
+
+/** The transcripts of the sources whose sound the cut plays, each read once; lines name those that could not be. */
+interface SourceTranscripts {
+  read: Map<string, Transcript>;
+  paths: Map<string, string>;
+  lines: string[];
+  /** Why none could be looked for. */
+  failed?: string;
+}
+
+function transcriptsOf(loaded: LoadedEdl, videos: ReadonlyMap<string, string>, playing: string[]): SourceTranscripts {
+  const read = new Map<string, Transcript>();
+  const lines: string[] = [];
   let paths: Map<string, string>;
   try {
     paths = transcriptPathsOf(loaded, videos);
   } catch (e) {
-    return [`no transcript of the cut was written: ${(e as Error).message}`];
+    return { read, paths: new Map(), lines, failed: (e as Error).message };
   }
-  const target = transcriptPathFor(out);
-  const lines: string[] = [];
-  const read = new Map<string, Transcript>();
-  const playing = ranges.filter((_, i) => heard[i]);
-  if (playing.length === 0) return ['no transcript of the cut was written: no range plays its sound'];
-  for (const id of sourceOrder(playing)) {
+  for (const id of playing) {
     const path = paths.get(id)!;
     if (!existsSync(path)) {
       lines.push(`source "${id}" has no transcript at ${path}, so its ranges add no words to the cut's`);
@@ -382,6 +467,19 @@ function retimeCut(loaded: LoadedEdl, ranges: SnappedRange[], videos: ReadonlyMa
       lines.push(`source "${id}"'s transcript is not used: ${(e as Error).message}`);
     }
   }
+  return { read, paths, lines };
+}
+
+/**
+ * The cut's own transcript, retimed from its sources' as retime-transcript retimes them, written where a
+ * transcription of the cut would land so no transcription route overwrites it; lines say where, or why none was
+ * written. A source whose sound plays but has no transcript adds no words, and a line names it.
+ */
+function retimeCut(ranges: SnappedRange[], heard: boolean[], out: string, sources: SourceTranscripts): string[] {
+  if (sources.failed) return [`no transcript of the cut was written: ${sources.failed}`];
+  const { read, paths, lines } = sources;
+  const target = transcriptPathFor(out);
+  if (!heard.some(Boolean)) return ['no transcript of the cut was written: no range plays its sound'];
   if (read.size === 0) return ['no transcript of the cut was written: its sources have none'];
   const own = [...paths].find(([, path]) => path === target);
   if (own) return [`no transcript of the cut was written: ${target}, where it goes, is the transcript of source "${own[0]}"`];
@@ -476,11 +574,19 @@ export const usage = {
       type: 'string', value: 'crop|letterbox',
       help: 'How a range from a source of another shape meets the canvas: crop (default) cuts it as reframe does, around its faces when faces has run on that source, else from the middle; letterbox fits it whole and pads',
     },
+    'keep-levels': { type: 'boolean', help: 'Leave every source\'s sound at its own level, for a deliberate difference between them' },
   },
   notes: [
     'The canvas is the first range\'s source as shown: upright, in square pixels. A line names each source cut',
     'to its shape and whether it followed the faces or cut from the middle. An HDR (PQ/HLG) source is converted to',
-    'SDR BT.709, and a line says so.',
+    'SDR BT.709, and a line says so. The frame rate is the first range\'s source\'s too: a range from a source at',
+    'another rate is converted to it, its length rounded up to whole frames of the cut, and a line names the source.',
+    `An out-point up to ${END_FRAMES} frames past its source's last frame ends the range on that frame; one further is`,
+    'refused. Where a source\'s sound ends before its picture, a range past it plays silence there.',
+    '',
+    'Each source\'s speech is levelled to the quietest source\'s: measured where its transcript times words in the',
+    'ranges that play its sound, and a line gives each source\'s gain. A source with no such words keeps its own level,',
+    'and a line names it; --keep-levels keeps every source\'s.',
     '',
     'A range may also carry "speed" (0.5 half speed, 2 double), "interpolate": true to draw slow motion by motion',
     'interpolation instead of repeating frames (far slower to encode, worst at 4K), "mute": true, and "grade". A',
@@ -501,7 +607,8 @@ export const usage = {
     'has run on them, the cut\'s faces.json and faces.js are written where faces would write the cut\'s, each',
     'range\'s boxes and graphics moved onto it; the faces over a range whose source has none are marked unknown. Measured',
     `on the cut, a line names each range whose picture runs more than ${TAIL_SECONDS}s past its last sound, and each`,
-    `stretch held still, frozen or nearly so, with nothing heard for more than ${STILL_SECONDS}s.`,
+    `stretch held still, frozen or nearly so, with nothing heard for more than ${STILL_SECONDS}s. A line per source`,
+    'gives every stretch of it no range kept, from its start to its last frame, in its own seconds.',
   ].join('\n'),
 } satisfies Usage;
 
@@ -522,26 +629,23 @@ export async function applyEdl(argv: string[]): Promise<number> {
   const order = sourceOrder(loaded.edl.ranges);
   const sources = new Map(order.map((id) => {
     const path = sourcePath(loaded, id);
-    // Every join borrows audio from beyond its out-point, so the audio's own length is what the guard below
-    // needs; the container's length would pass a file whose audio ends early.
+    // The audio's own length, not the container's: a range from past it has no sound to play.
     const duration = hasAudioStream(path) ? audioDurationOf(path) : null;
     return [id, { path, ...probeFrameRate(path), duration, video: videoDurationOf(path), colour: decodedColourOf(path), shown: probeSquareSize(path) }];
   }));
   const sourceOf = (id: string) => sources.get(id)!;
-  // One frame rate for the whole output: the encode is forced to it, and a source at another rate would
-  // have frames dropped or doubled to fit without a word.
+  // One frame rate for the whole output, the first source's: snapRanges gives a range from a source at another rate
+  // whole frames of it, so converting that range drops or repeats frames and moves no join.
   const first = sourceOf(order[0]);
-  for (const [id, source] of sources) {
-    if (Math.abs(source.fps - first.fps) > 1e-6) {
-      throw new Error(
-        `sources disagree on frame rate: "${order[0]}" runs at ${first.rate} fps and "${id}" at ${source.rate} — ` +
-          'bring them to one rate first (concat-videos re-encodes to a common one).',
-      );
-    }
-  }
-  const ranges = snapRanges(loaded.edl.ranges, new Map(order.map((id) => [id, sourceOf(id).fps])));
-  // Heard: the range's sound comes from its source, which then must hold enough of it.
-  const heard = ranges.map((range) => soundOf(range) !== 'muted' && sourceOf(range.source).duration !== null);
+  const converted = order.filter((id) => Math.abs(sourceOf(id).fps - first.fps) > 1e-6);
+  const ranges = snapRanges(
+    loaded.edl.ranges, new Map(order.map((id) => [id, sourceOf(id).fps])), new Map(order.map((id) => [id, sourceOf(id).video])),
+  );
+  // Heard: the range's sound comes from its source, which has sound from the range's in-point on.
+  const heard = ranges.map((range) => {
+    const audio = sourceOf(range.source).duration;
+    return soundOf(range) !== 'muted' && audio !== null && range.start < audio - 1e-6;
+  });
 
   ranges.forEach((range, index) => {
     const length = playedLength(range);
@@ -554,29 +658,11 @@ export async function applyEdl(argv: string[]): Promise<number> {
     }
     const source = sourceOf(range.source);
     // The picture's own length: a range past it plays every later range's picture early, and `trim`
-    // simply delivers fewer frames.
+    // simply delivers fewer frames. An out-point just past it was moved onto it when snapped.
     if (range.end > source.video + 1e-6) {
       throw new Error(
         `range ${index} of "${range.source}" ends at ${range.end.toFixed(3)}s but the source's picture is only ` +
           `${source.video.toFixed(3)}s long. Move the out-point earlier.`,
-      );
-    }
-    if (!heard[index]) return;
-    const audio = source.duration!;
-    const isLast = index === ranges.length - 1;
-    const needed = isLast ? range.end : range.end + crossfadeSec / stretchOf(range);
-    // The last range's audio may end short of its snapped end: the snap moves the edge up by less than
-    // a frame, and AAC stops on its own block grid rather than on the picture's. Within that the graph
-    // pads the sound to the picture; beyond it the out-point is genuinely past the recording.
-    const tolerated = isLast ? 1 / range.fps + AAC_BLOCK_SEC : 0;
-    if (needed > audio + tolerated + 1e-6) {
-      throw new Error(
-        isLast
-          ? `range ${index} of "${range.source}" ends at ${range.end.toFixed(3)}s but the source's audio is only ` +
-            `${audio.toFixed(3)}s long. Move the out-point earlier.`
-          : `range ${index} of "${range.source}" ends at ${range.end.toFixed(3)}s and its join needs ` +
-            `${crossfadeMs}ms more audio, but the source's audio is only ${audio.toFixed(3)}s long. ` +
-            'Move the out-point earlier, reorder so this range is last, mute it, or lower --crossfade.',
       );
     }
   });
@@ -661,6 +747,35 @@ export async function applyEdl(argv: string[]): Promise<number> {
     }
   });
 
+  // Read once, before the sound is mixed: the levels are measured on the words, and the cut's transcript retimes them.
+  const playing = sourceOrder(ranges.filter((_, i) => heard[i]));
+  let transcripts: SourceTranscripts;
+  try {
+    transcripts = transcriptsOf(loaded, new Map(order.map((id) => [id, sourceOf(id).path])), playing);
+  } catch (e) {
+    transcripts = { read: new Map(), paths: new Map(), lines: [], failed: (e as Error).message };
+  }
+  const levelLines: string[] = [];
+  let gainsDb: number[] = [];
+  if (!values['keep-levels'] && playing.length > 1) {
+    try {
+      const words = new Map([...transcripts.read].map(([id, transcript]) => [id, wordSpansOf(transcript)]));
+      const speech = speechLoudness(ranges, seeks, heard, (id) => sourceOf(id).path, words);
+      const levels = levelGains(speech);
+      if (levels) {
+        gainsDb = ranges.map((range) => levels.gains.get(range.source) ?? 0);
+        const gainOf = (db: number) => (Math.abs(db) < 0.05 ? 'as recorded' : `${db.toFixed(1)} dB`);
+        levelLines.push(`Speech levelled to the quietest source's, ${levels.target.toFixed(1)} LUFS: ` +
+          `${[...levels.gains].map(([id, db]) => `"${id}" ${gainOf(db)}`).join(', ')} (--keep-levels keeps each source's own)`);
+      }
+      for (const id of playing.filter((id) => !speech.has(id))) {
+        levelLines.push(`source "${id}" has no transcribed words where the cut plays its sound, so its level is as recorded`);
+      }
+    } catch (e) {
+      levelLines.push(`the sources' speech was not levelled: ${(e as Error).message}`);
+    }
+  }
+
   const work = mkdtempSync(join(tmpdir(), 'open-edit-apply-edl-'));
   try {
     await encodeRanges(jobs, work, encodeWorkers());
@@ -672,7 +787,7 @@ export async function applyEdl(argv: string[]): Promise<number> {
       execFileSync(FFMPEG, [
         '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
         '-f', 'concat', '-safe', '0', '-i', list, ...sound,
-        '-filter_complex', audioGraph(ranges, seeks, crossfadeSec, heard),
+        '-filter_complex', audioGraph(ranges, seeks, crossfadeSec, heard, gainsDb),
         '-map', '0:v', '-map', '[aout]',
         '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
         '-movflags', '+faststart',
@@ -695,7 +810,7 @@ export async function applyEdl(argv: string[]): Promise<number> {
   }
   let transcribed: string[];
   try {
-    transcribed = retimeCut(loaded, ranges, new Map(order.map((id) => [id, sourceOf(id).path])), heard, outPath);
+    transcribed = retimeCut(ranges, heard, outPath, transcripts);
   } catch (e) {
     transcribed = [`no transcript of the cut was written: ${(e as Error).message}`];
   }
@@ -731,12 +846,21 @@ export async function applyEdl(argv: string[]): Promise<number> {
     const text = describeGrade(g);
     if (text !== 'none') byGrade.set(text, [...(byGrade.get(text) ?? []), i]);
   });
+  const fpsText = (rate: string) => `${rate.replace(/\/1$/, '')} fps`;
+  const removed = [...removedOf(ranges, new Map(order.map((id) => [id, sourceOf(id).video])))].map(([id, gaps]) => {
+    const name = `"${id}" (${basename(sourceOf(id).path)})`;
+    if (gaps.length === 0) return `Nothing removed from ${name}`;
+    const total = gaps.reduce((sum, g) => sum + g.end - g.start, 0);
+    return `Removed from ${name}: ${gaps.map((g) => `${g.start.toFixed(3)}-${g.end.toFixed(3)}s (${(g.end - g.start).toFixed(3)}s)`).join(', ')}; ` +
+      `${total.toFixed(3)}s of its ${sourceOf(id).video.toFixed(3)}s`;
+  });
   console.log(
     `assembled ${ranges.length} range(s) from ${order.length} source(s) -> ${outPath}\n` +
       `  ${kept.toFixed(3)}s kept, ${joins} crossfaded join(s) of ${crossfadeMs}ms; ${canvas.width}x${canvas.height}, ` +
       `colour ${describeTags(joined.tags)}` +
       `${assumedFor.length > 0 ? ` (${assumedFor.map((id) => describeAssumed(id, sourceOf(id).colour)).join('; ')})` : ''}.\n` +
       recoded.map((id) => `  source "${id}" is coded otherwise (matrix ${codedIn(id)}${sourceOf(id).colour.full ? ', full range' : ''}): its picture is converted to the cut's.\n`).join('') +
+      converted.map((id) => `  source "${id}" runs at ${fpsText(sourceOf(id).rate)}: its ranges are converted to the cut's ${fpsText(first.rate)}.\n`).join('') +
       found.map((line) => `  ${line}.\n`).join('') +
       timeline +
       (!speeds && muted.length ? `  Muted: range(s) ${indexList(muted)}.\n` : '') +
@@ -746,8 +870,9 @@ export async function applyEdl(argv: string[]): Promise<number> {
       [...plans].filter(([, plan]) => plan.how !== 'already')
         .map(([id, plan]) => `  ${describeShape(`source "${id}"`, plan, `the canvas's shape (${canvas.width}x${canvas.height})`)}.\n`).join('') +
       letterboxed.map((id) => `  source "${id}" (${sourceOf(id).shown.width}x${sourceOf(id).shown.height}) is letterboxed onto the canvas.\n`).join('') +
+      [...levelLines, ...removed].map((line) => `  ${line}.\n`).join('') +
       `  ${jobs.length} range(s) encoded, ${ranges.length - jobs.length} reused from ${cache}.\n` +
-      '  Each range is snapped to its source\'s frame grid, so the timeline is exactly the sum of the ranges as they play.' +
+      '  Each range is snapped to the frame grid, so the timeline is exactly the sum of the ranges as they play.' +
       [...transcribed, ...faceLines, ...notes].map((line) => `\n  ${line}.`).join(''),
   );
   // Said now, while the EDL is open, since a cut that is the piece's picture fixes the length the render will have.

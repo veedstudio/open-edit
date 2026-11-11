@@ -10,7 +10,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyEdl } from '../src/commands/apply-edl.ts';
 import { findFaces, readFaces } from '../src/commands/faces.ts';
-import { cropFor, cropMoves, cropTrack, holdsFor, oneFace, parseAspect, partsOf, pathThrough, sendcmdScript, stillPlace, type Crop } from '../src/commands/reframe.ts';
+import {
+  clearOf, cropFor, cropMoves, cropTrack, holdsFor, oneFace, parseAspect, parsePanel, partsOf, pathThrough, placeAt, sendcmdScript, stillPlace,
+  tighterCrop, unfitted, type Crop, type Shaping,
+} from '../src/commands/reframe.ts';
+import { formatNamed } from '../src/commands/safe-zone.ts';
 import { FFMPEG, FFPROBE } from '../src/config.ts';
 import { ownFaces } from '../src/faces/folder.ts';
 import { missingDetector } from '../src/faces/mediapipe.ts';
@@ -229,6 +233,25 @@ test('reframe: a face found once in place of the presenter, far off, is not chas
   assert.ok(framed(a, places[0]));
 });
 
+test('reframe: someone in the background found beside the speaker does not stop the speaker being followed', () => {
+  // A speaker walking up to the camera, cut from portrait to 16:9, and someone at a desk behind found twice at a
+  // quarter of the speaker's height (listed first in one sample): the face travels further than one still crop holds.
+  const crop = cropFor(1080, 1920, 16 / 9);
+  const speaker = (i: number) => ({ x: 300, y: 400 + 25 * i, w: 220 + 8 * i, h: 220 + 8 * i });
+  const behind = { x: 900, y: 1150, w: 100, h: 100 };
+  const shot = sampledShot(0.25, Array.from({ length: 28 }, (_, i) => (i === 22 ? [behind, speaker(i)] : i === 23 ? [speaker(i), behind] : [speaker(i)])));
+  const track = cropTrack(clipOf([shot], { width: 1080, height: 1920 }), crop);
+  const places = shot.samples.map((s) => track(s.sec));
+  assert.ok(new Set(places).size > 1, 'followed, not held at one place');
+  shot.samples.forEach((s, i) => {
+    const f = speaker(i);
+    assert.ok(f.y >= places[i] && f.y + f.h <= places[i] + crop.h, `${s.sec} s: face at y ${f.y}-${f.y + f.h}, crop at ${places[i]}-${places[i] + crop.h}`);
+  });
+  // A second person 0.6 of the first's height, as in an over-the-shoulder two-shot, is still a second person: held.
+  const two = sampledShot(0.25, Array.from({ length: 16 }, (_, i) => [face(300 + 30 * i, 100, 300, 300), face(1300, 150, 180, 180)]));
+  assert.equal(new Set(placesOf(two)).size, 1);
+});
+
 test('reframe: a shot with no face between two shots with faces is cut from the middle', () => {
   const clip = clipOf([shotOf(0, [[face(200)], [face(200)]]), shotOf(2, [[], []]), shotOf(4, [[face(1500)], [face(1500)]])]);
   assert.deepEqual(cropMoves(clip, NINE_BY_SIXTEEN, 30, 6), [{ sec: 0, at: 0 }, { sec: 1.9995, at: 656 }, { sec: 3.9995, at: 1248 }]);
@@ -261,6 +284,108 @@ test('reframe: the crop is still within each shot and changes place just before 
   assert.equal(shown(209 * 1001 / 30000), track(7));
   assert.equal(shown(208 * 1001 / 30000), track(1));
   assert.notEqual(track(7), track(1));
+});
+
+// The bottom half of a 1080x1920 TikTok canvas: TikTok's UI leaves x 52-897 and everything above y 1478 clear.
+const BOTTOM_HALF = clearOf({ x: 0, y: 960, w: 1080, h: 960 }, formatNamed('tiktok'))!;
+
+test('reframe: a panel\'s clear part is its share of the canvas the platform\'s UI leaves clear, as measured on each side', () => {
+  assert.deepEqual(BOTTOM_HALF, { x0: 52 / 1080, x1: 897 / 1080, y0: 0, y1: 518 / 960 });
+  assert.deepEqual(clearOf({ x: 0, y: 0, w: 1080, h: 960 }, formatNamed('tiktok')), { x0: 52 / 1080, x1: 897 / 1080, y0: 240 / 960, y1: 1 });
+  assert.equal(clearOf({ x: 0, y: 1500, w: 1080, h: 420 }, formatNamed('tiktok')), null, 'a panel wholly under the caption block');
+  assert.deepEqual(parsePanel(' 0, 960, 1080, 960 '), { x: 0, y: 960, w: 1080, h: 960 });
+  assert.throws(() => parsePanel('0,960,1080'), /--panel wants x,y,w,h in px of the canvas/);
+});
+
+test('reframe: with a clear part a followed face stays inside it at every sample, where the largest crop alone leaves it under the UI', () => {
+  const crop = cropFor(1080, 1920, 9 / 8);
+  // A speaker bobbing 180 px, sampled four times a second: a 420 px face in the 518 px the bottom half leaves clear.
+  const samples = Array.from({ length: 24 }, (_, i) => ({ sec: 0.125 + i * 0.25, faces: [{ x: 330, y: Math.round(480 + 90 * Math.sin(i / 2)), w: 420, h: 420 }] }));
+  const clip = clipOf([{ start: 0, end: 6, samples }], { width: 1080, height: 1920 });
+  const reach = (clear?: typeof BOTTOM_HALF) => {
+    const moves = cropMoves(clip, crop, 30, 6, clear);
+    return samples.map(({ sec, faces: [f] }) => ({ top: f.y - placeAt(moves, sec), bottom: f.y + f.h - placeAt(moves, sec) }));
+  };
+  assert.ok(reach().some((r) => r.bottom > 518), 'framed for the whole panel, the face reaches the caption block');
+  for (const [i, r] of reach(BOTTOM_HALF).entries()) {
+    assert.ok(r.top >= 0 && r.bottom <= 518, `${samples[i].sec} s: face at ${r.top}-${r.bottom} of the panel, clear part 0-518`);
+  }
+});
+
+test('reframe: a shot no place of the largest crop keeps clear is cut tighter, by the least that clears its face, and never past a whole face', () => {
+  // 640x360 into 9:8: the largest crop is 404x360 and keeps the full height, so a low face cannot be moved up.
+  const crop = cropFor(640, 360, 9 / 8);
+  const low = shotOf(0, [[face(300, 200, 80, 80)], [face(302, 200, 80, 80)], [face(298, 202, 80, 80)]]);
+  const zoom = tighterCrop(low, crop, BOTTOM_HALF)!;
+  const clearAt = (h: number, cross: number) => low.samples.every(({ faces: [f] }) => f.y >= cross && f.y + f.h - cross <= BOTTOM_HALF.y1 * h);
+  assert.ok(zoom.h < 360 && clearAt(zoom.h, zoom.cross), `${JSON.stringify(zoom)} keeps the face clear`);
+  // Two pixels taller, no place across clears it: the least change.
+  assert.ok(![...Array(360 - zoom.h - 1).keys()].some((c) => clearAt(zoom.h + 2, c)), 'a crop a step larger would have done');
+  // A face taller than the clear part only grows as the crop tightens, so nothing is cut to try.
+  assert.equal(tighterCrop(shotOf(0, [[face(250, 100, 200, 200)]]), crop, BOTTOM_HALF), null);
+  // A face the largest crop already keeps clear is left as it is.
+  assert.equal(tighterCrop(shotOf(0, [[face(300, 20, 80, 80)]]), crop, BOTTOM_HALF), null);
+});
+
+test('reframe: a shot held still keeps its faces whole and moves them clear of the UI where one place does both', () => {
+  const crop = cropFor(1080, 1920, 9 / 8);
+  // Two people side by side, the nearer one's 450 px face low enough that the usual third-of-the-way anchor puts it in the caption block.
+  const shot = shotOf(0, [[{ x: 100, y: 600, w: 450, h: 450 }, { x: 650, y: 700, w: 140, h: 140 }]]);
+  const plain = stillPlace(shot, crop)!;
+  assert.ok(1050 - plain > 518, `without a clear part the face reaches ${1050 - plain} of the panel`);
+  const at = stillPlace(shot, crop, [BOTTOM_HALF.y0, BOTTOM_HALF.y1])!;
+  assert.ok(at <= 600 && 1050 - at <= 518 && 840 - at <= 518, `held at ${at}: both whole and clear`);
+});
+
+test('reframe: --panel cuts to the panel on the brief\'s platform canvas, keeps each face clear of its UI, and a tighter shot loses no frame', () => {
+  const dir = scratchDir('reframe-panel');
+  const src = gradient(dir);
+  writeFileSync(join(dir, 'brief.json'), JSON.stringify({ platform: 'tiktok' }));
+  // High in the frame for the first second, low after a cut at 1 s, where only a tighter crop lifts it clear.
+  const clip = clipOf([
+    { start: 0, end: 1, samples: [0.25, 0.5, 0.75].map((sec) => ({ sec, faces: [{ x: 300, y: 20, w: 80, h: 80 }] })) },
+    { start: 1, end: 2, samples: [1.25, 1.5, 1.75].map((sec) => ({ sec, faces: [{ x: 300, y: 200, w: 80, h: 80 }] })) },
+  ], { width: 640, height: 360, durationSec: 2, video: src });
+  writeFileSync(join(dir, 'faces.json'), JSON.stringify(clip));
+  const run = (args: string[], root = dir) => spawnSync(process.execPath, ['--import', 'tsx', CLI, 'reframe', src, '--faces', join(dir, 'faces.json'), ...args],
+    { encoding: 'utf8', env: { ...process.env, OPEN_EDIT_ROOT: root } });
+  const out = join(dir, 'panel.mp4');
+  const r = run(['--panel', '0,960,1080,960', '--out', out]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /faces are kept inside x 52–897, y 960–1478 of that canvas, clear of the UI/);
+  assert.match(r.stdout, /1\.00–2\.00 s is cut tighter/);
+  assert.doesNotMatch(r.stdout, /still show one under the UI/);
+  assert.match(sizeOf(out), /^1080,960/);
+  const frames = execFileSync(FFPROBE, ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', out],
+    { encoding: 'utf8' }).trim();
+  assert.equal(frames, '60', 'the tighter second is laid over the clip, not dropped');
+  // The gradient spans fewer source columns across the frame once the crop is tighter.
+  const span = (n: number) => { const [l, rt] = columnsOf(out, [2, 1077], n); return rt - l; };
+  assert.ok(span(45) < 0.6 * span(15), `brightness across the frame ${span(15).toFixed(0)} before the cut, ${span(45).toFixed(0)} after`);
+  // The faces it writes for the panel, its source's moved with each crop, all lie in the clear part.
+  const written = /to (\S+faces\.json) and/.exec(r.stdout)![1];
+  for (const s of readFaces(written).shots.flatMap((shot) => shot.samples)) {
+    for (const f of s.faces) assert.ok(f.x >= 51 && f.x + f.w <= 898 && f.y + f.h <= 519, `${s.sec} s: ${JSON.stringify(f)}`);
+  }
+  assert.match(run(['--panel', '0,960,1080,960', '--aspect', '9:16', '--out', out]).stderr, /--aspect 9:16 is not the shape of --panel's 1080x960/);
+  assert.match(run(['--panel', '0,960,1080,1000', '--out', out]).stderr, /--panel 0,960,1080,1000 runs off the 1080x1920 canvas of tiktok/);
+  const bare = scratchDir('reframe-panel-bare');
+  assert.match(run(['--panel', '0,960,1080,960', '--out', join(bare, 'o.mp4')], bare).stderr, /--panel keeps faces clear of the UI of the platform the piece is posted on/);
+});
+
+test('reframe: each frame is cut where the crop stands at that frame\'s own time, and a frame just before a cut keeps its shot\'s place', () => {
+  // A face crossing the frame at 360 px a second, sampled four times a second: a pan of 12 px a frame mid-way.
+  const pan = sampledShot(0.25, Array.from({ length: 16 }, (_, i) => [face(100 + 90 * i)]));
+  const clip = clipOf([pan, { start: 4, end: 6, samples: [{ sec: 4.5, faces: [face(200)] }] }]);
+  const track = cropTrack(clip, NINE_BY_SIXTEEN);
+  const moves = cropMoves(clip, NINE_BY_SIXTEEN, 30, 6);
+  const shown = (pts: number) => moves.filter((m) => m.sec <= pts).at(-1)!.at;
+  const off = Array.from({ length: 180 }, (_, n) => n).filter((n) => shown(n / 30) !== track(n / 30));
+  assert.deepEqual(off, [], `frames cut at another time's place: ${off.slice(0, 5).join(', ')}`);
+  assert.ok(new Set(Array.from({ length: 120 }, (_, n) => shown(n / 30))).size > 20, 'the face is followed');
+  // A frame of a clip whose rate varies may fall between the last look and the cut: it is still the first shot's.
+  assert.equal(shown(4 - 0.005), track(3.99));
+  assert.notEqual(track(3.99), track(4));
 });
 
 test('reframe: it refuses face boxes it was named but cannot find, or found on another clip or another cut of it', () => {
@@ -354,6 +479,38 @@ test('reframe: the encoded clip shows the crop each shot\'s face asked for, swit
   assert.match(sizeOf(canvas), /^1080,1920/);
   assert.ok(columnsOf(canvas, [5], 15)[0] < 12, 'before the cut, near black');
   assert.ok(Math.abs(columnsOf(canvas, [5], 45)[0] - 175) < 10, 'after the cut, about 175');
+});
+
+test('reframe: it names the seconds where a face does not fit the crop, a close-up larger than it or a two-shot it cannot hold whole', () => {
+  // A close-up wider than the 606 px crop, a lone face that fits, then two people too far apart for one crop.
+  const clip = clipOf([
+    shotOf(0, [[face(600, 100, 700, 700)], [face(610, 100, 700, 700)]]),
+    shotOf(2, [[face(800)], [face(810)]]),
+    shotOf(4, [[face(200, 100, 300, 300), face(1400, 100, 280, 280)], [face(200, 100, 300, 300), face(1400, 100, 280, 280)]]),
+  ]);
+  const shaping = (c: FacesClip): Shaping => ({
+    video: c.video, width: 1920, height: 1080, sar: 1, crop: NINE_BY_SIXTEEN, how: 'faces', facesPath: '/f.json', clip: c,
+    moves: cropMoves(c, NINE_BY_SIXTEEN, 30, c.durationSec),
+  });
+  assert.deepEqual(unfitted(shaping(clip)), [{ from: 0, to: 2 }, { from: 4, to: 6 }]);
+  // Someone in the background, under half the speaker's height and far outside the crop, is not framed, so not named.
+  const behind = clipOf([shotOf(0, [[face(800, 100, 200, 200), face(100, 300, 60, 60)], [face(810, 100, 200, 200), face(100, 300, 60, 60)]])]);
+  assert.deepEqual(unfitted(shaping(behind)), []);
+  // One sample of a shot stands for the time halfway to its neighbours.
+  const once = clipOf([shotOf(0, [[face(800)], [face(600, 100, 700, 700)], [face(810)]])]);
+  assert.deepEqual(unfitted(shaping(once)), [{ from: 1, to: 2 }]);
+  // Printed in one line; a clip whose faces all fit prints none.
+  const dir = scratchDir('reframe-unfit');
+  const src = gradient(dir);
+  const run = (f: FaceBox) => {
+    writeFileSync(join(dir, 'faces.json'), JSON.stringify(clipOf([{ start: 0, end: 2, samples: [0.5, 1.5].map((sec) => ({ sec, faces: [f] })) }],
+      { width: 640, height: 360, durationSec: 2, video: src })));
+    const r = reframe([src, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', join(dir, 'tall.mp4'), '--size', 'native']);
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  assert.match(run({ x: 200, y: 50, w: 250, h: 250 }), /reframe: a face does not fit the 202x360 crop at 0\.00–2\.00 s \(larger than it, or beside another face a held shot keeps\)/);
+  assert.doesNotMatch(run({ x: 200, y: 50, w: 100, h: 100 }), /does not fit/);
 });
 
 test('reframe: with no face boxes it cuts the whole clip from the middle, and says so', () => {
