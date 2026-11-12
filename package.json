@@ -34,6 +34,6 @@
   },
   "dependencies": {
     "playwright-core": "1.63.0",
-    "undici": "^7.30.0"
+    "undici": "^7.30.1"
   }
 }
