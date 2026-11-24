@@ -77,6 +77,12 @@ await test('a file ffmpeg cannot open reports the failure, with ffmpeg\'s own la
 
 // --- the command, end to end ---------------------------------------------------
 
+await test('a draft is refused before anything is read, since it is a quick look and never the deliverable', () => {
+  const { result, err } = captureConsole(() => muxAudio(['--video', join(dir, 'out.draft.mp4'), '--audio', join(dir, 'none.m4a'), '--out', join(dir, 'muxed.mp4')]));
+  assert.equal(result, 2);
+  assert.match(err, /has a --draft render's name, and a draft is a quick look drawn at half size with the fastest encode, never the deliverable: render the page again without --draft and give mux-audio that video/);
+});
+
 const picture = (name: string): string => synthClip(dir, `${name}-render.mp4`, { video: TESTSRC, seconds: 2 });
 
 await test('a normalised deliverable is written at 48 kHz, not the 96 kHz loudnorm would otherwise hand the encoder', () => {

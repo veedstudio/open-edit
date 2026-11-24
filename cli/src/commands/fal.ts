@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { parseUsage, renderUsage, numberFlag, type Usage } from '../args.ts';
 import { runsDir } from '../config.ts';
 import {
-  JobFailed, PossiblyBought, await_, billedCost, completeJob, describeBilled, describeListing, download, falKey, listedPrices, realHttp,
+  JobFailed, NoFalKey, PossiblyBought, await_, billedCost, completeJob, describeBilled, describeListing, download, falKey, listedPrices, realHttp,
   redactUrl, submitOnce, type Billed, type Http, type ListedPrice, type PriceList,
 } from '../providers/fal.ts';
 import { fileDigest, uploadFile } from '../providers/fal-storage.ts';
@@ -38,6 +38,8 @@ export interface FalJobSpec {
   /** Where relative paths in the input are looked for, in order. */
   bases: string[];
   outDir: string;
+  /** The largest output file downloaded, in bytes, where the caller knows what the model answers with; none by default. */
+  largestBytes?: number;
 }
 
 export interface JobOutcome {
@@ -199,7 +201,7 @@ function inlineFile(url: string): { bytes: Buffer; extension: string } {
   return { bytes, extension: EXTENSION_BY_TYPE[header.split(';')[0].trim().toLowerCase()] ?? 'bin' };
 }
 
-async function downloadOutputs(payload: unknown, outDir: string, http?: Http): Promise<{ written: string[]; skipped: string[] }> {
+async function downloadOutputs(payload: unknown, outDir: string, http?: Http, largest?: number): Promise<{ written: string[]; skipped: string[] }> {
   mkdirSync(outDir, { recursive: true });
   const taken = new Set<string>();
   const written: string[] = [];
@@ -212,8 +214,9 @@ async function downloadOutputs(payload: unknown, outDir: string, http?: Http): P
     for (let n = 2; taken.has(name); n++) name = dot > 0 ? `${name.slice(0, dot)}-${n}${name.slice(dot)}` : `${name}-${n}`;
     taken.add(name);
     const dest = join(outDir, name);
+    if (inline && largest !== undefined && inline.bytes.byteLength > largest) throw new Error(`${name} is over the ${largest} bytes taken for it, and is not kept`);
     if (inline) writeFileSync(dest, inline.bytes);
-    else await download(f.url, dest, http);
+    else await download(f.url, dest, http, largest);
     written.push(dest);
   }
   return { written, skipped };
@@ -317,7 +320,7 @@ async function runOne(job: FalJobSpec, ctx: FalRunContext, upload: (p: string) =
     else if (reused) log(`this exact request is already bought (${queued.requestId}): resuming it, not buying it again`);
     const started = Date.now();
     const result = await await_(queued, { key: ctx.key, http: ctx.http, timeoutMs: ctx.timeoutMs, sleep: ctx.sleep, ledgerRecord });
-    const { written, skipped } = await downloadOutputs(result.payload, job.outDir, ctx.http);
+    const { written, skipped } = await downloadOutputs(result.payload, job.outDir, ctx.http, job.largestBytes);
     outcome.files = written;
     const kept = join(job.outDir, 'fal-result.json');
     writeFileSync(kept, JSON.stringify({
@@ -532,7 +535,7 @@ export async function schemaListing(model: string, env: NodeJS.ProcessEnv = proc
     key = falKey(env);
   } catch (e) {
     const why = errorText(e);
-    return /^no fal key/.test(why) ? 'not asked (no fal key; set FAL_KEY to see what fal lists)' : `not asked: ${why}`;
+    return e instanceof NoFalKey ? 'not asked (no fal key; set FAL_KEY to see what fal lists)' : `not asked: ${why}`;
   }
   return describeListing(model, await listedPrices([model], { key, http }));
 }

@@ -46,7 +46,7 @@ const cut = async (ranges: { source: string; start: number; end: number; speed?:
   const sources = Object.fromEntries(ranges.map((r) => [r.source, `${r.source}.mp4`]));
   writeFileSync(edl, JSON.stringify({ sources, ranges }));
   const out = join(dir, `cut-${n++}.mp4`);
-  const { out: log } = await withRoot(dir, () => captureConsoleAsync(() => applyEdl(['--edl', edl, '--out', out, '--crf', '0'])));
+  const { out: log } = await withRoot(dir, () => captureConsoleAsync(() => applyEdl(['--edl', edl, '--out', out, '--crf', '10'])));
   return { out, log };
 };
 

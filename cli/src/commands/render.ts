@@ -26,8 +26,9 @@ import { parseTimeSpec } from './frames.ts';
 import { cropFor } from './reframe.ts';
 import { CHROME, customChrome, mb, resolveChrome } from '../render/browser.ts';
 import { killChildren } from '../render/children.ts';
-import type { RaisedText } from '../render/page-runtime.ts';
-import { encoderArgs, FULL_ENCODE, joinSegments, startSegmentEncoder, timingProblems, X264_PRESETS, type Encode } from '../render/encode.ts';
+import { DRAFT_OUT } from '../render/draft.ts';
+import type { BoxedLine, RaisedText, RuntimeConfig } from '../render/page-runtime.ts';
+import { CRF_FLOOR, encoderArgs, FULL_ENCODE, joinSegments, refuseCrfUnderFloor, startSegmentEncoder, timingProblems, X264_PRESETS, type Encode } from '../render/encode.ts';
 import { composeStill, gcd, overlayFor, probeFootage, sameRate, underSegment, type Footage } from '../render/footage.ts';
 import { alphaInputOf, contentId, foreignCodecOf, longestGop, MAX_GOP, MEDIA_CACHE_BYTES, MEDIA_LEASE_MS, mediaCache, perVersion, seekableCopy, shownSize, type CacheReport } from '../render/media.ts';
 import { inspectPng, pngDifference, showsSomething } from '../render/png.ts';
@@ -36,6 +37,7 @@ import { BUDGET_MS, EPOCH, openLead, SEED, sessionOptions, UsageError, type Canv
 import { CAPTURES, DRAW_EVERY_MS, DrawnLarger, drawnSize, newTimings, RenderSession, timed, type Capture, type Timings } from '../render/session.ts';
 import type { SampledFrame, SampledVideo } from '../render/text-sampler.ts';
 import { pictureNotes, type PictureOptions } from '../render/picture-notes.ts';
+import { CUTOUT_ENV, drawnWith, MOST_SECONDS, MOST_STRETCHES, PAD_SEC, pageCutout, SHORTEST_SEC, WAIT_MS as CUTOUT_WAIT_MS, type Made } from '../render/speaker-cutout.ts';
 import {
   dropRecord, readSegmentText, recordPath, SAMPLE_MS, sampleAt, sampledFrames, sampleEvery, writeRecord, writeSegmentText, type PageVideo,
   type TextRecord, type TextSample,
@@ -50,7 +52,7 @@ import { lengthAgainstBrief } from '../verify/length.ts';
 // frame before its first: worth it for a dozen frames of a heavy page, where a patch is waiting on every
 // one of them, but not for fewer.
 export const MIN_FRAMES_PER_WORKER = 12;
-// What --draft sets unless the flag is given: a quarter of the pixels, a lossy capture, the fastest encode.
+// What --draft renders at, and only at: a quarter of the pixels, a JPEG capture where no alpha is needed, the fastest encode.
 const DRAFT = { scale: 0.5, capture: 'jpeg' as Capture, quality: 80, preset: 'ultrafast', crf: 28 };
 
 export const usage = {
@@ -68,12 +70,12 @@ export const usage = {
     from: { type: 'string', value: '<sec>', help: 'Patch: re-render only the segments overlapping --from..--to, reuse the rest, rejoin (default 0)' },
     to: { type: 'string', value: '<sec>', help: 'End of the patch range, exclusive: a segment that starts exactly here is not re-rendered (default: the end)' },
     transparent: { type: 'boolean', help: 'No page background: a ProRes 4444 .mov with alpha (PNGs with alpha under --stills)' },
-    capture: { type: 'string', value: 'png|jpeg', help: 'What each frame leaves Chrome as (default png, the exact picture). jpeg is about half the capture time on a busy frame, at a small loss: Chrome stores its colour at half resolution (4:2:0) even at the quality 100 used. Opaque video only: not with --transparent, --footage or --stills' },
-    draft: { type: 'boolean', help: `A quick look rather than the deliverable: --scale ${DRAFT.scale}, --capture ${DRAFT.capture} --quality ${DRAFT.quality}, --preset ${DRAFT.preset} --crf ${DRAFT.crf}, each unless given; --out must end in .draft.mp4 or .draft.mov (see Draft below)` },
-    scale: { type: 'string', value: '<0.1-1>', help: 'Draw the frames at this fraction of the canvas, an odd side cropped to even for H.264 (default 1; 0.5 under --draft)' },
-    quality: { type: 'string', value: '<1-100>', help: `With --capture jpeg: the JPEG's quality (default 100; ${DRAFT.quality} under --draft)` },
-    preset: { type: 'string', value: '<x264 preset>', help: `x264's speed, ${X264_PRESETS[0]} to ${X264_PRESETS[X264_PRESETS.length - 1]} (default ${FULL_ENCODE.preset}; ${DRAFT.preset} under --draft); not with --transparent` },
-    crf: { type: 'string', value: '<0-51>', help: `x264's quality, lower is better and larger (default ${FULL_ENCODE.crf}; ${DRAFT.crf} under --draft); not with --transparent` },
+    capture: { type: 'string', value: 'png|jpeg', help: 'What each frame leaves Chrome as (default png, the exact picture). jpeg is about half the capture time on a busy frame, at a small loss: Chrome stores its colour at half resolution (4:2:0) even at the quality 100 used. Opaque video only: not with --transparent, --footage or --stills; nor with --draft, which captures jpeg where it can' },
+    draft: { type: 'boolean', help: `A quick look rather than the deliverable, at its own settings: --scale ${DRAFT.scale}, --capture ${DRAFT.capture} --quality ${DRAFT.quality}, --preset ${DRAFT.preset} --crf ${DRAFT.crf}, and refuses each as a flag; --out must end in .draft.mp4 or .draft.mov (see Draft below)` },
+    scale: { type: 'string', value: '<0.1-1>', help: 'Draw the frames at this fraction of the canvas, an odd side cropped to even for H.264 (default 1; not with --draft)' },
+    quality: { type: 'string', value: '<1-100>', help: 'With --capture jpeg: the JPEG\'s quality (default 100; not with --draft)' },
+    preset: { type: 'string', value: '<x264 preset>', help: `x264's speed, ${X264_PRESETS[0]} to ${X264_PRESETS[X264_PRESETS.length - 1]} (default ${FULL_ENCODE.preset}; not with --draft); not with --transparent` },
+    crf: { type: 'string', value: `<${CRF_FLOOR}-51>`, help: `x264's quality, lower is better and larger (default ${FULL_ENCODE.crf}; not with --draft or --transparent)` },
     footage: { type: 'string', value: '<file>', help: 'Lay the page, captured with alpha, over this clip in ffmpeg: full-stage footage with captions or graphics over it (see Footage below)' },
     'footage-at': { type: 'string', value: '<sec>', help: 'With --footage: when the clip\'s first frame shows, to the nearest frame (default 0); the page alone draws what comes before and after it' },
     stills: { type: 'string', multiple: true, value: '<sec,...>', help: 'Render only these moments as PNGs, no video; repeatable or comma-separated' },
@@ -115,6 +117,36 @@ export const usage = {
     'bytes change gets a new one. A render that adds a copy says what the cache holds, and removes the copies used',
     `longest ago while they add up to more than ${MEDIA_CACHE_BYTES / 2 ** 30} GB, except any used in the last ${MEDIA_LEASE_MS / 3_600_000} hours, which a render`,
     'still running may be serving; nothing else in the folder is removed.',
+    'Speaker: a stage that names no cut-out, or names one that is not there, and holds, as the page has loaded, a',
+    'footage layer and a behind layer with at least one data-behind graphic, asks for a cut-out of the speaker. Where',
+    `the environment switches it on (${CUTOUT_ENV}=1), render makes it. It steps the page through the frames it draws`,
+    '(for --stills, those frames alone) to find the ones a data-behind graphic is on screen in: no opacity of 0 on it or',
+    'above it, and a visible box that meets the stage. The clip is the --footage file, else the one video the footage',
+    'layer plays, which the page must be able to read, taken to run on the page\'s clock from time 0, or from',
+    '--footage-at. The clip\'s frames under those page frames are what the cut-out is drawn for, and it is drawn in no',
+    `other frame. What is not yet kept of them is bought with ${PAD_SEC} s more either side, never less than ${SHORTEST_SEC} s a stretch and`,
+    'never past the piece\'s end, joined where stretches touch, so a graphic moved by a few frames finds its frames kept.',
+    'Each stretch is cut from the clip and run through fal\'s fast background-removal model: on the fal account of the',
+    'fal key this run reads, bought as fal run buys one and never on a VEED workspace, else through the fal command the',
+    'environment gives in place of a key, which prices and approves it and bills as that environment arranges. One line',
+    'before the call says for how many seconds of the clip, on which route, and what it is estimated to cost at fal\'s',
+    'listed rate: an estimate, not a charge. Each answer is checked as it comes (alpha, size, frame count, a matte that',
+    'covers something) and kept in a folder of the clip\'s own, runs/<key>/cutout-<hash>/, named for the clip\'s bytes and',
+    'the frames it holds, so a later render or behind of the page makes no call while the clip is the same. An answer',
+    'that fails the check is recorded there, and that stretch is not bought again until the record is removed. The kept',
+    'stretches are joined into one file in the media cache, which the speaker layer plays; the layers are stacked as',
+    `for a named cut-out. One render buys at most ${MOST_STRETCHES} stretches and ${MOST_SECONDS} s of the clip, and a cut-out is made for at most`,
+    `${MOST_SECONDS} s of a piece: past either, none is made, and the line says which. Each answer is waited for up to ${CUTOUT_WAIT_MS / 60_000} minutes.`,
+    'On a fal key, a request a stopped or timed-out run bought is resumed by the next run, not bought again; the',
+    'environment\'s fal command is stopped when its time is up, the line says its request may still run and be billed,',
+    'and the next run hands it the same file again: whether that resumes the request is the command\'s own. No cut-out',
+    'is made, and one line says why, with the switch off (the line names the background-removal command that makes one',
+    'to name), with no fal to run on, on a refusal, a failure or an answer that fails the check, for a clip whose frames',
+    'are unevenly timed, for footage the page loops past its end or places at another time than its own clock, and where',
+    'faces has run on the clip and found no face in a stretch (that stretch alone is left out). A stage that names no',
+    'cut-out is then drawn with no speaker layer; one that names a missing file fails, as it did. A patch (--from/--to)',
+    'renders again, with a line saying so, the segments outside its range that were drawn with another cut-out than the',
+    'one made now, or with none. A stage that names a cut-out that is there is drawn from it, and nothing is made.',
     'Each worker steps the page through every earlier frame (without capturing them) before its own, so state a page',
     'builds as time passes matches a one-worker render, and the output is the same whatever --workers is; with a',
     '<video> on the page every one of those frames seeks it. A page that draws frame t from t alone (CSS and Web',
@@ -169,6 +201,16 @@ export const usage = {
     'arrow, a lone symbol) and SVG text keep their size. Raised text can run onto more lines, or past its box or the',
     'stage: the render lists what it raised, and which did. --no-text-floor draws every text at the size the page',
     'gives it.',
+    'A line set not to wrap (white-space: nowrap or pre, or text-wrap: nowrap) that runs past the left or right side of',
+    'the box drawn behind it is wrapped inside that box, which keeps the width it had; the box is the nearest of the',
+    'text\'s element and its ancestors, inline ones aside, with a background or a border, and the render lists the lines',
+    'it wrapped. A line stays as the page set it where the box clips it (an overflow other than visible), where it is',
+    'placed out of the box\'s flow (position: absolute or fixed), past a side of the box that rests at the stage\'s edge,',
+    'where a ticker\'s track runs off, and where the box would not hold it wrapped: a box of a fixed height, as a bar',
+    'that fills under its label is, a word wider than the box, a word whose letters are elements of their own (each an',
+    'inline-block, say) that would break between two of them, or a row that cannot wrap (a flex row without flex-wrap',
+    'whose items are single words, an item that cannot shrink). openeditFaces.place() places an element by its box',
+    'with the lines wrapped.',
     'Zone: a page that links no safe-zone stylesheet, on a stage of a shape with a zone (9:16, 16:9, 4:3, 1:1 or 4:5),',
     'gets the zone of the platform in the piece\'s brief.json when it has one of that shape, else the shape\'s own: the',
     'stylesheet safe-zone writes for it, put first in its head so the page\'s',
@@ -185,10 +227,12 @@ export const usage = {
     'Draft: --draft renders a quick look at the piece, not the deliverable: the frames are drawn at half the canvas',
     '(Chrome rasterises the page at that size, so the layout is the same and a quarter of the pixels are drawn), leave',
     'Chrome as JPEGs at quality 80, and are encoded with x264 ultrafast at CRF 28. Under --transparent or --footage the',
-    'capture stays PNG, since those need the alpha. Each setting can be given on its own instead, with or without',
-    '--draft: --scale, --capture, --quality, --preset, --crf; a lower --fps also cuts the frames to draw, at the cost',
-    'of the page\'s motion. A draft\'s --out must end in .draft.mp4 or .draft.mov, so it never takes the place, or the',
-    'cache, of the full render beside it. The cache records every one of these settings, so a patch keeps them.',
+    'capture stays PNG, since those need the alpha. A draft renders at these settings alone: --draft refuses --scale,',
+    '--capture, --quality, --preset and --crf, each of which a render without --draft takes on its own. A lower --fps',
+    'also cuts the frames to draw, at the cost of the page\'s motion. mux-audio, mix-audio and review refuse a draft: the',
+    'deliverable is a render without --draft. A draft\'s --out must end in .draft.mp4 or .draft.mov, so it never takes the',
+    'place, or the cache, of the full render beside it. The cache records every one of these settings, so a patch keeps',
+    'them.',
     'Fails, naming the cause, when Chrome does not start, the page server refuses a file the page needs (see Files),',
     'Chrome or the page stops answering (a launch, or one wait inside the page, past 60 s; the page\'s readiness or a',
     'frame past 120 s; it names the stage, with what to try),',
@@ -386,9 +430,10 @@ interface Manifest {
   media?: Record<string, string>;
   /**
    * `drawn`: whether any frame of the segment is more than one flat colour; absent reads as drawn. `shows`: the files of
-   * the <video> and <img> elements its sampled frames show; absent when they were not recorded.
+   * the <video> and <img> elements its sampled frames show; absent when they were not recorded. `speaker`: what of a
+   * cut-out made for the page its frames were drawn with (drawnWith); absent when none was drawn in it.
    */
-  segments: { index: number; start: number; frames: number; file: string; bytes: number; drawn?: boolean; shows?: string[] }[];
+  segments: { index: number; start: number; frames: number; file: string; bytes: number; drawn?: boolean; shows?: string[]; speaker?: string }[];
 }
 
 
@@ -572,8 +617,8 @@ function pageRecoded(lead: RenderSession, server: PageServer): string | undefine
 }
 
 /** How the page's videos with alpha are served, as the cache records it; absent when it plays none. */
-function pageAlpha(lead: RenderSession, server: PageServer): string | undefined {
-  const files = [...lead.info.videos.map((v) => v.url), ...lead.info.unplayable].map((u) => server.fileFor(u)).filter((f): f is string => !!f && existsSync(f));
+function pageAlpha(lead: RenderSession, server: PageServer, except?: string): string | undefined {
+  const files = [...lead.info.videos.map((v) => v.url), ...lead.info.unplayable].map((u) => server.fileFor(u)).filter((f): f is string => !!f && f !== except && existsSync(f));
   return files.some((f) => pictureColour(f) !== null && alphaInputOf(f) !== null) ? 'alpha kept, in VP9 WebM copies where copied' : undefined;
 }
 
@@ -741,18 +786,23 @@ export async function runWorkers<T>(base: SessionBase, canvas: Canvas, lead: Ren
   if (failure) throw failure;
 }
 
-/** What the render did to keep the page's text at the floor and in a zone, a line each. */
-function textDefaults(lead: RenderSession, raised: Map<string, RaisedText>): string[] {
+/** What the render did to keep the page's text at the floor, inside the box drawn behind it and in a zone, a line each. */
+function textDefaults(lead: RenderSession, raised: Map<string, RaisedText>, boxed: Map<string, BoxedLine>): string[] {
   const lines: string[] = [];
   const all = [...raised.values()];
+  const named = (list: { text: string }[]) => list.slice(0, 6).map((r) => quoted(r.text)).join(', ') + (list.length > 6 ? `, and ${list.length - 6} more` : '');
   if (all.length) {
-    const named = (list: RaisedText[]) => list.slice(0, 6).map((r) => quoted(r.text)).join(', ') + (list.length > 6 ? `, and ${list.length - 6} more` : '');
     all.sort((a, b) => a.frame - b.frame);
     const wrapped = all.filter((r) => r.wrapped);
     const past = all.filter((r) => r.past);
     lines.push(`text: raised ${all.length} element(s) to ${lead.floor} px, the floor for this canvas: ${named(all)}`
       + (wrapped.length ? `; ${wrapped.length} now ${wrapped.length === 1 ? 'runs' : 'run'} onto more lines: ${named(wrapped)}` : '')
       + (past.length ? `; ${past.length} now ${past.length === 1 ? 'runs past its' : 'run past their'} box or the stage: ${named(past)}` : ''));
+  }
+  // By frame and then by element, so the lines are named in one order whichever worker's report came first.
+  const boxedLines = [...boxed.values()].sort((a, b) => a.frame - b.frame || (a.key < b.key ? -1 : 1));
+  if (boxedLines.length) {
+    lines.push(`text: wrapped ${boxedLines.length} line(s) the page set not to wrap, inside the box drawn behind ${boxedLines.length === 1 ? 'it, which it' : 'each, which they'} ran past: ${named(boxedLines)}`);
   }
   const z = lead.zone;
   if (z) {
@@ -934,6 +984,8 @@ async function renderVideo(o: {
   base: SessionBase; canvas: Canvas; lead: RenderSession; fps: Fps; page: string; browser: string; transparent: boolean;
   footage: Footage | null; footageAt: number; total: number; segmentFrames: number; out: string; workers: number | undefined; patch: { from: number; to: number } | null;
   shrink: boolean; x264: Encode;
+  /** The cut-out made for the page, when one was. */
+  made: Made | null;
 }): Promise<VideoResult> {
   const { transparent, footage, footageAt } = o;
   const capture = o.base.capture ?? 'png';
@@ -944,8 +996,11 @@ async function renderVideo(o: {
   // The footage is scaled to the frames as Chrome draws them, before an odd side is cropped off both.
   const overlay = footage ? overlayFor(footage, drawnSize(o.canvas, scale), o.fps) : null;
   const sdr = pageConversion(o.lead, o.base.server);
-  const alpha = pageAlpha(o.lead, o.base.server);
+  // A cut-out made for the page is recorded segment by segment, where it is drawn, and not as how the page is served:
+  // a patch then renders again the segments drawn with another, or with none, and keeps the rest.
+  const alpha = pageAlpha(o.lead, o.base.server, o.made?.laid.file);
   const recoded = pageRecoded(o.lead, o.base.server);
+  const speakerOf = (s: Segment): string | undefined => (o.made ? drawnWith(o.made, s.start, s.start + s.frames) : undefined);
   const cache = `${o.out}.render`;
   mkdirSync(cache, { recursive: true });
   const release = acquireLock(cache);
@@ -1033,7 +1088,9 @@ async function renderVideo(o: {
         const files = shows && was ? shows.filter((file) => changed.has(file) || !(file in was)) : [];
         const why = !shows || !was ? 'the files they show were not recorded'
           : anywhere.length ? `${fileNames(anywhere)} changed since they were rendered, and no <video> or <img> on their sampled frames says which of them show it`
-          : files.length ? `${fileNames(files)} changed since they were rendered` : null;
+          : files.length ? `${fileNames(files)} changed since they were rendered`
+          : speakerOf(s) !== before.get(s.index)?.speaker ? `the speaker's cut-out they were rendered with is not the one made for the page now (${before.get(s.index)?.speaker ? (speakerOf(s) ? 'another' : 'one') : 'none'} then, ${speakerOf(s) ? 'one' : 'none'} now)`
+          : null;
         if (why) {
           redrawn.set(why, [...(redrawn.get(why) ?? []), s.index]);
           continue;
@@ -1281,6 +1338,7 @@ async function renderVideo(o: {
         index: s.index, start: s.start, frames: s.frames, file: basename(fileOf(s)), bytes: sizes.get(s.index)!,
         drawn: toRender.includes(s) ? drew.has(s.index) : drewBefore.get(s.index) !== false,
         ...(shows[k] ? { shows: shows[k] } : {}),
+        ...(speakerOf(s) ? { speaker: speakerOf(s) } : {}),
       })),
     });
     // A transparent picture's colour planes hold whatever lies under its clear pixels, so how they look says nothing.
@@ -1405,17 +1463,28 @@ async function run(values: Values, positionals: string[]): Promise<number> {
   if (frames !== undefined && duration !== undefined) throw new UsageError('give --duration or --frames, not both');
   const transparent = values.transparent === true;
   const draft = values.draft === true;
+  const stillSpecs = (values.stills ?? []).flatMap((v) => v.split(',')).map((s) => s.trim()).filter(Boolean);
+  // A draft set to look like the deliverable is how one gets delivered, so it renders at its own settings alone.
+  if (draft && stillSpecs.length === 0) {
+    const own = (['scale', 'capture', 'quality', 'preset', 'crf'] as const).filter((f) => values[f] !== undefined);
+    if (own.length) {
+      throw new UsageError(`--draft renders a quick look at its own settings and takes no ${own.map((f) => `--${f}`).join(', ')}; `
+        + 'the deliverable is a render without --draft');
+    }
+  }
   // A JPEG carries no alpha, so a draft that needs it keeps the PNG capture; stills are PNG files.
   const pngOnly = transparent || values.footage !== undefined || values.stills !== undefined;
   const scale = asUsage(() => numberFlag('scale', values.scale, draft ? DRAFT.scale : 1, (n) => n >= 0.1 && n <= 1, 'a fraction from 0.1 to 1'));
   const capture = (values.capture ?? (draft && !pngOnly ? DRAFT.capture : 'png')) as Capture;
   const quality = asUsage(() => numberFlag('quality', values.quality, draft ? DRAFT.quality : 100, (n) => Number.isInteger(n) && n >= 1 && n <= 100, 'an integer from 1 to 100'));
-  const crf = asUsage(() => numberFlag('crf', values.crf, draft ? DRAFT.crf : FULL_ENCODE.crf, (n) => Number.isInteger(n) && n >= 0 && n <= 51, 'an integer from 0 to 51'));
+  // --stills and --transparent write no H.264 and refuse --crf below, which a value's own refusal would hide.
+  const h264 = !transparent && stillSpecs.length === 0;
+  if (h264) asUsage(() => refuseCrfUnderFloor(values.crf));
+  const crf = h264 ? asUsage(() => numberFlag('crf', values.crf, draft ? DRAFT.crf : FULL_ENCODE.crf, (n) => Number.isInteger(n) && n >= CRF_FLOOR && n <= 51, `an integer from ${CRF_FLOOR} to 51`)) : FULL_ENCODE.crf;
   const preset = values.preset ?? (draft ? DRAFT.preset : FULL_ENCODE.preset);
   if (!(X264_PRESETS as readonly string[]).includes(preset)) throw new UsageError(`--preset must be one of ${X264_PRESETS.join(', ')}, not ${JSON.stringify(preset)}`);
   const x264: Encode = { preset, crf };
   if (!CAPTURES.includes(capture)) throw new UsageError(`--capture must be ${CAPTURES.join(' or ')}, not ${JSON.stringify(values.capture)}`);
-  const stillSpecs = (values.stills ?? []).flatMap((v) => v.split(',')).map((s) => s.trim()).filter(Boolean);
   let footage: Footage | null = null;
   if (footageSec !== undefined && values.footage === undefined) throw new UsageError('--footage-at says when the --footage clip starts; give --footage too');
   if (values.footage !== undefined) {
@@ -1453,11 +1522,14 @@ async function run(values: Values, positionals: string[]): Promise<number> {
     throw new UsageError(alpha ? `--quality is a JPEG's quality, and ${alpha} captures PNG for the page's alpha; leave --quality out` : '--quality is a JPEG\'s quality; give --capture jpeg too');
   }
   if (transparent && (values.crf !== undefined || values.preset !== undefined)) throw new UsageError('--crf and --preset set the H.264 encode; --transparent writes ProRes 4444, which has neither');
-  if (draft && stillSpecs.length === 0 && !/\.draft\.(mp4|mov)$/i.test(out)) {
+  if (draft && stillSpecs.length === 0 && !DRAFT_OUT.test(out)) {
     // The extension the render would take: .mov under --transparent, else the one given when it is one.
     const ext = transparent || extname(out).toLowerCase() === '.mov' ? '.mov' : '.mp4';
     throw new UsageError(`--draft writes a quick look, not the deliverable, so its --out must end in .draft${ext}, apart from the full render and its cache: `
       + `pass --out ${join(dirname(values.out), `${basename(out, extname(out))}.draft${ext}`)}`);
+  }
+  if (!draft && stillSpecs.length === 0 && DRAFT_OUT.test(out)) {
+    throw new UsageError(`--out ${values.out} is a draft's name, which mux-audio, mix-audio and review refuse; a render without --draft is the deliverable, so give it another --out`);
   }
   if (stillSpecs.length === 0 && values.sheet) throw new UsageError('--sheet tiles the --stills; give --stills too');
   if (stillSpecs.length && (from !== undefined || to !== undefined)) throw new UsageError('--from/--to patch a video; --stills renders no video');
@@ -1486,6 +1558,7 @@ async function run(values: Values, positionals: string[]): Promise<number> {
   let lead: RenderSession | null = null;
   const failedLoads = new Set<string>();
   const raised = new Map<string, RaisedText>();
+  const boxed = new Map<string, BoxedLine>();
   let delivered = false;
   try {
     const timings = newTimings();
@@ -1494,8 +1567,8 @@ async function run(values: Values, positionals: string[]): Promise<number> {
     const footageEnd = footage && (total === undefined || footageAt + footage.frames < total) ? frameTime(footageAt + footage.frames, fps) : null;
     const base = {
       chrome, server, page, transparent: transparent || footage !== null, capture, quality, scale, footage: footage?.file ?? null, fps, seed: SEED,
-      epoch: EPOCH, budgetMs: BUDGET_MS, failedLoads, refused: new Set<string>(), timings, noTextFloor: values['no-text-floor'] === true, raised, givenZone: {},
-      cutout: { at: frameTime(footageAt, fps), until: footageEnd },
+      epoch: EPOCH, budgetMs: BUDGET_MS, failedLoads, refused: new Set<string>(), timings, noTextFloor: values['no-text-floor'] === true, raised, boxed, givenZone: {},
+      cutout: { at: frameTime(footageAt, fps), until: footageEnd } as RuntimeConfig['cutout'],
     };
     const opened = await openLead(base, width, height);
     lead = opened.lead;
@@ -1516,6 +1589,23 @@ async function run(values: Values, positionals: string[]): Promise<number> {
         + 'and make that file the page\'s footage (its <video> and --footage), so the preview, faces.js and the render show the same picture');
     }
 
+    const stillFrames = stillSpecs.length ? [...new Set(asUsage(() => stillSpecs.map(parseTimeSpec)).map((t) => frameAtTime(t, fps)))].sort((a, b) => a - b) : null;
+    // The speaker layer is laid as the page loads, so a cut-out made for the page is drawn by a lead opened again.
+    // Stills are looked at, and a cut-out made, at their own frames alone.
+    const cutout = await pageCutout({ page, info: lead.info, server, base, canvas, fps, footage: footage?.file ?? null, footageAt: frameTime(footageAt, fps),
+      until: total === undefined ? undefined : frameTime(total, fps), only: stillFrames ?? undefined, say });
+    let made: Made | null = null;
+    if (cutout && 'none' in cutout) {
+      // A stage that names a missing cut-out still fails below, as it did; one that names none is drawn without.
+      say(`${basename(page)} lays a graphic behind the speaker and ${lead.info.cutout ? 'its stage names a cut-out that is not there, and none is made in its place'
+        : 'has no cut-out of the speaker, so it is drawn without the speaker in front'}: ${cutout.none}`);
+    } else if (cutout) {
+      made = cutout;
+      base.cutout = { ...base.cutout, made: cutout.made };
+      await lead.close();
+      lead = await RenderSession.open(sessionOptions(base, canvas));
+    }
+
     // A video the page shows smaller on load is served from a copy at that size. A page that later draws
     // it larger fails that frame, and the render is made once more from full-size copies.
     const sized = async <R>(go: (lead: RenderSession, shrink: boolean) => Promise<R>): Promise<R> => {
@@ -1529,9 +1619,8 @@ async function run(values: Values, positionals: string[]): Promise<number> {
       }
     };
 
-    if (stillSpecs.length) {
-      const times = asUsage(() => stillSpecs.map(parseTimeSpec));
-      const wanted = [...new Set(times.map((t) => frameAtTime(t, fps)))].sort((a, b) => a - b);
+    if (stillFrames) {
+      const wanted = stillFrames;
       const past = total === undefined ? [] : wanted.filter((f) => f >= total);
       if (past.length) throw new UsageError(`${past.length} still(s) lie past the end (${frameTime(total!, fps).toFixed(3)} s)`);
       const r = await sized((l, shrink) => renderStills({ base, canvas, lead: l, fps, footage, footageAt, frames: wanted, outDir: out, sheet: values.sheet, workers, shrink }));
@@ -1541,7 +1630,7 @@ async function run(values: Values, positionals: string[]): Promise<number> {
       if (values.sheet) console.log(`  sheet: ${resolve(values.sheet)}`);
       console.log(`  wall ${wall.toFixed(1)} s, ${Math.round((wall * 1000) / r.paths.length)} ms/still, ${r.workers} worker(s)`);
       for (const line of breakdown(timings, r.paths.length)) console.log(`  ${line}`);
-      for (const line of textDefaults(lead!, raised)) console.log(`  ${line}`);
+      for (const line of textDefaults(lead!, raised, boxed)) console.log(`  ${line}`);
       delivered = true;
       return 0;
     }
@@ -1549,7 +1638,7 @@ async function run(values: Values, positionals: string[]): Promise<number> {
     const patch = from !== undefined || to !== undefined ? { from: from ?? 0, to: to ?? frameTime(total!, fps) } : null;
     const browser = customChrome(values.chrome) ? browserBuild(chrome) : `Chrome Headless Shell ${CHROME.version}`;
     const r = await sized((l, shrink) => renderVideo({
-      base, canvas, lead: l, fps, page, browser, transparent, footage, footageAt, total: total!, segmentFrames: segmentFramesFor(segmentSec, fps), out, workers, patch, shrink, x264,
+      base, canvas, lead: l, fps, page, browser, transparent, footage, footageAt, total: total!, segmentFrames: segmentFramesFor(segmentSec, fps), out, workers, patch, shrink, x264, made,
     }));
     const wall = (Date.now() - started) / 1000;
     const perFrame = r.rendered ? Math.round((wall * 1000) / r.rendered) : 0;
@@ -1567,7 +1656,7 @@ async function run(values: Values, positionals: string[]): Promise<number> {
     if (draft) console.log(`  draft: ${capture}${capture === 'jpeg' ? ` q${quality}` : ''} capture, ${transparent ? 'ProRes' : `x264 ${preset} CRF ${crf}`}; render without --draft for the deliverable`);
     console.log(`  wall ${wall.toFixed(1)} s, ${perFrame} ms/frame over ${r.rendered} rendered frame(s), ${r.workers} worker(s), segments: ${r.renderedSegments} rendered, ${r.reusedSegments} reused`);
     for (const line of breakdown(timings, r.rendered)) console.log(`  ${line}`);
-    for (const line of textDefaults(lead!, raised)) console.log(`  ${line}`);
+    for (const line of textDefaults(lead!, raised, boxed)) console.log(`  ${line}`);
     console.log(r.unread === null
       ? `  on-screen text: ${recordPath(out)}, for openedit review`
       : `  on-screen text: not recorded, since the page's text could not be read (${r.unread}); openedit review skips the checks that need it`);

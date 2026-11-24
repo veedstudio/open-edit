@@ -56,6 +56,17 @@ export const X264_PRESETS = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fa
 // Keep encoding fast on grainy footage, where the encoder rather than Chrome would otherwise set the pace.
 export const FULL_ENCODE: Encode = { preset: 'veryfast', crf: 20 };
 
+/** The lowest --crf: under it a file grows far past what it shows, and 0, lossless, plays almost nowhere. */
+export const CRF_FLOOR = 10;
+
+/** Refuses a --crf under the floor, given as written; a value that is no number is left to the flag's range check. */
+export function refuseCrfUnderFloor(crf: string | undefined): void {
+  if (crf !== undefined && crf.trim() !== '' && Number(crf) < CRF_FLOOR) {
+    throw new Error(`--crf under ${CRF_FLOOR} makes a file too large to store and render well, with no visible gain; `
+      + `${CRF_FLOOR} is the lowest, and ${FULL_ENCODE.crf} the default`);
+  }
+}
+
 /**
  * The encode, as recorded in the cache manifest: a segment is reusable only under identical settings.
  * x264's output depends on its thread count, so the count is fixed rather than scaled to the workers:

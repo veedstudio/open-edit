@@ -181,18 +181,20 @@ test('render: --draft draws the same motion at half the size, its settings are r
     assert.ok(Math.abs(x - Math.round((100 * i) / 30) / 2) <= 1, `box edge at frame ${i}: ${x}`);
   }
 
-  // A patch keeps the draft's settings; one that drops a setting is refused, naming it.
+  // A patch keeps the draft's settings, and a draft takes none of its own, so it never passes for the deliverable.
   const same = render([file, '--out', out, '--fps', '30', '--frames', '75', '--segment', '1', '--from', '1', '--draft']);
   assert.equal(same.code, 0, same.err);
   assert.match(same.out, /segments: 2 rendered, 1 reused/);
-  const full = render([file, '--out', out, '--fps', '30', '--frames', '75', '--segment', '1', '--from', '1', '--draft', '--scale', '1']);
+  const full = render([file, '--out', join(dir, 'full.draft.mp4'), '--fps', '30', '--frames', '15', '--draft', '--scale', '1', '--crf', '9', '--preset', 'medium']);
   assert.equal(full.code, 2, full.err);
-  assert.match(full.err, /made differently \(scale 0\.5 → 1; encoder /);
-
-  // An override: full size, still the draft's capture and encode.
-  const sized = render([file, '--out', join(dir, 'full.draft.mp4'), '--fps', '30', '--frames', '15', '--draft', '--scale', '1']);
-  assert.equal(sized.code, 0, sized.err);
-  assert.equal(probe(join(dir, 'full.draft.mp4'), 'stream=width,height'), '320,180');
+  assert.match(full.err, /--draft renders a quick look at its own settings and takes no --scale, --preset, --crf; the deliverable is a render without --draft/);
+  assert.equal(existsSync(join(dir, 'full.draft.mp4')), false);
+  // Without --draft each setting is the render's own, and the cache records it: a patch at another scale is refused.
+  const half = join(dir, 'half.mp4');
+  assert.equal(render([file, '--out', half, '--fps', '30', '--frames', '30', '--segment', '1', '--scale', '0.5']).code, 0);
+  const whole = render([file, '--out', half, '--fps', '30', '--frames', '30', '--segment', '1', '--from', '0.5', '--scale', '1']);
+  assert.equal(whole.code, 2, whole.err);
+  assert.match(whole.err, /made differently \(scale 0\.5 → 1; encoder /);
   // One setting without --draft, and a scale that leaves an odd side, which is cropped to even.
   const odd = render([file, '--out', join(dir, 'odd.mp4'), '--fps', '30', '--frames', '15', '--scale', '0.45']);
   assert.equal(odd.code, 0, odd.err);

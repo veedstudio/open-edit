@@ -11,8 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { applyEdl } from '../src/commands/apply-edl.ts';
 import { findFaces, readFaces } from '../src/commands/faces.ts';
 import {
-  clearOf, cropFor, cropMoves, cropTrack, holdsFor, oneFace, parseAspect, parsePanel, partsOf, pathThrough, placeAt, sendcmdScript, stillPlace,
-  tighterCrop, unfitted, type Crop, type Shaping,
+  clearOf, cropFor, cropMoves, cropTrack, describeShape, holdsFor, oneFace, parseAspect, parsePanel, partsOf, pathThrough, placeAt, sendcmdScript, shownParts,
+  stillPlace, tighterCrop, unfitted, type Crop, type Shaping,
 } from '../src/commands/reframe.ts';
 import { formatNamed } from '../src/commands/safe-zone.ts';
 import { FFMPEG, FFPROBE } from '../src/config.ts';
@@ -58,6 +58,79 @@ test('reframe: a face that stays inside the crop gets one still hold, centred on
   assert.equal(holds.length, 1);
   assert.deepEqual([holds[0].from, holds[0].to], [0.5, 3.5]);
   assert.equal(holds[0].at, 648, 'the mean face centre, 950.75, less half the crop, on an even pixel');
+});
+
+/** Each sample's face, along the crop's axis, less the part the hold over that sample shows: nothing when every face is whole. */
+function cutBy(shot: Shot, crop: Crop, clear?: [number, number]): number[] {
+  const holds = holdsFor(shot, crop, 0.1, clear);
+  const size = crop.axis === 'x' ? crop.w : crop.h;
+  return shot.samples.flatMap((sample) => {
+    const hold = holds.find((h) => sample.sec >= h.from && sample.sec <= h.to)!;
+    const [f] = sample.faces;
+    const [from, to] = crop.axis === 'x' ? [f.x, f.x + f.w] : [f.y, f.y + f.h];
+    const lost = Math.max(0, hold.at - from) + Math.max(0, to - hold.at - size);
+    return lost > 0 ? [lost] : [];
+  });
+}
+
+test('reframe: a face no longer than the crop is never cut by a hold, with or without room beside it', () => {
+  // 560 px in a 606 px crop, with no room for a tenth of its width each side, moving 80 px across the shot.
+  const drifting = shotOf(0, [100, 120, 140, 160, 180].map((x) => [face(x, 100, 560, 560)]));
+  assert.deepEqual(cutBy(drifting, NINE_BY_SIXTEEN), []);
+  assert.ok(holdsFor(drifting, NINE_BY_SIXTEEN, 0.1).length > 1, 'it moves with the face rather than cut it');
+  // The same close-up wobbling by 40 px, and one that just fits.
+  const wobble = [600, 640, 580, 620, 590, 630];
+  assert.deepEqual(cutBy(shotOf(0, wobble.map((x) => [face(x, 100, 580, 580)])), NINE_BY_SIXTEEN), []);
+  assert.deepEqual(cutBy(shotOf(0, wobble.map((x) => [face(x, 100, 606, 606)])), NINE_BY_SIXTEEN), []);
+  // A crop that moves down a tall clip: a still face 520 to 600 px tall in the 606 px crop keeps its top.
+  const tall = cropFor(1080, 1920, 16 / 9);
+  for (const h of [520, 560, 600]) assert.deepEqual(cutBy(shotOf(0, [[face(240, 300, 600, h)], [face(240, 300, 600, h)]]), tall), [], `${h} px tall`);
+  // With a part of the crop the platform's UI leaves clear that is narrower than the face, the face is whole all the same.
+  const clear: [number, number] = [0, 0.7];
+  assert.deepEqual(cutBy(shotOf(0, wobble.map((x) => [face(x, 100, 540, 540)])), NINE_BY_SIXTEEN, clear), []);
+  // And one the clear part holds is kept inside it.
+  const [inside] = holdsFor(shotOf(0, wobble.map((x) => [face(x, 100, 300, 300)])), NINE_BY_SIXTEEN, 0.1, clear);
+  assert.ok(inside.at <= 580 && 640 + 300 <= inside.at + 0.7 * 606, JSON.stringify(inside));
+});
+
+test('reframe: a face at the far edge of a source of an odd size has a place, the last the crop reaches', () => {
+  // 853 px wide: the 270 px crop stops at 582, a pixel short of the edge, and the 250 px face ends at 853.
+  const crop = cropFor(853, 480, 9 / 16);
+  assert.deepEqual([crop.w, crop.travel], [270, 582]);
+  const edge = shotOf(0, [0, 1, 2].map(() => [face(603, 100, 250, 250)]));
+  assert.deepEqual(holdsFor(edge, crop, 0.1), [{ from: 0.5, to: 2.5, at: 582 }]);
+});
+
+test('reframe: a face longer than the crop gets one still hold while its centre stays in the crop\'s middle third', () => {
+  const wobble = [600, 640, 580, 620, 590, 630];
+  // 700 px in a 606 px crop: one place, centred on the mean of the face's centres, not one a sample.
+  const wide = holdsFor(shotOf(0, wobble.map((x) => [face(x, 100, 700, 700)])), NINE_BY_SIXTEEN, 0.1);
+  assert.deepEqual(wide, [{ from: 0.5, to: 5.5, at: 658 }]);
+  // The head itself moving, further than the middle third is wide (202 px), is a second hold, eased to like any other.
+  const moved = holdsFor(shotOf(0, [600, 640, 620, 860, 880, 870].map((x) => [face(x, 100, 700, 700)])), NINE_BY_SIXTEEN, 0.1);
+  assert.deepEqual(moved.map((h) => [h.from, h.to]), [[0.5, 2.5], [3.5, 5.5]]);
+  assert.ok(moved[1].at - moved[0].at > 200, JSON.stringify(moved));
+  // No clear part can hold such a face, so with one the hold is the same, and two places 160 px apart are still one hold.
+  assert.deepEqual(holdsFor(shotOf(0, wobble.map((x) => [face(x, 100, 700, 700)])), NINE_BY_SIXTEEN, 0.1, [0, 0.7]), wide);
+  assert.equal(holdsFor(shotOf(0, [600, 760, 600, 760].map((x) => [face(x, 100, 700, 700)])), NINE_BY_SIXTEEN, 0.1, [0, 0.7]).length, 1);
+  // A face that just fits and then grows past the crop's length is not left where the fitting one stood: the hold
+  // ends where it crosses, and the longer face is cut the same on both sides.
+  const grows = shotOf(0, [[face(700, 100, 606, 606)], [face(700, 100, 606, 606)], [face(640, 100, 780, 780)], [face(640, 100, 780, 780)]]);
+  const [fits, longer] = holdsFor(grows, NINE_BY_SIXTEEN, 0.1);
+  assert.deepEqual([[fits.from, fits.to, fits.at], [longer.from, longer.to]], [[0.5, 1.5, 700], [2.5, 3.5]]);
+  assert.ok(Math.abs((longer.at - 640) - (640 + 780 - longer.at - 606)) <= 2, `the 780 px face is cut ${longer.at - 640} px on the left and ${640 + 780 - longer.at - 606} on the right`);
+  // A size that hops across the crop's length from sample to sample does not move the crop at each hop: the hold of
+  // the fitting face stands where the longer one's does, since that keeps it whole too.
+  const fourByFive = cropFor(720, 1280, 4 / 5);
+  const hops = shotOf(0, [0, 1, 2, 3, 4, 5].map((k) => [k % 2 ? face(100, 100, 500, 1020) : face(100, 200, 500, 819)]));
+  assert.equal(new Set(holdsFor(hops, fourByFive, 0.1).map((h) => h.at)).size, 1, JSON.stringify(holdsFor(hops, fourByFive, 0.1)));
+  assert.equal(cropMoves(clipOf([hops], { width: 720, height: 1280 }), fourByFive, 30, 6).length, 1);
+  // Only where that keeps the fitting face whole: beside the 780 px face above, the 606 px one stays at its own place.
+  assert.notEqual(fits.at, longer.at);
+  // Down a tall clip the band lies about the crop's middle, where a face taller than the crop is centred.
+  const tall = cropFor(1080, 1920, 16 / 9);
+  const down = holdsFor(shotOf(0, [300, 340, 280].map((y) => [face(240, y, 600, 700)])), tall, 0.1);
+  assert.deepEqual(down, [{ from: 0.5, to: 2.5, at: 354 }], 'the mean centre, 656.7 down, less half of the 606 px crop, on an even pixel');
 });
 
 test('reframe: between two places the crop eases in and out, with no jolt at either end', () => {
@@ -257,7 +330,7 @@ test('reframe: a shot with no face between two shots with faces is cut from the 
   assert.deepEqual(cropMoves(clip, NINE_BY_SIXTEEN, 30, 6), [{ sec: 0, at: 0 }, { sec: 1.9995, at: 656 }, { sec: 3.9995, at: 1248 }]);
 });
 
-test('reframe: a face larger than the crop is centred, and a shot with no face is cut from the middle', () => {
+test('reframe: a face longer than the crop, seen once, has the crop centred on it, and a shot with no face is cut from the middle', () => {
   const holds = holdsFor(shotOf(0, [[face(700, 100, 800, 800)]]), NINE_BY_SIXTEEN, 0.25);
   assert.equal(holds[0].at, 798, 'face centre 1100 less half the crop, 797, on an even pixel');
   assert.equal(pathThrough([], 656)(3), 656);
@@ -481,7 +554,7 @@ test('reframe: the encoded clip shows the crop each shot\'s face asked for, swit
   assert.ok(Math.abs(columnsOf(canvas, [5], 45)[0] - 175) < 10, 'after the cut, about 175');
 });
 
-test('reframe: it names the seconds where a face does not fit the crop, a close-up larger than it or a two-shot it cannot hold whole', () => {
+test('reframe: it names the seconds where a face does not lie whole in the crop: a close-up longer than it, or a face a held two-shot leaves out', () => {
   // A close-up wider than the 606 px crop, a lone face that fits, then two people too far apart for one crop.
   const clip = clipOf([
     shotOf(0, [[face(600, 100, 700, 700)], [face(610, 100, 700, 700)]]),
@@ -511,6 +584,196 @@ test('reframe: it names the seconds where a face does not fit the crop, a close-
   };
   assert.match(run({ x: 200, y: 50, w: 250, h: 250 }), /reframe: a face does not fit the 202x360 crop at 0\.00–2\.00 s \(larger than it, or beside another face a held shot keeps\)/);
   assert.doesNotMatch(run({ x: 200, y: 50, w: 100, h: 100 }), /does not fit/);
+});
+
+/**
+ * Two people side by side for `sec` seconds from `start`, sampled four times a second, each on a track; `speaks(t)` is
+ * the track flagged speaking at t, or both of them, or neither.
+ */
+function twoUp(start: number, sec: number, speaks: (t: number) => number | null | 'both', show: { start: number; end: number; tracks: number[] }[]): Shot {
+  const flagged = (t: number, track: number) => speaks(t) === track || speaks(t) === 'both';
+  const samples = Array.from({ length: sec * 4 }, (_, i) => start + i / 4 + 0.125).map((t) => ({
+    sec: t,
+    faces: [{ ...face(400, 100, 200, 200), track: 0, speaking: flagged(t, 0) }, { ...face(1400, 100, 200, 200), track: 1, speaking: flagged(t, 1) }],
+  }));
+  return { start, end: start + sec, samples, show };
+}
+// Where the 606 px crop sits centred on each of twoUp's faces.
+const [ON_LEFT, ON_RIGHT] = [198, 1198];
+
+test('reframe: a shot whose runs name whom to show is framed on that face, and the crop jumps between two runs as at a cut', () => {
+  const turns = clipOf([twoUp(0, 8, (t) => (t < 4 ? 0 : 1), [{ start: 0, end: 4, tracks: [0] }, { start: 4, end: 8, tracks: [1] }])]);
+  const at = cropTrack(turns, NINE_BY_SIXTEEN);
+  assert.deepEqual([0, 2, 3.99, 4, 6, 7.99].map(at), [ON_LEFT, ON_LEFT, ON_LEFT, ON_RIGHT, ON_RIGHT, ON_RIGHT]);
+  // Two places and one change, just before the second run's first frame: no pan between the two people.
+  assert.deepEqual(cropMoves(turns, NINE_BY_SIXTEEN, 30, 8), [{ sec: 0, at: ON_LEFT }, { sec: 3.9995, at: ON_RIGHT }]);
+  // The same boxes with no runs are two faces in one shot, held where one of them fits, as before.
+  const plain = clipOf([{ ...turns.shots[0], show: undefined }]);
+  assert.equal(cropMoves(plain, NINE_BY_SIXTEEN, 30, 8).length, 1);
+  // The listener is left out on purpose, so no second says a face does not fit; without runs the held shot says so.
+  const shaping = (c: FacesClip): Shaping => ({
+    video: c.video, width: 1920, height: 1080, sar: 1, crop: NINE_BY_SIXTEEN, how: 'faces', facesPath: '/f.json', clip: c,
+    moves: cropMoves(c, NINE_BY_SIXTEEN, 30, c.durationSec),
+  });
+  assert.deepEqual(unfitted(shaping(turns)), []);
+  assert.deepEqual(unfitted(shaping(plain)), [{ from: 0, to: 8 }]);
+  // With a part of the output the platform's UI leaves clear, the named face is the one kept inside it.
+  const clear = { x0: 0.5, x1: 1, y0: 0, y1: 1 };
+  const cleared = cropTrack(turns, NINE_BY_SIXTEEN, clear);
+  for (const [t, x] of [[2, 400], [6, 1400]]) assert.ok(x >= cleared(t) + 303 && x + 200 <= cleared(t) + 606, `at ${t} s the crop at ${cleared(t)} keeps ${x}-${x + 200} in its right half`);
+});
+
+test('reframe: inside a run naming two faces the crop frames whoever is speaking, and changes over when the other has spoken for a second', () => {
+  const both = [{ start: 0, end: 8, tracks: [1, 0] }];
+  const moves = (speaks: (t: number) => number | null | 'both') => cropMoves(clipOf([twoUp(0, 8, speaks, both)]), NINE_BY_SIXTEEN, 30, 8);
+  // One jump, where the second speaker's turn starts, halfway between the last sample of one and the first of the other.
+  assert.deepEqual(moves((t) => (t < 3 ? 0 : 1)), [{ sec: 0, at: ON_LEFT }, { sec: 2.9995, at: ON_RIGHT }]);
+  assert.deepEqual(moves((t) => (t < 3 ? 1 : 0)), [{ sec: 0, at: ON_RIGHT }, { sec: 2.9995, at: ON_LEFT }]);
+  // Half a second from the other is a word thrown in, and the crop stays; a second of it is a turn.
+  assert.deepEqual(moves((t) => (t >= 4 && t < 4.5 ? 1 : 0)), [{ sec: 0, at: ON_LEFT }]);
+  assert.deepEqual(moves((t) => (t >= 4 && t < 5 ? 1 : 0)), [{ sec: 0, at: ON_LEFT }, { sec: 3.9995, at: ON_RIGHT }, { sec: 4.9995, at: ON_LEFT }]);
+  // Through silence, and while both are flagged, the framing stays: the change comes when the other starts, not when the first stops.
+  assert.deepEqual(moves((t) => (t < 2 ? 0 : t < 5 ? null : 1)), [{ sec: 0, at: ON_LEFT }, { sec: 4.9995, at: ON_RIGHT }]);
+  assert.deepEqual(moves((t) => (t < 2 ? 0 : t < 5 ? 'both' : 1)), [{ sec: 0, at: ON_LEFT }, { sec: 4.9995, at: ON_RIGHT }]);
+  // A run that opens in silence opens on its first speaker, so nothing jumps when they start.
+  assert.deepEqual(moves((t) => (t < 2 ? null : 0)), [{ sec: 0, at: ON_LEFT }]);
+  // With nobody ever flagged alone for a second, the face speaking in more samples, and the first named on a tie.
+  assert.deepEqual(moves(() => null), [{ sec: 0, at: ON_RIGHT }]);
+  assert.deepEqual(moves((t) => (t < 0.5 ? 0 : null)), [{ sec: 0, at: ON_LEFT }]);
+  // A third face flagged, one the run does not name, changes nothing.
+  const third = twoUp(0, 8, (t) => (t < 3 ? 0 : 1), both);
+  for (const sample of third.samples) sample.faces.push({ ...face(900, 600, 200, 200), track: 2, speaking: true });
+  assert.deepEqual(cropMoves(clipOf([third]), NINE_BY_SIXTEEN, 30, 8), [{ sec: 0, at: ON_LEFT }, { sec: 2.9995, at: ON_RIGHT }]);
+});
+
+test('reframe: a run that names nobody, or lasts under a second beside longer ones, keeps the framing before it, and a shot whose runs name nobody is framed as one without runs', () => {
+  const shot = twoUp(0, 8, () => 0, [
+    { start: 0, end: 3, tracks: [0] }, { start: 3, end: 3.5, tracks: [1] }, { start: 3.5, end: 6, tracks: [0] }, { start: 6, end: 8, tracks: [] },
+  ]);
+  assert.equal(shownParts(shot)!.length, 1);
+  assert.deepEqual(cropMoves(clipOf([shot]), NINE_BY_SIXTEEN, 30, 8), [{ sec: 0, at: ON_LEFT }]);
+  // With no floor the half second is framed on its own: there and back in two jumps.
+  assert.deepEqual(shownParts(shot, 0)!.map((p) => [p.start, p.end]), [[0, 3], [3, 3.5], [3.5, 8]]);
+  // A run of nobody that opens the shot waits on the first face named.
+  const late = twoUp(0, 8, () => 1, [{ start: 0, end: 2, tracks: [] }, { start: 2, end: 8, tracks: [1] }]);
+  assert.deepEqual(shownParts(late)!.map((p) => [p.start, p.end]), [[0, 8]]);
+  assert.equal(cropTrack(clipOf([late]), NINE_BY_SIXTEEN)(1), ON_RIGHT);
+  const nobody = { ...shot, show: [{ start: 0, end: 8, tracks: [] }] };
+  assert.equal(shownParts(nobody), null);
+  assert.equal(shownParts({ ...shot, show: undefined }), null);
+  assert.deepEqual(cropMoves(clipOf([nobody]), NINE_BY_SIXTEEN, 30, 8), cropMoves(clipOf([{ ...shot, show: undefined }]), NINE_BY_SIXTEEN, 30, 8));
+});
+
+test('reframe: a shot whose runs are all under a second is still framed on the face its longest run names', () => {
+  // Three quarters of a second naming the right-hand face: held as two faces, the shot would sit on the left one.
+  const brief = twoUp(0, 0.75, () => null, [{ start: 0, end: 0.75, tracks: [1] }]);
+  assert.equal(cropTrack(clipOf([{ ...brief, show: undefined }]), NINE_BY_SIXTEEN)(0.3), ON_LEFT);
+  assert.equal(cropTrack(clipOf([brief]), NINE_BY_SIXTEEN)(0.3), ON_RIGHT);
+  assert.deepEqual(shownParts(brief)!.map((p) => [p.start, p.end]), [[0, 0.75]]);
+  // Of two short runs the longer one's face, for the whole shot and with no jump.
+  const two = twoUp(0, 0.75, () => null, [{ start: 0, end: 0.25, tracks: [1] }, { start: 0.25, end: 0.75, tracks: [0] }]);
+  assert.deepEqual(cropMoves(clipOf([two]), NINE_BY_SIXTEEN, 30, 0.75), [{ sec: 0, at: ON_LEFT }]);
+  // A run of three quarters of a second between two long ones is passed over, and so is a turn that long.
+  const between = twoUp(0, 8, () => 0, [{ start: 0, end: 3, tracks: [0] }, { start: 3, end: 3.75, tracks: [1] }, { start: 3.75, end: 8, tracks: [0] }]);
+  assert.deepEqual(cropMoves(clipOf([between]), NINE_BY_SIXTEEN, 30, 8), [{ sec: 0, at: ON_LEFT }]);
+  const turn = twoUp(0, 8, (t) => (t >= 4 && t < 4.75 ? 1 : 0), [{ start: 0, end: 8, tracks: [0, 1] }]);
+  assert.deepEqual(cropMoves(clipOf([turn]), NINE_BY_SIXTEEN, 30, 8), [{ sec: 0, at: ON_LEFT }]);
+});
+
+test('reframe: a run naming a face with no box in it frames nothing, and the framing before it, or the next, stands', () => {
+  // The file names the right-hand face for the first two seconds, and its boxes start after them.
+  const late = twoUp(0, 8, () => null, [{ start: 0, end: 2, tracks: [1] }, { start: 2, end: 8, tracks: [0] }]);
+  for (const sample of late.samples) if (sample.sec < 2) sample.faces = sample.faces.filter((f) => f.track !== 1);
+  assert.deepEqual(shownParts(late)!.map((p) => [p.start, p.end]), [[0, 8]]);
+  assert.deepEqual(cropMoves(clipOf([late]), NINE_BY_SIXTEEN, 30, 8), [{ sec: 0, at: ON_LEFT }]);
+  // Sampled so coarsely that the second run holds no sample, the crop stays on the first run's face.
+  const coarse = twoUp(0, 8, () => null, [{ start: 0, end: 5, tracks: [0] }, { start: 5, end: 6.1, tracks: [1] }, { start: 6.1, end: 8, tracks: [0] }]);
+  coarse.samples = coarse.samples.filter((sample) => sample.sec < 5 || sample.sec > 6.1);
+  assert.deepEqual(cropMoves(clipOf([coarse]), NINE_BY_SIXTEEN, 30, 8), [{ sec: 0, at: ON_LEFT }]);
+  // Runs that name only faces with no box frame nothing, and the shot is held as its faces are without runs.
+  const lost = twoUp(0, 8, () => null, [{ start: 0, end: 8, tracks: [5] }]);
+  assert.equal(shownParts(lost), null);
+  assert.deepEqual(cropMoves(clipOf([lost]), NINE_BY_SIXTEEN, 30, 8), cropMoves(clipOf([{ ...lost, show: undefined }]), NINE_BY_SIXTEEN, 30, 8));
+});
+
+test('reframe: a silent run is framed on a face that has a box, and a shot of short runs on whoever speaks in more of it', () => {
+  // The crop is on the right-hand face; the next run names both, the right one has no box in it and nobody speaks.
+  const gone = twoUp(0, 8, () => null, [{ start: 0, end: 4, tracks: [1] }, { start: 4, end: 8, tracks: [1, 0] }]);
+  for (const sample of gone.samples) if (sample.sec >= 4) sample.faces = sample.faces.filter((f) => f.track !== 1);
+  assert.deepEqual(cropMoves(clipOf([gone]), NINE_BY_SIXTEEN, 30, 8), [{ sec: 0, at: ON_RIGHT }, { sec: 3.9995, at: ON_LEFT }]);
+  // Nine tenths of a second naming both: the left one flagged in one sample, the right one in three.
+  const brief = twoUp(0, 0.75, (t) => (t < 0.25 ? 0 : 1), [{ start: 0, end: 0.75, tracks: [0, 1] }]);
+  brief.samples.push({ sec: 0.8, faces: brief.samples[2].faces });
+  brief.end = 0.9;
+  brief.show![0].end = 0.9;
+  assert.deepEqual(cropMoves(clipOf([brief]), NINE_BY_SIXTEEN, 30, 0.9), [{ sec: 0, at: ON_RIGHT }]);
+  // All runs short, the longest naming a face with no box: the next longest's face.
+  const boxless = twoUp(0, 0.75, () => null, [{ start: 0, end: 0.5, tracks: [5] }, { start: 0.5, end: 0.75, tracks: [1] }]);
+  assert.deepEqual(cropMoves(clipOf([boxless]), NINE_BY_SIXTEEN, 30, 0.75), [{ sec: 0, at: ON_RIGHT }]);
+});
+
+test('reframe: the note that a face is left out on purpose counts the shots a join plays', () => {
+  const lone = { start: 0, end: 4, samples: [0.5, 1.5, 2.5, 3.5].map((sec) => ({ sec, faces: [{ ...face(400, 100, 200, 200), track: 0, speaking: true }] })), show: [{ start: 0, end: 4, tracks: [0] }] };
+  const clip = clipOf([lone, twoUp(4, 4, () => 0, [{ start: 4, end: 8, tracks: [0] }])]);
+  const shaping: Shaping = { video: clip.video, width: 1920, height: 1080, sar: 1, crop: NINE_BY_SIXTEEN, how: 'faces', facesPath: '/f.json', clip, moves: cropMoves(clip, NINE_BY_SIXTEEN, 30, 8) };
+  const said = (played?: { start: number; end: number }[]) => describeShape('source "a"', shaping, '9:16', played);
+  assert.match(said(), /1 shot\(s\) with several faces are framed on the one their face boxes say to show/);
+  assert.match(said([{ start: 5, end: 6 }]), /1 shot\(s\) with several faces/);
+  assert.doesNotMatch(said([{ start: 0, end: 3 }]), /with several faces/, 'a range of the shot with one face plays nobody left out');
+  assert.doesNotMatch(said([{ start: 0, end: 4 }]), /with several faces/, 'a range that ends where that shot starts does not play it');
+  assert.doesNotMatch(said([{ start: 8, end: 9 }]), /with several faces/, 'nor does one that starts where it ends');
+});
+
+test('reframe: a run naming two faces stays on the one the crop is already on until the other starts a turn', () => {
+  // The right-hand face alone for five seconds, then both named: nobody speaks until the left one does at 8 s.
+  const shot = twoUp(0, 12, (t) => (t >= 8 ? 0 : null), [{ start: 0, end: 5, tracks: [1] }, { start: 5, end: 12, tracks: [1, 0] }]);
+  assert.deepEqual(cropMoves(clipOf([shot]), NINE_BY_SIXTEEN, 30, 12), [{ sec: 0, at: ON_RIGHT }, { sec: 7.9995, at: ON_LEFT }]);
+  // With the crop on a face the second run does not name, it opens on its first speaker.
+  const other = twoUp(0, 12, (t) => (t >= 8 ? 0 : null), [{ start: 0, end: 5, tracks: [1] }, { start: 5, end: 12, tracks: [0, 2] }]);
+  assert.deepEqual(cropMoves(clipOf([other]), NINE_BY_SIXTEEN, 30, 12), [{ sec: 0, at: ON_RIGHT }, { sec: 4.9995, at: ON_LEFT }]);
+});
+
+test('reframe: a run that starts before its shot, ends past it, or reads a millisecond after its first frame is cut to the shot and keeps that frame', () => {
+  // The second run's first frame is at 12 s, and its start, rounded, reads 0.4 ms later; the last run ends past the shot.
+  const shot = twoUp(10, 4, (t) => (t < 12 ? 0 : 1), [{ start: 9.5, end: 12.0004, tracks: [0] }, { start: 12.0004, end: 14.4, tracks: [1] }]);
+  shot.samples.splice(8, 0, { sec: 12, faces: shot.samples[8].faces });
+  const parts = shownParts(shot)!;
+  assert.deepEqual(parts.map((p) => [p.start, p.end]), [[10, 12.0004], [12.0004, 14]]);
+  assert.deepEqual([parts[0].samples.at(-1)!.sec, parts[1].samples[0].sec], [11.875, 12]);
+  assert.deepEqual(parts.map((p) => [...new Set(p.samples.flatMap((x) => x.faces.map((f) => f.track)))]), [[0], [1]]);
+  // The crop is on the second face from that frame on, and still on the first at the frame before it.
+  const at = cropTrack(clipOf([{ start: 0, end: 10, samples: [] }, shot], { durationSec: 14 }), NINE_BY_SIXTEEN);
+  assert.deepEqual([at(12 - 1 / 30), at(12)], [ON_LEFT, ON_RIGHT]);
+});
+
+test('reframe: the encoded clip shows the face each run names, switching between two runs of one shot', () => {
+  const dir = scratchDir('reframe-runs');
+  const src = gradient(dir);
+  // Two faces through one shot: the left one named for the first second, the right one after it.
+  const faces = [{ x: 40, y: 100, w: 60, h: 60, track: 0, speaking: false }, { x: 540, y: 100, w: 60, h: 60, track: 1, speaking: true }];
+  const clip = clipOf([{
+    start: 0, end: 2, samples: [0.25, 0.75, 1.25, 1.75].map((sec) => ({ sec, faces })),
+    show: [{ start: 0, end: 1, tracks: [0] }, { start: 1, end: 2, tracks: [1] }],
+  }], { width: 640, height: 360, durationSec: 2, video: src });
+  writeFileSync(join(dir, 'faces.json'), JSON.stringify(clip));
+  const out = join(dir, 'tall.mp4');
+  const r = reframe([src, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out, '--size', 'native']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /reframe: 1 shot\(s\) with several faces are framed on the one their face boxes say to show/);
+  assert.doesNotMatch(r.stdout, /does not fit/);
+  const left = leftColumns(out);
+  for (const n of [0, 15, 29]) assert.ok(left[n] < 12, `frame ${n}: ${left[n].toFixed(1)}, expected near black`);
+  for (const n of [30, 45, 59]) assert.ok(Math.abs(left[n] - 175) < 10, `frame ${n}: ${left[n].toFixed(1)}, expected about 175`);
+  // In the output's own boxes the face the crop leaves out is gone, and the one left keeps its own track and flag.
+  const tall = readFaces(/moved with the crop, to (.*faces\.json) and /.exec(r.stdout)![1]);
+  assert.deepEqual(tall.shots[0].samples.map((x) => x.faces.map((f) => [f.track, f.speaking])), [[[0, false]], [[0, false]], [[1, true]], [[1, true]]]);
+  assert.deepEqual(tall.shots[0].show, clip.shots[0].show);
+  // The same boxes without runs hold both faces' shot at one place, and say a face is left out.
+  writeFileSync(join(dir, 'faces.json'), JSON.stringify({ ...clip, shots: [{ ...clip.shots[0], show: undefined }] }));
+  const held = reframe([src, '--aspect', '9:16', '--faces', join(dir, 'faces.json'), '--out', out, '--size', 'native']);
+  assert.match(held.stdout, /the crop changes place 0 time\(s\)/);
+  assert.match(held.stdout, /does not fit/);
+  assert.doesNotMatch(held.stdout, /say to show/);
 });
 
 test('reframe: with no face boxes it cuts the whole clip from the middle, and says so', () => {

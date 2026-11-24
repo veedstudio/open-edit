@@ -78,6 +78,10 @@ export interface PageServer {
   named(text: string): string;
   /** Answer requests for `file` with `replacement`, under the same URL. */
   substitute(file: string, replacement: string): void;
+  /** Serve this one file though it lies outside the roots: one the CLI made for the page, which the page did not choose. */
+  admit(file: string): void;
+  /** Why the page may not read `file`, as a request for it would be refused, or null when it would be served. */
+  refusalOf(file: string): Promise<Refusal | null>;
   /** Every file a request has named so far, whether or not it was there to serve. */
   requested(): string[];
   close(): Promise<void>;
@@ -183,6 +187,7 @@ export async function startPageServer(o: PageServerOptions): Promise<PageServer>
   const token = randomBytes(16).toString('hex');
   const prefix = `/${token}`;
   const substitutes = new Map<string, string>();
+  const admitted = new Set<string>();
 
   const toFile = (pathname: string): string | null => {
     if (!pathname.startsWith(`${prefix}/`)) return null;
@@ -209,6 +214,7 @@ export async function startPageServer(o: PageServerOptions): Promise<PageServer>
   };
   /** Why `named` is not served, or null when it may be. Checked before a substitute replaces it. */
   const refusal = async (named: string): Promise<Refusal | null> => {
+    if (admitted.has(named)) return null;
     const rels = roots.map((r) => beneath(r.logical, named)).filter((rel): rel is string => rel !== null);
     if (!rels.length) return outside('Outside the served roots', named);
     if (rels.every((rel) => hidden(rel))) return { reason: 'Hidden (dot) path refused' };
@@ -302,6 +308,10 @@ export async function startPageServer(o: PageServerOptions): Promise<PageServer>
     substitute: (file, replacement) => {
       substitutes.set(resolve(file), replacement);
     },
+    admit: (file) => {
+      admitted.add(resolve(file));
+    },
+    refusalOf: (file) => refusal(resolve(file)),
     requested: () => [...asked],
     close: () => new Promise<void>((ok) => {
       server.closeAllConnections();

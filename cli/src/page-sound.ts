@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { FFMPEG } from './config.ts';
+import { DRAFT_OUT } from './render/draft.ts';
 import { readRecord, recordPath, recordSeconds, type TextRecord } from './render/text-record.ts';
 import { frameTime, parseFps } from './render/timing.ts';
 
@@ -225,7 +226,7 @@ export function layStem(file: string, stretches: readonly Stretch[], out: string
 
 /**
  * The render whose record names the page's videos: `video` when given, else the newest render with a record in the
- * run or a folder of it (render caches aside). Null when there is none, or the record is older than its video, since
+ * run or a folder of it (render caches and drafts aside). Null when there is none, or the record is older than its video, since
  * it then describes a picture written there before.
  */
 export function pageRecordOf(runDir: string, video?: string): { video: string; record: TextRecord } | null {
@@ -246,7 +247,7 @@ export function pageRecordOf(runDir: string, video?: string): { video: string; r
         if (depth > 0 && !e.name.endsWith('.render') && e.name !== 'node_modules') look(path, depth - 1);
       } else if (e.name.endsWith('.text.json')) {
         const v = path.slice(0, -'.text.json'.length);
-        if (current(v)) found.push({ video: v, at: statSync(path).mtimeMs });
+        if (current(v) && !DRAFT_OUT.test(v)) found.push({ video: v, at: statSync(path).mtimeMs });
       }
     }
   };

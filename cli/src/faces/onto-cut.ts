@@ -1,7 +1,7 @@
 // The faces of a cut, from the faces `faces` found on its sources: each range's samples moved onto the cut's
 // timeline and through what the cut does to the range's picture, so the cut needs no detection of its own.
 import { basename } from 'node:path';
-import type { FaceBox, FacesClip, GraphicBox, Rect, Sample, Shot } from './page-script.ts';
+import { whoOf, type FaceBox, type FacesClip, type GraphicBox, type Rect, type Sample, type Shot } from './page-script.ts';
 
 /** One range of the cut, as its picture was made from its source. */
 export interface RangeOnCut {
@@ -53,7 +53,7 @@ export function boxOnCut(box: FaceBox, sec: number, range: RangeOnCut, cut: CutP
   const x1 = Math.min(cut.width, (x + box.w) * s + ox), y1 = Math.min(cut.height, (y + box.h) * s + oy);
   const out = { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0) };
   if (!(out.w > 0 && out.h > 0)) return null;
-  return box.score === undefined ? out : { ...out, score: box.score };
+  return { ...out, ...(box.score === undefined ? {} : { score: box.score }), ...whoOf(box) };
 }
 
 /**
@@ -89,6 +89,13 @@ export function rangeShots(range: RangeOnCut, cut: CutPicture): Shot[] {
         sec: Math.max(start, micro(onCut(x.sec))),
         faces: x.faces.flatMap((f) => boxOnCut(f, x.sec, range, cut) ?? []),
       })),
+      // Whom a speakers file would show, over the part of each run the range plays; the tracks are still this shot's.
+      ...(shot.show ? {
+        show: shot.show.flatMap((run) => {
+          const [from, to] = [Math.max(run.start, a), Math.min(run.end, b)];
+          return to > from ? [{ start: micro(onCut(from)), end: micro(onCut(to)), tracks: run.tracks }] : [];
+        }),
+      } : {}),
     });
   });
   return out;

@@ -12,7 +12,7 @@ export type SizeReading = { shotSize: 'no face'; faceShare: null } | { shotSize:
 export const CLOSE_UP_MIN = 0.24;
 export const MEDIUM_MIN = 0.16;
 
-const median = (xs: number[]): number => {
+export const median = (xs: number[]): number => {
   const s = [...xs].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;

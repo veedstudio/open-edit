@@ -148,17 +148,20 @@ async function assemble(sources: Record<string, string>, ids: string[], args: st
 
 await test('apply-edl: HDR sources of another bit depth or size are each converted on their own range, before it is scaled', async () => {
   const chain = toSdr(colourTagsOf(hlg));
-  // Encoded losslessly after an 8-bit 320x240 clip, each range is exactly its source converted first. Converted
-  // after a join or a scale instead, the ramp is cut to 8 bits and the small clip scaled as HLG, and both move.
+  // Encoded at --crf 10 after an 8-bit 320x240 clip, each range is its source converted first, within the encode's
+  // loss (0.02 and 0.36 levels measured). Converted after a join or a scale instead, the ramp is cut to 8 bits and the
+  // small clip scaled as HLG, which moves them 0.43 and 2.2 levels: the cut must lie under half that gap from the
+  // right order, so nearer it than the wrong one.
   const lanczos = 'scale=320:240:force_original_aspect_ratio=decrease:flags=lanczos';
   const y = (file: string, frame: number, vf?: string) => rawFrame(file, frame, vf).subarray(0, W * 240);
   for (const [name, first, after] of [['ramp10.mp4', chain, `format=yuv420p,${chain}`], ['small.mp4', `${chain},${lanczos}`, `${lanczos},${chain}`]]) {
     const source = join(dir, name);
     const right = y(source, 5, first);
-    assert.ok(meanAbsDiff(right, y(source, 5, after)) > 0.15, `${name}: the two orders differ on this clip`);
-    const got = y((await assemble({ a: 'hlg.mp4', b: name }, ['a', 'b'], ['--crf', '0'])).out, 15);
-    const off = meanAbsDiff(got, right);
-    assert.ok(off < 0.05, `${name}: ${off.toFixed(3)} levels from its source converted before the join`);
+    const gap = meanAbsDiff(right, y(source, 5, after));
+    assert.ok(gap > 0.15, `${name}: the two orders differ on this clip`);
+    const got = y((await assemble({ a: 'hlg.mp4', b: name }, ['a', 'b'], ['--crf', '10'])).out, 15);
+    const [off, wrong] = [meanAbsDiff(got, right), meanAbsDiff(got, y(source, 5, after))];
+    assert.ok(off < gap / 2, `${name}: ${off.toFixed(3)} levels from its source converted before the join, ${wrong.toFixed(3)} after, the orders ${gap.toFixed(3)} apart`);
   }
 });
 

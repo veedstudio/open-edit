@@ -348,11 +348,11 @@ test('render: a verified download is unpacked whole, replacing a broken install'
   assert.deepEqual(readdirSync(join(dir, 'browser')), ['chrome-headless-shell-x'], 'a failed download leaves nothing either');
 });
 
-test('render: the browser pin is the build the driver library was released against, and the driver is pinned exactly', () => {
+test('render: the browser pin is one milestone behind the build the driver library was released against, and the driver is pinned exactly', () => {
   const manifest = createRequire(import.meta.url).resolve('playwright-core/package.json');
   const browsers = JSON.parse(readFileSync(join(manifest, '..', 'browsers.json'), 'utf8')) as { browsers: { name: string; browserVersion?: string }[] };
   const shell = browsers.browsers.find((b) => b.name === 'chromium-headless-shell');
-  assert.equal(CHROME.version, shell?.browserVersion);
+  assert.equal(Number(CHROME.version.split('.')[0]), Number(shell?.browserVersion?.split('.')[0]) - 1);
   const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string> };
   assert.match(pkg.dependencies['playwright-core'], /^\d+\.\d+\.\d+$/, 'a range would let the driver move away from the pinned browser');
   assert.deepEqual(Object.keys(CHROME.builds).sort(), ['linux-arm64', 'linux64', 'mac-arm64', 'mac-x64', 'win64']);
@@ -371,7 +371,7 @@ test('render: a download that does not match the pinned build is refused and lea
     installChrome({ platform: 'mac-arm64', root, log: (l) => lines.push(l), fetchImpl: (async () => new Response(new Uint8Array(fake))) as typeof fetch }),
     /does not match the pinned build/,
   );
-  assert.match(lines[0], /downloading Chrome Headless Shell .* 94\.3 MB/, 'the size is announced before the download');
+  assert.match(lines[0], /downloading Chrome Headless Shell .* 100\.2 MB/, 'the size is announced before the download');
   assert.deepEqual(existsSync(join(dir, 'browser')) ? readdirSync(join(dir, 'browser')) : [], [], 'no staged tree or archive is left');
 });
 
@@ -834,11 +834,18 @@ test('render: every flag refusal comes before Chrome is needed, with exit 2 and 
     [[page, '--out', out, '--frames', '3', '--scale', '2'], /--scale wants a fraction from 0\.1 to 1/],
     [[page, '--out', out, '--frames', '3', '--quality', '80'], /--quality is a JPEG's quality; give --capture jpeg too/],
     [[page, '--out', out, '--frames', '3', '--capture', 'jpeg', '--quality', '101'], /--quality wants an integer from 1 to 100/],
-    [[page, '--out', out, '--frames', '3', '--crf', '52'], /--crf wants an integer from 0 to 51/],
+    [[page, '--out', out, '--frames', '3', '--crf', '52'], /--crf wants an integer from 10 to 51/],
+    [[page, '--out', join(dir, 'out.draft.mp4'), '--frames', '3', '--draft', '--crf', '5'], /--draft renders a quick look at its own settings and takes no --crf; the deliverable is a render without --draft/],
+    [[page, '--out', out, '--frames', '3', '--crf', '9'], /--crf under 10 makes a file too large to store and render well, with no visible gain; 10 is the lowest, and 20 the default/],
+    [[page, '--out', out, '--frames', '3', '--crf', '0'], /--crf under 10 makes a file too large to store and render well, with no visible gain; 10 is the lowest, and 20 the default/],
     [[page, '--out', out, '--frames', '3', '--preset', 'placebo'], /--preset must be one of ultrafast, .*veryslow, not "placebo"/],
     [[page, '--out', join(dir, 'out.mov'), '--frames', '3', '--transparent', '--crf', '20'], /--transparent writes ProRes 4444, which has neither/],
+    [[page, '--out', join(dir, 'out.mov'), '--frames', '3', '--transparent', '--crf', '0'], /--transparent writes ProRes 4444, which has neither/],
     [[page, '--out', dir, '--stills', '1', '--draft', '--scale', '0.5'], /--draft, --scale shape a video; --stills writes full-size PNGs/],
-    [[page, '--out', join(dir, 'out.draft.mp4'), '--frames', '3', '--draft', '--footage', clip, '--quality', '80'], /--quality is a JPEG's quality, and --footage captures PNG for the page's alpha; leave --quality out/],
+    [[page, '--out', join(dir, 'out.draft.mp4'), '--frames', '3', '--draft', '--footage', clip, '--quality', '80'], /--draft renders a quick look at its own settings and takes no --quality; the deliverable is a render without --draft/],
+    [[page, '--out', out, '--frames', '3', '--footage', clip, '--quality', '80'], /--quality is a JPEG's quality, and --footage captures PNG for the page's alpha; leave --quality out/],
+    [[page, '--out', join(dir, 'out.draft.mp4'), '--frames', '3', '--draft', '--capture', 'png', '--crf', '9'], /--draft renders a quick look at its own settings and takes no --capture, --crf; the deliverable is a render without --draft/],
+    [[page, '--out', join(dir, 'out.draft.mp4'), '--frames', '3'], /--out \S*out\.draft\.mp4 is a draft's name, which mux-audio, mix-audio and review refuse; a render without --draft is the deliverable, so give it another --out/],
     [[page, '--out', join(dir, 'out.mov'), '--frames', '3', '--draft', '--transparent'], /pass --out \S*out\.draft\.mov$/m],
     [[page, '--out', join(dir, 'out.mkv'), '--frames', '3', '--draft'], /pass --out \S*out\.draft\.mp4$/m],
   ];
@@ -853,6 +860,12 @@ test('render: every flag refusal comes before Chrome is needed, with exit 2 and 
     assert.match(r.err, cases[i][1]);
   });
   assert.equal(existsSync(out), false);
+  // --crf 10 passes the flags and goes on to look for Chrome, which is not there.
+  const floor = await new Promise<{ code: number | null; err: string }>((done) => {
+    execFile(process.execPath, ['--import', 'tsx', cli, 'render', page, '--out', out, '--frames', '3', '--crf', '10', '--chrome', noChrome], { encoding: 'utf8' }, (e, _out, err) => done({ code: e ? (e.code as number) : 0, err }));
+  });
+  assert.equal(floor.code, 1, floor.err);
+  assert.doesNotMatch(floor.err, /--crf/);
 });
 
 test('render: the timing breakdown reads per-frame costs off the summed stages, and omits stages that never ran', () => {

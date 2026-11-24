@@ -5,7 +5,8 @@
 // render, a check and a preview show the same layering, and nothing inside a layer can reach across another. A
 // transform on the footage layer (a punch-in) is the speaker's too, so the cut-out stays in register with the
 // footage it was cut from. The render runtime runs this inside its own closure and is handed the cut-out there; a
-// page loads the same source as speaker.js to preview.
+// page loads the same source as speaker.js to preview. A cut-out the CLI made itself (speaker-cutout.ts) is given to
+// the layer in place of one the stage names, and lays the same layers.
 //
 // Kept as plain JavaScript source, not a function to be stringified: a transpiler may wrap named functions in
 // helpers that do not exist inside the page.
@@ -13,15 +14,46 @@
 /** The speaker layer's box, as a layer selector. */
 export const SPEAKER_BOX = '[data-oe-speaker]';
 
+// Each layer's place in the stage's stack; the speaker's own is 3, between behind and front.
+const ORDER = { footage: 1, behind: 2, front: 4 };
+
 /**
- * The layer's source as a function expression of two arguments: a function the render runtime passes to be handed
- * the cut-out and the layer's sync, or null in a browser, where the layer previews on its own clock; and a key the
- * cut-out carries inside its closed shadow root, by which the session finds it through the debugging protocol.
+ * What a stage must keep to for a cut-out to be laid on it, as a function expression: the first rule broken, in words,
+ * or null. It is given the stage the layer lies on, the page's stage now, and the cut-out that stage names (null for
+ * one the CLI made). One source for the layer and for speaker-cutout.ts, which asks before it makes a cut-out.
  */
-export const SPEAKER_FN = String.raw`function (adopt, key) {
+export const STAGE_RULES = String.raw`function (stage, now, named) {
+  var ORDER = ${JSON.stringify(ORDER)};
+  if (!now) return 'the page removed its stage (#stage or [data-stage]), which the speaker is laid on';
+  if (now !== stage && now.getAttribute('data-cutout') !== named) {
+    return named === null ? 'the page replaced its stage with one that names a cut-out of its own'
+      : 'the page replaced its stage with one that does not name the cut-out ' + named;
+  }
+  var layers = document.querySelectorAll('[data-layer]');
+  for (var i = 0; i < layers.length; i++) {
+    var l = layers[i];
+    if (!now.contains(l)) return 'a [data-layer] lies outside the stage; each layer is a child of the stage';
+    if (l.parentElement !== now) return 'a [data-layer] lies inside another element of the stage; each layer is a child of the stage';
+    if (!(l.getAttribute('data-layer') in ORDER)) return 'data-layer="' + l.getAttribute('data-layer') + '" is not a layer: footage, behind or front';
+  }
+  var graphics = document.querySelectorAll('[data-behind]');
+  for (var j = 0; j < graphics.length; j++) {
+    if (!graphics[j].closest('[data-layer="behind"]')) return 'a data-behind graphic lies outside the behind layer, <div data-layer="behind">, so the speaker is not in front of it';
+  }
+  return null;
+}`;
+
+/**
+ * The layer's source as a function expression of three arguments: a function the render runtime passes to be handed
+ * the cut-out and the layer's sync, or null in a browser, where the layer previews on its own clock; a key the
+ * cut-out carries inside its closed shadow root, by which the session finds it through the debugging protocol; and
+ * the URL of a cut-out the CLI made, or null when the stage's own is drawn.
+ */
+export const SPEAKER_FN = String.raw`function (adopt, key, made) {
   if (window.__oeSpeaker) return;
   Object.defineProperty(window, '__oeSpeaker', { value: true });
-  var ORDER = { footage: 1, behind: 2, front: 4 };
+  var ORDER = ${JSON.stringify(ORDER)};
+  var rules = ${STAGE_RULES};
   var LAYER = 'position:absolute!important;inset:0!important;margin:0!important;isolation:isolate!important;';
   var STYLE = Object.keys(ORDER).map(function (k) {
     return '[data-oe-stage]>[data-layer="' + k + '"]{' + LAYER + 'z-index:' + ORDER[k] + '!important}';
@@ -52,8 +84,9 @@ export const SPEAKER_FN = String.raw`function (adopt, key) {
 
   function build() {
     var stage = findStage();
-    if (!stage || !stage.hasAttribute('data-cutout')) return;
-    var file = stage.getAttribute('data-cutout');
+    if (!stage || !(made || stage.hasAttribute('data-cutout'))) return;
+    var named = stage.getAttribute('data-cutout');
+    var file = made || named;
     if (!file) fail('the stage names no cut-out: give it data-cutout="<file>"');
     var style = document.createElement('style');
     style.textContent = STYLE;
@@ -83,19 +116,9 @@ export const SPEAKER_FN = String.raw`function (adopt, key) {
     // Checked every frame, since a script may replace the stage, or add a layer or a graphic, at any time.
     function check() {
       var now = findStage();
-      if (now !== stage) {
-        if (!now) fail('the page removed its stage (#stage or [data-stage]), which the speaker is laid on');
-        if (now.getAttribute('data-cutout') !== file) fail('the page replaced its stage with one that does not name the cut-out ' + file);
-        lay(now);
-      }
-      document.querySelectorAll('[data-layer]').forEach(function (l) {
-        if (!stage.contains(l)) fail('a [data-layer] lies outside the stage; each layer is a child of the stage');
-        if (l.parentElement !== stage) fail('a [data-layer] lies inside another element of the stage; each layer is a child of the stage');
-        if (!(l.getAttribute('data-layer') in ORDER)) fail('data-layer="' + l.getAttribute('data-layer') + '" is not a layer: footage, behind or front');
-      });
-      document.querySelectorAll('[data-behind]').forEach(function (g) {
-        if (!g.closest('[data-layer="behind"]')) fail('a data-behind graphic lies outside the behind layer, <div data-layer="behind">, so the speaker is not in front of it');
-      });
+      var broken = rules(stage, now, named);
+      if (broken) fail(broken);
+      if (now !== stage) lay(now);
     }
     // Run every frame: the box takes the footage layer's placing as it now stands, and a box a script dropped (a
     // framework rebuilding the stage) goes back. True when it went back, as its picture has then to be drawn again.
@@ -141,5 +164,5 @@ export const SPEAKER_FN = String.raw`function (adopt, key) {
 
 /** speaker.js, for a page to load so it previews in an ordinary browser as it renders. */
 export function speakerScript(): string {
-  return `(${SPEAKER_FN})(null, null);\n`;
+  return `(${SPEAKER_FN})(null, null, null);\n`;
 }

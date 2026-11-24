@@ -48,6 +48,10 @@ function piece(name: string, opts: { toneUntil: number; seconds: number; lastWor
   return video;
 }
 
+await test('a draft is refused: the review is of the deliverable, a render without --draft', async () => {
+  await assert.rejects(review([join(dir, 'out.draft.mp4')]), /has a --draft render's name, and a draft is a quick look drawn at half size with the fastest encode, never the deliverable: render the page again without --draft and give review that video/);
+});
+
 await test('a render with a dead tail gets a report that names it, and the review still exits 0', async () => {
   const video = piece('dead', { toneUntil: 3, seconds: 6, lastWord: 2.9 });
   const { result, out } = await captureConsoleAsync(() => review([video]));

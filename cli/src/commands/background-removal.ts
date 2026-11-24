@@ -43,6 +43,11 @@ export const FAL_BG_REMOVAL_MODEL = 'veed/video-background-removal';
 export const FAL_BG_REMOVAL_FAST_PRICE_NOTE =
   '$0.012 per 30 frames with edge refinement on (default) / $0.008 per 30 frames with it off';
 
+// What fal counts a fast-model request as, for an estimate before one is bought: units of 30 output frames at its
+// listed unit price, one and a half to each 30 frames with edge refinement on (the two rates above), a request's
+// total rounded up to a whole unit. Output frames equal input frames for this model.
+export const FAL_BG_REMOVAL_FAST_UNITS = { usdPerUnit: 0.008, framesPerUnit: 30, refine: 1.5 } as const;
+
 // fal's listed rates for the full model, per 30 OUTPUT frames. Output frames equal input frames for this
 // model, so the estimate is the input's frame count at the rate for the run's setting.
 export const FAL_BG_REMOVAL_RATE_PER_30_FRAMES = { refine: 0.0225, plain: 0.015 } as const;

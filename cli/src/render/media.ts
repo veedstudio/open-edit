@@ -61,6 +61,8 @@ const PROXY_ENCODE = PROXY_ARGS.slice(2);
 // cover everything under it; VP9 in WebM is the alpha Chrome plays.
 const ALPHA_ARGS = ['-map', '0:v:0', '-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-crf', '16', '-b:v', '0', '-g', '1', '-row-mt', '1',
   '-deadline', 'realtime', '-cpu-used', '8', '-auto-alt-ref', '0', '-fps_mode', 'passthrough', '-an'];
+/** The encode of a copy that keeps its alpha, for a file made the way a copy is so a render serves it as it is. */
+export const ALPHA_ENCODE = ALPHA_ARGS.slice(2);
 
 /**
  * The size to make a copy at for a source drawn at `scale` times its own size, or null for the
@@ -175,7 +177,7 @@ export function contentId(file: string, dir: string): string {
 }
 
 /** Marks a copy as just used, so it is the last to go when the cache makes room; false when it is not there. */
-function markUsed(path: string): boolean {
+export function markUsed(path: string): boolean {
   const now = new Date();
   try {
     utimesSync(path, now, now);

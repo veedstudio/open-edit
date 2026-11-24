@@ -269,10 +269,12 @@ await test('a crossfade of zero is refused, because ffmpeg reads acrossfade d=0 
 
 await test('a crf outside the encoder\'s range is refused by name', async () => {
   const one = { sources: { a: 'clip.mp4' }, ranges: [{ source: 'a', start: 0, end: 2 }] };
-  await assert.rejects(run(one, ['--crf', '52']), /--crf wants 0-51/);
+  await assert.rejects(run(one, ['--crf', '52']), /--crf wants 10-51/);
+  for (const low of ['9', '0']) await assert.rejects(run(one, ['--crf', low]), /--crf under 10 makes a file too large to store and render well, with no visible gain; 10 is the lowest, and 20 the default/);
   // `--crf=-1`, not `--crf -1`: a bare -1 is parsed as a flag, which is the arg parser's business.
-  await assert.rejects(run(one, ['--crf=-1']), /--crf wants 0-51/);
-  await assert.rejects(run(one, ['--crf=']), /--crf wants 0-51/);
+  await assert.rejects(run(one, ['--crf=-1']), /--crf under 10 makes a file too large to store and render well, with no visible gain; 10 is the lowest, and 20 the default/);
+  await assert.rejects(run(one, ['--crf=']), /--crf wants 10-51/);
+  await run(one, ['--crf', '10']);
 });
 
 await test('an EDL with no ranges is refused before anything is decoded', async () => {

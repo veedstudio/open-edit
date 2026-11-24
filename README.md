@@ -3,6 +3,9 @@
 The Open Edit command-line tool: agent-driven video creation and editing,
 powered by VEED.
 
+Prefer a browser? OpenEdit runs at
+[veed.ai](https://www.veed.io/ai?source=npm&subSource=open-edit).
+
 The package carries the agent skill that `init` installs into a workspace;
 everything else is a command below. The source is public at
 [veedstudio/open-edit](https://github.com/veedstudio/open-edit), whose README
@@ -125,7 +128,10 @@ it stops having spent nothing and prints what fal's model would cost and the
 command to run with `--fal`. Only `--fal` (the full model, uploaded to fal's own
 storage) or `--fast` (fal's fast model) buys anything, and lipsync always goes
 through fal. Every fal call bills your own fal key, never a VEED workspace; a
-re-run of the same inputs resumes the paid job instead of buying it again:
+re-run of the same inputs resumes the paid job instead of buying it again. A
+page that lays a graphic behind the speaker needs no whole-clip cut-out where
+the environment has `render` make one for the seconds the graphic is up (see
+`render`); without that, this command makes the cut-out the page's stage names:
 
 ```sh
 npx @veedstudio/openedit-cli background-removal video.mp4 [--fal|--fast] [--mask-only] [--no-refine] [--out <path>]
@@ -239,7 +245,39 @@ Chromes and ffmpegs it started. A video render then looks at what it made, as th
 review's blank-frames and dead-air checks do, and prints a line, failing
 nothing, for a first frame that is blank, near-black or partway into a fade-in,
 and for each still held longer than its words allow; a patch looks only near
-the range it re-rendered. `fonts` downloads Google Fonts as local woff2 files
+the range it re-rendered.
+
+A page can lay a graphic behind the speaker: its stage holds three layers,
+`<div data-layer="footage">`, `<div data-layer="behind">` with each graphic
+marked `data-behind`, and `<div data-layer="front">`, and `render` draws a
+cut-out of the speaker between behind and front. The stage names that cut-out
+(`data-cutout="<file>"`, what `background-removal` writes), or names none.
+With none, or one that is not there, and `OPEN_EDIT_SPEAKER_CUTOUT=1` in the
+environment, `render` makes it: it finds the frames a `data-behind` graphic is
+on screen in, and draws the cut-out in those frames alone. What it has not
+kept of the clip's frames under them (the `--footage` file, else the one video
+the footage layer plays) it buys with a quarter second more either side, never
+less than a second a stretch, from fal's fast background-removal model, at most
+12 stretches and 60 s of the clip in one render. That is a generation on the
+fal account of the fal key the CLI reads, never on a VEED workspace, or, with
+no key, through the fal command an environment gives in place of one, which
+prices and approves it and bills as that environment arranges. One line before
+the call says for how many seconds of the clip, on which route, and what it is
+estimated to cost at fal's listed rate; an estimate, not a charge. Each stretch is kept in the clip's own folder under `runs/<key>/`,
+named for the clip's bytes and its frames, so a second render makes no call, a
+render that needs one more stretch buys only that one, and a clip replaced at
+its path is cut out again. Without the variable `render` spends nothing: it
+says in one line which `background-removal` command makes the cut-out, and
+draws the page with no speaker layer, as it does when there is no fal to run
+on, or the model refuses, fails, is not answered in 15 minutes or answers with
+something that is not a cut-out of the stretch; a stage that names a cut-out
+file that is not there still fails. `behind <page>` reports how much of each
+graphic the speaker leaves showing, frame by frame, and gets the cut-out the
+same way, so where the variable is set it needs no step before it. A cut-out
+made this way is drawn in renders, not in a browser preview (`render --help`
+and `behind --help` have the rest).
+
+`fonts` downloads Google Fonts as local woff2 files
 with a `fonts.css`; `install-browser` fetches the pinned Chrome Headless Shell,
 which `render` also does on first use. `safe-zone` writes the stylesheet for where
 a video will be posted: the stage at its shape's size, and a `[data-safe]`
@@ -312,16 +350,17 @@ soundtrack) onto a silent render, levelled to -14 LUFS / -1 dBTP
 correction ran), starts a clip that `render --footage-at` placed later in the
 piece at that same moment, and prints a silent opening or ending longer than a
 second in what it wrote. `--music <file>` in place of `--audio` lays a music
-file alone, run to the picture's last frame;
-`mix-audio` first builds one track from many pieces — narration, music,
-effects — per the run's mix spec, with music and effects ducked under the voice,
-effects given no gain set under it by measured loudness (give an effect a
-gain for a deliberate loud hit), and the music bed run to the end of the film:
-looped with a crossfade when its sound ends sooner, faded out at the end.
-`--video` takes the mix's length from the render, and the sound of each
-`<video>` its page plays is laid in where the render played it, trims, loops
-and speed included, under the voice; the spec's `pageVideos` leaves one out or
-lays it otherwise:
+file alone, run to the picture's last frame; `mix-audio` first builds one track
+from many pieces — narration, music, effects — per the run's mix spec, with
+music and effects ducked under the voice, effects given no gain set under it by
+measured loudness (give an effect a gain for a deliberate loud hit), and the
+music bed run to the end of the film: looped with a crossfade when its sound
+ends sooner, faded out at the end. `--video` takes the mix's length from the
+render, and the sound of each `<video>` its page plays is laid in where the
+render played it, trims, loops and speed included, under the voice; the spec's
+`pageVideos` leaves one out or lays it otherwise. Both refuse a draft
+(`.draft.mp4`, `.draft.mov`): it is a quick look, and the deliverable is a
+render without `--draft`:
 
 ```sh
 npx @veedstudio/openedit-cli mix-audio runs/<key> --video runs/<key>/out.mp4   # → runs/<key>/audio/mix.m4a
@@ -332,46 +371,45 @@ npx @veedstudio/openedit-cli mux-audio --video runs/<key>/out.mp4 --music runs/<
 ### review
 
 Run every delivery check on the video about to be delivered and print one
-report. It changes nothing, and exits 0 whatever it finds. The blank-frames
-check reports a flash, a frame or two of one flat colour (a blank white page
-with only a caption on it, say) between other pictures; any flat colour held
-with nothing on it for more than a second; and a first frame that is blank,
-near-black or partway into a fade-in, since platforms show it as the cover.
-The dead-tail check reports a picture that runs on more than a second past its
-last sound or its last spoken word. The words come from the `transcript.json`
-in the video's folder, or the one `--transcript` names, in any format `whisper`
-maps; the review never transcribes, and without a transcript it says what it
-skipped. A picture that runs on past the last word with sound under it to the
-end is an end card when
+report. It changes nothing, and exits 0 whatever it finds; a draft is refused,
+since it is never the deliverable. The blank-frames check reports a flash, a
+frame or two of one flat colour (a blank white page with only a caption on it,
+say) between other pictures; any flat colour held with nothing on it for more
+than a second; and a first frame that is blank, near-black or partway into a
+fade-in, since platforms show it as the cover. The dead-tail check reports a
+picture that runs on more than a second past its last sound or its last spoken
+word. The words come from the `transcript.json` in the video's folder, or the
+one `--transcript` names, in any format `whisper` maps; the review never
+transcribes, and without a transcript it says what it skipped. A picture that
+runs on past the last word with sound under it to the end is an end card when
 new text is on screen through it: text that came up from the pause before the
-last spoken phrase on, in an element that showed no other words before then.
-It passes unless it is held longer than its words take to read: 0.2 seconds a
-word, plus 2 seconds to find the text (3 from ten words) and a one-second beat,
-never less than 4 seconds and never more than 4.5. So a card brought up with
-the spoken call to action counts, while a caption left on into the music, a
-title up since earlier or a watermark does not. A run-on with more than a
-second of no end card is reported as background left running; without the
-record of on-screen text (below) it is reported, and the report says the end
-card could not be judged. The dead-air check reports a stretch with nothing
-happening anywhere in the video. In the picture, that is a still, frozen or
-nearly so (a slow zoom or a drift over a held card), held longer than a still
-may hold, end cards included: as long as an end card of as many words when it
-has words on screen, 3 seconds when it has none. Footage that moves almost
-everywhere, such as a slow pan, is not still. A talking head can measure as
-still as a held card, so a nearly still picture passes while a voice talks over
-it without pausing more than 2 seconds; without a transcript it is reported,
-and the report says the voice could not be checked. A frozen picture is
-reported whoever speaks over it. In the sound, it is a first sound more than a
-second after the first frame, and more than 2 seconds of silence between two
-sounds; a silence after the last sound is the dead-tail check's to report, so
-no silence is reported twice. The length check reports a picture that runs longer
-or shorter than the length asked for, in seconds (`--length`, else the length in
-the piece's brief), by more than a second or 5% of that length, whichever is
-more; without either it is skipped. The
-canvas check reports a picture nearly one of the platform shapes (9:16, 1:1, 4:5,
-16:9) but not exactly it, such as a 606x1080 crop of 1080p footage, and one under
-1080 px on its short side; a picture of another shape is judged on its short
-side alone.
+last spoken phrase on, in an element that showed no other words before then. It
+passes unless it is held longer than its words take to read: 0.2 seconds a word,
+plus 2 seconds to find the text (3 from ten words) and a one-second beat, never
+less than 4 seconds and never more than 4.5. So a card brought up with the
+spoken call to action counts, while a caption left on into the music, a title up
+since earlier or a watermark does not. A run-on with more than a second of no
+end card is reported as background left running; without the record of on-screen
+text (below) it is reported, and the report says the end card could not be
+judged. The dead-air check reports a stretch with nothing happening anywhere in
+the video. In the picture, that is a still, frozen or nearly so (a slow zoom or
+a drift over a held card), held longer than a still may hold, end cards
+included: as long as an end card of as many words when it has words on screen, 3
+seconds when it has none. Footage that moves almost everywhere, such as a slow
+pan, is not still. A talking head can measure as still as a held card, so a
+nearly still picture passes while a voice talks over it without pausing more
+than 2 seconds; without a transcript it is reported, and the report says the
+voice could not be checked. A frozen picture is reported whoever speaks over it.
+In the sound, it is a first sound more than a second after the first frame, and
+more than 2 seconds of silence between two sounds; a silence after the last
+sound is the dead-tail check's to report, so no silence is reported twice. The
+length check reports a picture that runs longer or shorter than the length asked
+for, in seconds (`--length`, else the length in the piece's brief), by more than
+a second or 5% of that length, whichever is more; without either it is skipped.
+The canvas check reports a picture nearly one of the platform shapes (9:16, 1:1,
+4:5, 16:9) but not exactly it, such as a 606x1080 crop of 1080p footage, and one
+under 1080 px on its short side; a picture of another shape is judged on its
+short side alone.
 
 The text, captions, numbers and graphics checks read the record of on-screen text that `render`
 writes beside each video, `<video>.text.json`: the text the page draws in its
@@ -499,6 +537,42 @@ that never calls `prepare` still works, with `place()` measuring each time.
 `place(el, i, sec)` takes an element's index and one second of the clip rather
 than a span. `part(i, sec)` changes at each cut, and the page places an element
 up across it again there. `captions.js` places its cues with it.
+With `--speakers <file>`, a speakers file made for the clip (its shots, a track
+per face with a box and whether it is speaking at each analysed frame, and whom
+to show), the shots and the boxes come from that file, on the same sampled
+frames, each box widened and raised to the span MediaPipe's boxes cover, so
+MediaPipe is not run and need not be installed; each box then also
+carries its track and whether that face is speaking, and each shot the runs of
+whom to show. It is a convenience for a clip that comes with such a file:
+without it `faces` finds the shots and the faces itself, and the graphics are
+found the same way with it or without.
+Where the environment names a hosted analysis that makes such a file, a fal
+model in `OPEN_EDIT_SPEAKERS_ANALYSIS`, `faces` runs it on the clip itself and
+maps what it answers, unless `--speakers`, `--local`, `--threshold` or
+`--confidence` is given. It says so in one line before it runs: the call is one
+generation on the fal account of the fal key the CLI reads, never on a VEED
+workspace, else through the fal command an environment gives in place of a
+key, which bills as that environment arranges. The file it answers with is
+kept beside `faces.json` as `speakers-<id>.json`, named for the clip's bytes
+and the analysis, so a later `faces` on the same clip does not run it again
+while both are the same. A
+clip with no sound, longer than 10 minutes or larger than 4 GB is not sent;
+that, no fal to run it on, a refusal, a failure or an answer that does not map
+onto the clip is said in one line and the clip is left to MediaPipe. On a fal
+key the request is bought as `fal run` buys one, and a later run resumes it; the
+environment's `fal` command prices and approves the run itself, and its own
+lines are shown as it prints them; its answer is the plain files it leaves in
+a folder made for that run. Either way the answer is waited for up to 40
+minutes, and the environment's `fal` command is stopped then, with whatever it
+started, as it is when `faces` is stopped. A request it had queued may still
+run and be billed; nothing of that run is kept, and the next run asks again. A
+speakers file over 32 MB is not read, from `--speakers` or from the analysis.
+Measured on
+eight calls, on clips of 20 s to 9.5 minutes and 6 to 110 MB, the analysis ran
+for 0.38 to 0.67 of the clip's length, the upload and the rest of the call took
+10 to 163 s on one connection, and the request waited 83 and 87 s in the queue
+the two times the analysis had to start first. With the variable unset `faces`
+calls nothing.
 `install-mediapipe` puts MediaPipe, every package it runs on at the versions
 verified together (OpenCV's headless build) and the model into an environment
 of their own under the app-data directory, never the system Python: with uv
@@ -509,7 +583,7 @@ an Apple Silicon Mac run an arm64 Node, and on Windows on ARM install uv and set
 
 ```sh
 npx @veedstudio/openedit-cli install-mediapipe [<version>]
-npx @veedstudio/openedit-cli faces video.mp4 [--out <dir>] [--every 0.25] [--threshold 10] [--confidence 0.5] [--margin 0.25]
+npx @veedstudio/openedit-cli faces video.mp4 [--out <dir>] [--every 0.25] [--threshold 10] [--confidence 0.5] [--margin 0.25] [--speakers <file>] [--local]
 ```
 
 `reframe` cuts a clip to another shape (16:9 to 9:16, say). With those boxes,
@@ -518,10 +592,31 @@ face seen alone for four samples jumps further than its own width and is seen
 alone there for four more (a dissolve or a cut the cut detection missed), is
 followed when it shows one face only (never two at once, each found
 overlapping the one before), the crop holding still while the face stays inside
-it and easing to a new place only when it must, and held at one place when it
+it and easing to a new place only when it must. A face that fits the crop is
+never cut by a hold: the room kept beside it is given up first. A face longer
+than the crop, a close-up wider than a 9:16 crop, say, cannot be whole: the
+crop holds one place while the face's centre stays in its middle third and
+eases only when it leaves, rather than re-centring on every sample; that is so
+for boxes MediaPipe found and for a speakers file's. A hold ends where the
+face grows past the crop's length or comes back under it, so each is placed by
+its own rule; where the longer face's place keeps the fitting one whole too,
+both stand there and the crop does not move between them.
+A shot is held at one place when it
 shows more, where the faces wholly inside add up to the most height; at a cut
 or a split it jumps. A face less than half the height of the tallest found with
-it is someone in the background and does not count. Without them it cuts the
+it is someone in the background and does not count. Where the boxes carry a
+speakers file's runs of whom to show (`faces --speakers`, or the hosted
+analysis `faces` runs), a shot is framed on the face the file says to show
+instead: each run of it is followed as a shot showing that one face is, and the
+crop jumps between two runs naming different faces as at a cut. Inside a run
+naming two faces it frames whichever of them is speaking, jumping to the other
+where that one starts a turn of a second or more and staying where it is
+through silence or while both are flagged. A run that names nobody, lasts under
+a second or has no box of its face keeps the framing before it, and a shot none
+of whose runs lasts a second is framed on the longest run that names a face
+with a box, and of two it names on the one speaking in more of it. The face
+beside the one shown can then be
+out of frame on purpose, which one line says. Without boxes it cuts the
 clip from the middle. Where a face does not lie wholly inside the crop, larger
 than it or beside another face a held shot keeps, it prints those seconds. The
 crop is
@@ -652,6 +747,8 @@ npx @veedstudio/openedit-cli init --update <version> --workspace <dir>
 | `WHISPERX_BIN` / `WHISPERX_MODEL` | WhisperX binary and fallback model tier (defaults: `whisperx` on `PATH`, `small.en`). |
 | `OPEN_EDIT_WHISPERX_DEVICE` / `OPEN_EDIT_WHISPERX_COMPUTE` | WhisperX device/compute (defaults: `cpu`/`int8`). |
 | `OPEN_EDIT_LIBRARY_URL` | The stock sound library `sfx` searches and saves from (unset: `sfx` says there is none, and effects come from `fal`). |
+| `OPEN_EDIT_SPEAKERS_ANALYSIS` | The fal model a hosted environment names for speakers files (unset: `faces` calls nothing). With it set, `faces` runs that model on the clip, on the fal key the CLI reads or through the environment's own `fal` command, and falls back to MediaPipe when it cannot; `faces --local` never calls it. |
+| `OPEN_EDIT_SPEAKER_CUTOUT` | `1` has `render` and `behind` make the speaker's cut-out for a page that lays a graphic behind the speaker and names none: fal's fast background-removal model, on the stretches of the clip the graphic is up for, on the fal key the CLI reads or through the environment's own `fal` command (unset or `0`: nothing is made or spent, and `render` names the `background-removal` command instead). |
 | `OPEN_EDIT_MEDIAPIPE_PYTHON` | The Python version `install-mediapipe` asks uv for (default: `3.12`; the pinned packages need 3.12 or newer). |
 
 Login state lives in the platform's per-user app-data directory:

@@ -224,3 +224,35 @@ await test('on the talking-head fixture, MediaPipe finds each speaker on the cut
   }
   assert.ok(compared >= 20, `only ${compared} samples compared`);
 });
+
+await test('a range of a source whose boxes say whom to show is cut around that face, run by run, and the cut says so', async () => {
+  // Two people, left and right, through one shot of four seconds: the file shows the left one for two seconds, then the right one.
+  const duo = synthClip(inputs, 'duo.mp4', { video: 'testsrc=size=640x360:rate=25', audio: SINE, seconds: 4 });
+  const [left, right]: FaceBox[] = [{ x: 60, y: 100, w: 80, h: 80, track: 0, speaking: true }, { x: 500, y: 100, w: 80, h: 80, track: 1, speaking: false }];
+  writeAtomic(facesPathFor(duo), {
+    ...knownFaces(duo), name: 'duo.mp4',
+    shots: [{
+      start: 0, end: durationOf(duo), samples: [0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75].map((sec) => ({ sec, faces: [left, right] })),
+      show: [{ start: 0, end: 2, tracks: [0] }, { start: 2, end: 4, tracks: [1] }],
+    }],
+  });
+  const out = join(root, 'runs', 'piece', 'duo-cut.mp4');
+  const log = await cut({ sources: { backdrop, duo }, ranges: [{ source: 'backdrop', start: 0, end: 1 }, { source: 'duo', start: 0, end: 4 }] }, out);
+  assert.match(log, /source "duo" \(640x360\) is cut to the canvas's shape \(360x640\) around its faces \(.*\), as reframe cuts it; 1 shot\(s\) with several faces are framed on the one their face boxes say to show/);
+  // On the cut each run shows its own face whole and leaves the other out of the 360 px canvas.
+  const shown = facesOf(out).shots.flatMap((s) => s.samples).filter((x) => x.sec >= 1).map((x) => x.faces.filter((f) => f.x > 0 && f.x + f.w < 360).map((f) => f.track));
+  assert.deepEqual(shown, [[0], [0], [0], [0], [1], [1], [1], [1]]);
+  // The note counts the shots a join plays: one that plays only a shot with one face says nothing of several.
+  writeAtomic(facesPathFor(duo), {
+    ...knownFaces(duo), name: 'duo.mp4',
+    shots: [
+      { start: 0, end: 2, samples: [0.25, 0.75, 1.25, 1.75].map((sec) => ({ sec, faces: [left] })), show: [{ start: 0, end: 2, tracks: [0] }] },
+      { start: 2, end: durationOf(duo), samples: [2.25, 2.75, 3.25, 3.75].map((sec) => ({ sec, faces: [left, right] })), show: [{ start: 2, end: 4, tracks: [1] }] },
+    ],
+  });
+  const ranges = (end: number) => ({ sources: { backdrop, duo }, ranges: [{ source: 'backdrop', start: 0, end: 1 }, { source: 'duo', start: 0, end }] });
+  const alone = await cut(ranges(1.5), join(root, 'runs', 'piece', 'duo-alone.mp4'));
+  assert.match(alone, /source "duo" \(640x360\) is cut to the canvas's shape \(360x640\) around its faces/);
+  assert.doesNotMatch(alone, /with several faces/);
+  assert.match(await cut(ranges(3), join(root, 'runs', 'piece', 'duo-both.mp4')), /1 shot\(s\) with several faces are framed on the one/);
+});

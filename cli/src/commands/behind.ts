@@ -1,10 +1,11 @@
 // How much of each graphic laid behind the speaker stays visible.
 //
-//   openedit behind <page.html> [--fps N|N/D] [--duration <sec>] [--bar 0.75] [--workers N] [--json]
+//   openedit behind <page.html> [--fps N|N/D] [--duration <sec>] [--footage <file>] [--bar 0.75] [--workers N] [--json]
 //
 // The layering is the CLI's: the stage names the speaker's cut-out (data-cutout), the page fills the footage, behind
 // and front layers, and every render draws the cut-out in a layer of its own between behind and front
-// (cli/src/render/speaker.ts). What that cannot settle is how much of each graphic the speaker leaves showing, frame
+// (cli/src/render/speaker.ts). A stage with no cut-out is checked under the one a render makes for it
+// (cli/src/render/speaker-cutout.ts), made here the same way. What that cannot settle is how much of each graphic the speaker leaves showing, frame
 // by frame: this measures it, on the same page as a render, from what Chrome draws. Each frame, the page is stepped on
 // the render's clock, the speaker's layer and each graphic are captured alone with alpha, and the share of what the
 // graphic paints that the speaker leaves showing is weighed, with each of its words by its own boxes. A check, not a
@@ -23,6 +24,8 @@ import { alphaOf } from '../render/png.ts';
 import { startPageServer } from '../render/server.ts';
 import { DRAW_EVERY_MS, newTimings, type RenderSession } from '../render/session.ts';
 import { SPEAKER_BOX } from '../render/speaker.ts';
+import { CUTOUT_ENV, pageCutout, type CutoutDeps, type Made } from '../render/speaker-cutout.ts';
+import type { MadeCutout } from '../render/page-runtime.ts';
 import { fpsLabel, framesForDuration, frameTime, parseFps, splitContiguous, workersFor, type Fps } from '../render/timing.ts';
 import { defaultWorkers, MIN_FRAMES_PER_WORKER, pageRoots, runWorkers } from './render.ts';
 
@@ -40,9 +43,10 @@ export const usage = {
   summary: 'How much of each graphic behind the speaker\'s cut-out stays visible, frame by frame',
   positionals: '<page.html>',
   flags: {
-    fps: { type: 'string', value: 'N|N/D', help: 'Frame rate to step the page at, as render --fps (default: the cut-out\'s own)' },
-    duration: { type: 'string', value: '<sec>', help: 'Length to check, as render --duration (default: to the cut-out\'s end)' },
+    fps: { type: 'string', value: 'N|N/D', help: 'Frame rate to step the page at, as render --fps (default: the cut-out\'s own; for a cut-out made here, the clip\'s)' },
+    duration: { type: 'string', value: '<sec>', help: 'Length to check, as render --duration (default: to the cut-out\'s end; for a cut-out made here, the clip\'s)' },
     'footage-at': { type: 'string', value: '<sec>', help: 'When the footage, and so the cut-out, starts on the page\'s clock, as render --footage-at (default 0)' },
+    footage: { type: 'string', value: '<file>', help: 'The clip a cut-out made for the page is cut from, whatever the footage layer plays, as under render --footage (default: the one video the footage layer plays)' },
     bar: { type: 'string', value: '<share>', help: `Share of each graphic, and of each word in it, that must stay visible on every frame: above 0, at most 1 (default ${BAR})` },
     json: { type: 'boolean', help: 'Print the report as JSON, shares from 0 to 1 (a refusal too, as {"error": ...})' },
     workers: { type: 'string', value: 'N', help: `Parallel Chrome instances, each checking a contiguous run of frames, as render --workers (default ${defaultWorkers()} here)` },
@@ -61,6 +65,13 @@ export const usage = {
     'drawn fainter than an eighth of full opacity (the faint start or end of a fade) is not weighed, and neither is a',
     'part of a word with no ink that strong. Exits 1 when a graphic is under the bar, when no graphic could be',
     'measured, or when the check cannot run (it says why).',
+    'A stage that names no cut-out, or one that is not there, and holds a footage layer and a behind layer with a',
+    'data-behind graphic, is checked under the cut-out a render makes for it (render --help, Speaker): where the',
+    `environment switches that on (${CUTOUT_ENV}=1) it is made here the same way, said before the call that buys it,`,
+    'and kept. Given the render\'s --fps, --duration, --footage and --footage-at, the check and the render ask for the',
+    'same frames, so whichever runs second buys nothing; given others, it buys what its own frames need and the kept',
+    'ones do not hold. Without --fps and --duration the check runs at the clip\'s own rate and to the clip\'s end.',
+    'Where none is made (the switch is off, or any reason render --help lists), the check refuses and says why.',
   ].join('\n'),
 } satisfies Usage;
 
@@ -298,7 +309,20 @@ export interface BehindReport {
 const GRAPHIC = 0;
 const SPEAKER = 1;
 
-export async function checkBehind(pageArg: string, o: { bar: number; fps?: Fps; duration?: number; footageAt?: number; roots?: string[]; workers?: number }): Promise<BehindReport> {
+export interface BehindOptions {
+  bar: number;
+  fps?: Fps;
+  duration?: number;
+  footageAt?: number;
+  /** The clip the speaker is cut from when the page's footage layer plays none, as render --footage names it. */
+  footage?: string;
+  roots?: string[];
+  workers?: number;
+  /** What stands in for a part of making a cut-out, for a test. */
+  cutout?: CutoutDeps;
+}
+
+export async function checkBehind(pageArg: string, o: BehindOptions): Promise<BehindReport> {
   if (!(o.bar > 0 && o.bar <= 1)) throw new Error(`the bar is a share above 0 and at most 1, not ${o.bar}`);
   const page = resolve(pageArg);
   if (!existsSync(page) || !statSync(page).isFile()) throw new Error(`${pageArg} is not a file`);
@@ -312,12 +336,13 @@ export async function checkBehind(pageArg: string, o: { bar: number; fps?: Fps; 
   const givenZone = {};
   // On a frame, as render lays the footage from --footage-at.
   const footageAt = (fps: Fps) => frameTime(framesForDuration(o.footageAt ?? 0, fps), fps);
-  const base = (fps: Fps): SessionBase => ({
+  if (o.footage !== undefined && (!existsSync(o.footage) || !statSync(o.footage).isFile())) throw new Error(`--footage ${o.footage} is not a file`);
+  const base = (fps: Fps, made?: MadeCutout): SessionBase => ({
     chrome, server, page, transparent: true, capture: 'png', footage: null, layers: ['[data-oe-behind]', SPEAKER_BOX], fps, seed: SEED,
     // Only the speaker and the graphics are drawn, so no other video of the page need be decoded; the cut-out is not
     // the page's, and stays.
     videosIn: '[data-behind]',
-    cutout: { at: footageAt(fps), until: null },
+    cutout: { at: footageAt(fps), until: null, ...(made ? { made } : {}) },
     epoch: EPOCH, budgetMs: BUDGET_MS, failedLoads, refused, timings, givenZone,
   });
   let session: RenderSession | null = null;
@@ -325,11 +350,26 @@ export async function checkBehind(pageArg: string, o: { bar: number; fps?: Fps; 
     let fps = o.fps ?? { num: 30, den: 1 };
     let opened = await openLead(base(fps));
     session = opened.lead;
-    const named = session.info.cutout;
     if (!session.info.stage) throw new Error(`${basename(page)} has no stage (#stage or [data-stage]) to lay the speaker over`);
-    if (!named) throw new Error(`${basename(page)}'s stage names no cut-out: give it data-cutout="<file>", the background-removed clip`);
+    // A page with no cut-out gets the one a render would make for it, so the check measures what the render draws.
+    const asked = await pageCutout({
+      page, info: session.info, server, base: base(fps), canvas: opened.canvas, fps: o.fps, footage: o.footage === undefined ? null : resolve(o.footage),
+      footageAt: o.footageAt ?? 0, until: o.duration, say: (line) => console.error(`behind: ${line}`), deps: o.cutout,
+    });
+    let made: Made | null = null;
+    if (asked && !('none' in asked)) {
+      made = asked;
+      await session.close();
+      session = null;
+      fps = made.fps;
+      opened = await openLead(base(fps, made.made));
+      session = opened.lead;
+    }
+    const none = asked && 'none' in asked ? `; none was made for it (${asked.none})` : '';
+    const named = session.info.cutout;
+    if (!named) throw new Error(`${basename(page)}'s stage names no cut-out: give it data-cutout="<file>", the background-removed clip${none}`);
     const cutout = server.fileFor(named.url);
-    if (!cutout || !existsSync(cutout)) throw new Error(`the stage's cut-out ${cutout ?? named.url} is not there`);
+    if (!cutout || !existsSync(cutout)) throw new Error(`the stage's cut-out ${cutout ?? named.url} is not there${none}`);
     const input = alphaInputOf(cutout);
     if (!input && codecOf(cutout) === 'hevc') {
       throw new Error(`${basename(cutout)} is HEVC, whose alpha Chrome cannot draw here, so a render could not lay the speaker over the graphics: convert it to VP9 WebM or ProRes 4444`);
@@ -337,13 +377,14 @@ export async function checkBehind(pageArg: string, o: { bar: number; fps?: Fps; 
     if (!input) throw new Error(`${basename(cutout)} has no alpha channel, so it cannot say where the speaker is: data-cutout takes the cut-out, background-removal's output`);
     // A render converts an HDR video to SDR in its copy, which keeps no alpha: the cut-out would cover every graphic.
     if (hdrKind(colourTagsOf(cutout))) throw new Error(`${basename(cutout)} is HDR, and a render draws an HDR video without its alpha: cut the speaker out with background-removal, which sends an HDR clip's SDR copy`);
-    // Stepped at the cut-out's own rate unless told otherwise, opened again when that is not the rate guessed.
-    const own = parseRate(probeFrameRate(cutout).rate);
+    // Stepped at the cut-out's own rate unless told otherwise, opened again when that is not the rate guessed. A made
+    // cut-out holds only its stretches, so the rate and the length are those of the clip it was cut from.
+    const own = made ? made.fps : parseRate(probeFrameRate(cutout).rate);
     if (!o.fps && (own.num !== fps.num || own.den !== fps.den)) {
       await session.close();
       session = null;
       fps = own;
-      opened = await openLead(base(fps));
+      opened = await openLead(base(fps, made?.made));
       session = opened.lead;
     }
     // Served as a render serves it, from the same cache: from an all-intra copy when its keyframes are far apart, or
@@ -355,7 +396,8 @@ export async function checkBehind(pageArg: string, o: { bar: number; fps?: Fps; 
     if (!session.info.cutout?.playable) throw new Error(`the speaker layer's cut-out ${basename(cutout)} could not be played, so a render would not lay it over the graphics`);
     const { width, height, clip } = opened.canvas;
     const origin = { x: clip?.x ?? 0, y: clip?.y ?? 0 };
-    const total = framesForDuration(o.duration ?? footageAt(fps) + videoDurationOf(cutout), fps);
+    const length = made ? (made.clip.frames * made.clip.fps.den) / made.clip.fps.num : videoDurationOf(cutout);
+    const total = framesForDuration(o.duration ?? footageAt(fps) + length, fps);
     if (total < 1) throw new Error(`--duration ${o.duration} holds no frame at ${fpsLabel(fps)} fps`);
 
     /** Measures `frames`, a contiguous run, on its own session: what each graphic showed, and every name listed. */
@@ -421,7 +463,7 @@ export async function checkBehind(pageArg: string, o: { bar: number; fps?: Fps; 
     const results: Awaited<ReturnType<typeof measureRun>>[] = [];
     const lead = session;
     session = null;
-    await runWorkers(base(fps), opened.canvas, lead, {
+    await runWorkers(base(fps, made?.made), opened.canvas, lead, {
       groups: runs.map((_, k) => [k]),
       run: async (s, k, stop) => { results[k] = await measureRun(s, runs[k], stop); },
     });
@@ -465,7 +507,7 @@ export async function behind(argv: string[]): Promise<number> {
     const fps = values.fps === undefined ? undefined : parseFps(values.fps);
     const footageAt = values['footage-at'] === undefined ? undefined : numberFlag('footage-at', values['footage-at'], 1, (n) => Number.isFinite(n) && n >= 0, 'seconds');
     const workers = numberFlag('workers', values.workers, defaultWorkers(), (n) => Number.isInteger(n) && n >= 1, 'a whole number, 1 or more');
-    report = await checkBehind(page, { bar, fps, duration, footageAt, roots: values.root, workers });
+    report = await checkBehind(page, { bar, fps, duration, footageAt, footage: values.footage, roots: values.root, workers });
   } catch (e) {
     if (!values.json) throw e;
     console.log(JSON.stringify({ error: (e as Error).message }, null, 2));

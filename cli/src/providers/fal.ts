@@ -36,6 +36,8 @@ export interface Http {
     status: number;
     json(): Promise<unknown>;
     arrayBuffer(): Promise<ArrayBuffer>;
+    /** The body piece by piece, for a download that stops at a size; absent on fakes, which are then read whole. */
+    chunks?(): AsyncIterable<Uint8Array>;
     /** Absent on fakes; a multipart part answers with its ETag here. */
     header?(name: string): string | null;
   }>;
@@ -88,6 +90,7 @@ export function realHttp(timeoutMs: number): Http {
       status: res.status,
       json: () => res.json(),
       arrayBuffer: () => res.arrayBuffer(),
+      chunks: () => (res.body ?? []) as AsyncIterable<Uint8Array>,
       header: (name: string) => res.headers.get(name),
     };
   };
@@ -238,12 +241,29 @@ export function redactUrl(url: string): string {
   return q < 0 ? url : `${url.slice(0, q)}?…`;
 }
 
-export async function download(url: string, dest: string, http?: Http): Promise<void> {
+/** Saves `url` at `dest`. With `largest`, a body over that many bytes is refused, and is not read past them. */
+export async function download(url: string, dest: string, http?: Http, largest?: number): Promise<void> {
   const get = http ?? realHttp(DOWNLOAD_TIMEOUT_MS);
   const res = await get(url, { method: 'GET', headers: {} });
   if (res.status >= 300) throw new Error(`download failed (${res.status}) for ${redactUrl(url)}`);
+  const over = () => new Error(`${redactUrl(url)} is over the ${largest} bytes taken for it, and is not downloaded`);
+  if (largest !== undefined && Number(res.header?.('content-length')) > largest) throw over();
+  let body: Buffer;
+  if (largest !== undefined && res.chunks) {
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    for await (const part of res.chunks()) {
+      size += part.byteLength;
+      if (size > largest) throw over();
+      parts.push(part);
+    }
+    body = Buffer.concat(parts);
+  } else {
+    body = Buffer.from(await res.arrayBuffer());
+    if (largest !== undefined && body.byteLength > largest) throw over();
+  }
   await mkdir(dirname(dest), { recursive: true });
-  await writeFile(dest, Buffer.from(await res.arrayBuffer()));
+  await writeFile(dest, body);
 }
 
 export interface SubmitOnceOptions extends FalOptions {
@@ -505,6 +525,9 @@ export function completeJob(runDir: string, model: string, input: unknown): void
   markDone(runDir, jobKey(model, input));
 }
 
+/** No fal key is set anywhere: not a key that is set and cannot be read, which is a setting to fix. */
+export class NoFalKey extends Error {}
+
 /**
  * The key, from the environment or from a file the user points at.
  *
@@ -517,6 +540,7 @@ export function completeJob(runDir: string, model: string, input: unknown): void
  * an error message: `scrub` exists because fal echoes the Authorization header in some error bodies.
  */
 export function falKey(env: NodeJS.ProcessEnv = process.env): string {
+  // NoFalKey when none is set anywhere; any other error is a key that is set and cannot be read.
   const direct = env.FAL_KEY ?? env.FAL_API_KEY;
   if (direct?.trim()) return direct.trim();
 
@@ -530,7 +554,7 @@ export function falKey(env: NodeJS.ProcessEnv = process.env): string {
     return line;
   }
 
-  throw new Error(
+  throw new NoFalKey(
     'no fal key: set FAL_KEY, or set OPEN_EDIT_FAL_KEY_FILE to a file holding it. ' +
     'Ask the user rather than guessing, and never echo the value back to them.',
   );
