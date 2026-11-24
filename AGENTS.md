@@ -22,7 +22,12 @@ A map for changing this repo. Making a video is the `open-edit` skill's job:
   stands, all read together by `readManifest`) and the queue ledger (`queue-ledger.ts`) that keeps an
   identical request from being bought twice.
 - `cli/src/faces/`: face detection for `faces` (MediaPipe in a Python environment `install-mediapipe` makes
-  under the app-data dir), the search for graphics burned into the footage on the same decode's frames
+  under the app-data dir), `speakers.ts`, which maps a speakers file made for a clip (its shots, each face's track
+  and who is speaking) into the same shots and boxes in detection's place, `analysis.ts`, which runs the hosted
+  analysis the environment names for such a file (`OPEN_EDIT_SPEAKERS_ANALYSIS`, a fal model, on the user's fal key
+  or the environment's own `fal` command, found by `providers/fal-route.ts` and run by `providers/fal-command.ts`,
+  the one place that command is run from for any model), the search for graphics burned into
+  the footage on the same decode's frames
   (`graphics.ts`, which review's graphics check also runs), and `faces.js`, the page code that keeps text off both; `reframe`
   and `shots` read the same boxes, from the clip's own folder that `folder.ts` names by its real path. `erase.ts` finds
   the graphics a reframe's crop cuts, cuts the clip into parts for the eraser, prices them, writes their fal runs only
@@ -30,6 +35,11 @@ A map for changing this repo. Making a video is the `open-edit` skill's job:
   the erased rows back over the clip.
   `concat-videos` and `apply-edl` cut a clip of another shape through reframe's `planShape` and
   `shapeChain`, never a reshaping crop of their own; `render --footage` refuses footage of another shape.
+- `cli/src/render/`: the Chrome renderer `render`, `behind` and the editor hand-off drive. `speaker.ts` lays the
+  layers of a stage with a speaker's cut-out; `speaker-cutout.ts` makes that cut-out for a page that lays a graphic
+  behind the speaker and has none, only where the environment switches it on (`OPEN_EDIT_SPEAKER_CUTOUT`): fal's fast
+  background-removal model on the stretches of the clip a graphic is up for, on the user's fal key or the
+  environment's own `fal` command (`providers/fal-route.ts`), kept in the clip's own folder.
 - `cli/src/zoom/`: the camera `zoom` writes for a screen recording: the cursor, clicks and wholesale changes read from
   frame differences (`activity.ts`), the text size near a point (`text.ts`), and `zoom.js`, whose planner the page and
   the command's summary both run (`page-script.ts`).

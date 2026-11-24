@@ -11,7 +11,7 @@ import { browserProxy } from '../proxy.ts';
 import { CHROME_FLAGS, linuxHint } from './browser.ts';
 import { givenZone, minText, stylesheet, type Zone } from '../commands/safe-zone.ts';
 import { track } from './children.ts';
-import { DRAWN_LARGER, runtimeScript, type FrameReport, type RaisedText, type ReadyInfo, type RuntimeConfig, type StageZone } from './page-runtime.ts';
+import { DRAWN_LARGER, runtimeScript, type BoxedLine, type FrameReport, type RaisedText, type ReadyInfo, type RuntimeConfig, type StageZone } from './page-runtime.ts';
 import { SPEAKER_BOX } from './speaker.ts';
 import { TEXT_SAMPLER_SCRIPT, type SampledFrame } from './text-sampler.ts';
 import { onDisk, type PageServer } from './server.ts';
@@ -116,6 +116,8 @@ export interface SessionOptions {
   noTextFloor?: boolean;
   /** Where the text raised to the floor is gathered, by element; shared like failedLoads. */
   raised?: Map<string, RaisedText>;
+  /** Where the lines wrapped inside the box drawn behind them are gathered, by element and text; shared like failedLoads. */
+  boxed?: Map<string, BoxedLine>;
   /**
    * The zone the first session gave a page that links none, for the sessions opened after it to put in from their
    * first load; shared like failedLoads.
@@ -560,7 +562,7 @@ export class RenderSession {
       else if (this.o.videosIn) await this.standDownOutside(this.o.videosIn);
       this.info = await this.pw.evaluate(`window.__openedit.ready(${this.o.budgetMs}, ${this.floor})`) as ReadyInfo;
       this.report(this.info.problems);
-      this.noteRaised(this.info.raised);
+      this.noteText(this.info.raised, this.info.boxed);
       if (this.shrunk.length) await this.pw.evaluate(`window.__openedit.shrunk(${JSON.stringify(this.shrunk)})`);
     });
   }
@@ -601,12 +603,16 @@ export class RenderSession {
     return true;
   }
 
-  /** Each element as it was first raised, by frame, so the list is the same whichever worker reached it first. */
-  private noteRaised(raised: RaisedText[]): void {
-    for (const r of raised) {
-      const had = this.o.raised?.get(r.key);
-      if (!had || r.frame < had.frame) this.o.raised?.set(r.key, r);
-    }
+  /** Each text as it was first raised or wrapped, by frame, so the lists are the same whichever worker reached it first. */
+  private noteText(raised: RaisedText[], boxed: BoxedLine[]): void {
+    const first = <T extends { key: string; frame: number }>(into: Map<string, T> | undefined, list: T[]) => {
+      for (const r of list) {
+        const had = into?.get(r.key);
+        if (!had || r.frame < had.frame) into?.set(r.key, r);
+      }
+    };
+    first(this.o.raised, raised);
+    first(this.o.boxed, boxed);
   }
 
   /**
@@ -674,11 +680,11 @@ export class RenderSession {
         const stepped = await timed(this.o.timings, 'preroll', () => this.drawn('prerollDraw', deadline(this.pw.evaluate(`window.__openedit.preroll(${this.next}, ${i}, ${budget})`) as Promise<FrameReport>,
           2 * budget + steps * 1000, `stepping through frames ${this.next}-${i - 1}`)), steps);
         this.report(stepped.problems);
-        this.noteRaised(stepped.raised);
+        this.noteText(stepped.raised, stepped.boxed);
       }
       const drew = await timed(this.o.timings, 'page', () => this.drawn('draw', deadline(this.pw.evaluate(`window.__openedit.frame(${i}, ${budget})`) as Promise<FrameReport>, 2 * budget, 'the page')));
       this.report(drew.problems);
-      this.noteRaised(drew.raised);
+      this.noteText(drew.raised, drew.boxed);
     } catch (e) {
       this.check();
       const message = (e as Error).message;

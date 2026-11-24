@@ -1,6 +1,6 @@
 // A clip cut to another shape, e.g. 16:9 to 9:16, around the faces `faces` found, else from the middle: the one
 // tool for a change of shape, so every crop a piece needs comes out the same. It never guesses who is who,
-// and it knows faces, not who is talking. The crop is scaled to 1080 px on its short side, the platforms' canvas for
+// and knows who is talking only where the boxes came from a speakers file. The crop is scaled to 1080 px on its short side, the platforms' canvas for
 // their shapes, unless --size names another size or `native` keeps the source's own pixels:
 //
 //   openedit reframe <video> --aspect 9:16 --out <file> [--faces <faces.json>] [--size WxH|native]
@@ -9,12 +9,17 @@
 // - A shot that shows one face only (never two at once, each found overlapping the one before) is followed:
 //   the crop holds still while the face stays inside it, and moves only when no single place keeps every
 //   sample's face in frame, the way a camera operator holds a frame rather than chasing the subject, easing
-//   from rest and back to rest, in one even pan when the face keeps moving the same way.
+//   from rest and back to rest, in one even pan when the face keeps moving the same way. A face that fits the
+//   crop is never cut by a hold. One longer than the crop is held at one place while its centre stays in the
+//   crop's middle third, and a hold ends where the face grows past the crop's length or comes back under it.
 // - A shot that shows more than one face is held at one place throughout: where the faces lying wholly inside
 //   the crop add up to the most height over the shot. It does not pan, so someone who walks out is not followed.
 // - A shot with no face is cut from the middle. At a cut the crop jumps.
 // - A face less than half the height of the tallest found with it is someone in the background, and none of these
 //   rules counts it.
+// - A shot whose boxes say whom to show (a speakers file's runs) is framed on that face instead: each run followed
+//   as a shot showing one face is, a jump between two runs naming different faces, and inside a run naming two
+//   faces a jump to the other where that one starts a turn of a second or more.
 // - A shot is first split, as at a dissolve or a cut ffmpeg did not see, between two runs of four or more lone
 //   faces (each overlapping the one before) where the later run's first face does not overlap the earlier
 //   run's last, no other run of four or more on the far side of that jump overlaps either of those two faces,
@@ -43,21 +48,20 @@ import {
 } from '../faces/erase.ts';
 import { facesFolder, othersFaces, ownFaces, strandedFaces } from '../faces/folder.ts';
 import { graphicOnto } from '../faces/onto-cut.ts';
-import { facesScript, type FaceBox, type FacesClip, type GraphicBox, type Shot } from '../faces/page-script.ts';
+import { facesScript, inSpan, toDisplay, whoOf, type FaceBox, type FacesClip, type GraphicBox, type ShowRun, type Shot } from '../faces/page-script.ts';
 import { decodedColourOf, probeFrameRate, probeSquareSize, probeVideoSpan } from '../probe.ts';
-import { findOnPath } from '../platform.ts';
 import { writeAtomic, writeTextAtomic } from '../providers/exclusive-files.ts';
-import { falKey } from '../providers/fal.ts';
+import { falRoute } from '../providers/fal-route.ts';
 import { resolveVideoArg } from '../resolve-video.ts';
 import { shellArg } from '../shell-arg.ts';
 import { asShown } from '../shown.ts';
 import { evenSize } from '../size.ts';
 import { canvasFor, type Size } from '../verify/canvas.ts';
-import { findGraphics, measuredAs, notFacesOf, readFaces, toDisplay } from './faces.ts';
+import { findGraphics, measuredAs, notFacesOf, readFaces } from './faces.ts';
 import { formatNamed, type Format, type Shape } from './safe-zone.ts';
 
 export const usage = {
-  summary: 'Cut a clip to another shape at the platforms\' 1080 px canvas: around the faces faces found (one face followed, several held still), else from the middle',
+  summary: 'Cut a clip to another shape at the platforms\' 1080 px canvas: around the faces faces found (one face followed, several held still, the speaker where a speakers file names one), else from the middle',
   positionals: '<video>',
   flags: {
     aspect: { type: 'string', value: 'W:H', help: 'The shape to cut to, e.g. 9:16 or 1:1 (default: the shape of the platform in the piece\'s brief.json, found from --out)' },
@@ -90,10 +94,21 @@ export const usage = {
     'The crop keeps the source\'s full height (or width), is scaled (lanczos) to the output size, and jumps at a cut.',
     'With face boxes each shot, which can be split again where a face seen alone for four samples jumps further than',
     'its own width and is seen alone there for four more (a dissolve or a cut the cut detection missed), is followed',
-    'when it shows one face only, still while the face stays inside and moving smoothly only when it must, and held',
+    'when it shows one face only, still while the face stays inside and moving smoothly only when it must (a face that',
+    'fits the crop is kept whole, giving up the room beside it first; one longer than the crop is held at one place',
+    'while its centre stays in the crop\'s middle third; a hold ends where the face grows past the crop\'s length or',
+    'comes back under it, the fitting face standing where the longer one does when that keeps it whole), and held',
     'at one place when it shows more, where the faces wholly inside add up to the most height; a shot with none is',
     'cut from the middle. A face less than half the height of the tallest found with it is someone in the background',
-    'and does not count among the shot\'s faces. Without face boxes the whole clip is cut from the middle. A clip',
+    'and does not count among the shot\'s faces. Where the boxes carry a speakers file\'s runs of whom to show (faces',
+    '--speakers, or the hosted analysis faces runs), a shot is framed on the face the file says to show instead: each',
+    'run is followed as a shot showing that one face is, and the crop jumps between two runs naming different faces as',
+    'at a cut. Inside a run naming two faces it frames whichever of them is speaking, jumping to the other where that',
+    'one starts a turn of a second or more and staying put through silence or while both are flagged. A run that names',
+    'nobody, lasts under a second or has no box of its face keeps the framing before it; a shot none of whose runs lasts',
+    'a second is framed on the longest run that names a face with a box, and of two it names on the one speaking in more',
+    'of it. A face beside the one shown can be out of frame on purpose, which',
+    'one line says. Without face boxes the whole clip is cut from the middle. A clip',
     'already in the shape, to within the two pixels even sides round to, is re-encoded uncropped and scaled the same',
     'way. When the clip has face boxes, the output\'s own are written where faces writes them for it, each box and',
     'graphic moved and scaled with the crop and cut where the crop cuts it, and the path is printed; without, none are.',
@@ -198,6 +213,11 @@ const KEEP_BESIDE = 0.1;
 // down when the crop moves vertically (the rule of thirds).
 const ANCHOR = { x: 0.5, y: 1 / 3 };
 
+// A face longer than the crop cannot be kept whole, and centred sample by sample the crop follows every small move
+// of the head: its centre is kept inside this share of the crop about the crop's middle, so the crop moves only when
+// the head does.
+const MIDDLE = 1 / 3;
+
 // How far into a crop `size` long the anchor falls: within the part the platform's UI leaves clear when there is one,
 // since that is the part of the picture people see.
 const anchorIn = (size: number, axis: 'x' | 'y', clear?: [number, number]) =>
@@ -211,6 +231,9 @@ const BEFORE_CUT = 0.0005;
 // sampling (a hold shorter than its half gives what it has). It is the pace one sample a second gave: four a
 // second would otherwise whip the crop across in 0.25 s.
 const PAN_SEC = 1;
+
+/** A place along the crop's axis, kept to where the crop can stand. */
+const within = (crop: Crop, p: number) => Math.min(crop.travel, Math.max(0, p));
 
 const overlaps = (a: FaceBox, b: FaceBox) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
@@ -321,8 +344,98 @@ function foreground(shot: Shot): Shot {
   };
 }
 
+// A run of whom to show shorter than this is not framed on its own, and inside a run naming several faces only a
+// turn this long moves the crop: a shorter one would flash a face for a few frames.
+const RUN_SEC = 1;
+
+type Run = { run: ShowRun; start: number; end: number };
+
+/**
+ * Whom a run of whom to show is framed on, from when: the face it names, nobody (null), or, where it names several,
+ * whoever of them takes a turn of `floor` or more, a turn being one face flagged speaking alone. Such a run stays on
+ * `current`, the face the crop is already on, when it names that face and the face has a box in it, and else opens
+ * on its first turn's. With no turn that long it is framed on whoever speaks in more of it, as a `floor` of Infinity asks.
+ */
+function framedIn(shot: Shot, { run, start, end }: Run, floor: number, current?: number): { start: number; track: number | null }[] {
+  if (run.tracks.length < 2) return [{ start, track: run.tracks[0] ?? null }];
+  const within = shot.samples.filter((sample) => inSpan(sample.sec, start, end));
+  const flagged = (sample: Shot['samples'][number]) => run.tracks.filter((track) => sample.faces.some((f) => f.track === track && f.speaking));
+  const turns: { track: number; first: number; last: number }[] = [];
+  for (const [i, sample] of within.entries()) {
+    const on = flagged(sample);
+    if (on.length !== 1) continue;
+    const turn = turns.at(-1);
+    if (turn?.track === on[0]) turn.last = i;
+    else turns.push({ track: on[0], first: i, last: i });
+  }
+  // Each sample stands for the time halfway to its neighbours.
+  const from = (i: number) => (i ? (within[i - 1].sec + within[i].sec) / 2 : start);
+  const to = (i: number) => (i + 1 < within.length ? (within[i].sec + within[i + 1].sec) / 2 : end);
+  const kept = turns.filter((turn) => to(turn.last) - from(turn.first) >= floor);
+  // A face holds the crop only while it has a box here: one without is an empty place.
+  const boxed = (track: number) => within.some((sample) => sample.faces.some((f) => f.track === track));
+  const held = current !== undefined && run.tracks.includes(current) && boxed(current) ? [{ start, track: current }] : [];
+  if (kept.length || held.length) return [...held, ...kept.map((turn, k) => ({ start: k || held.length ? from(turn.first) : start, track: turn.track }))];
+  // Nobody speaks long enough: of the faces with a box here, the one speaking in more samples, the first named on a tie.
+  const speaking = (track: number) => within.filter((sample) => flagged(sample).includes(track)).length;
+  const seen = run.tracks.filter(boxed);
+  return [{ start, track: seen.length ? seen.reduce((top, track) => (speaking(track) > speaking(top) ? track : top)) : null }];
+}
+
+/**
+ * A shot a speakers file says whom to show in, as the parts the crop frames, each holding one face's boxes alone, so
+ * it is followed as a shot showing one face is; null when no run frames a face. A run naming nobody, one shorter than
+ * `floor`, and one whose face has no box in it keep the framing before them, so the crop does not jump to the middle.
+ */
+export function shownParts(shot: Shot, floor = RUN_SEC): Shot[] | null {
+  // A run can end past the shot, whose end is the clip's as probed, or start before it, where the shot was cut.
+  const runs = (shot.show ?? []).map((run): Run => ({ run, start: Math.max(run.start, shot.start), end: Math.min(run.end, shot.end) }))
+    .filter((r) => r.end > r.start);
+  // A file can name a track a moment before its first box, and a coarse sampling can leave a run no sample.
+  const boxed = (track: number, start: number, end: number) =>
+    shot.samples.some((sample) => inSpan(sample.sec, start, end) && sample.faces.some((f) => f.track === track));
+  const framed = (list: Run[], least: number, turn = least) => {
+    const parts: { start: number; track: number }[] = [];
+    for (const r of list) {
+      if (r.end - r.start < least) continue;
+      const stretches = framedIn(shot, r, turn, parts.at(-1)?.track);
+      for (const [k, { start, track }] of stretches.entries()) {
+        if (track === null || parts.at(-1)?.track === track || !boxed(track, start, stretches[k + 1]?.start ?? r.end)) continue;
+        parts.push({ start: parts.length ? start : shot.start, track });
+      }
+    }
+    return parts;
+  };
+  let parts = framed(runs, floor);
+  // A shot none of whose runs lasts the floor still shows a face its runs name, the longest run that has one with a
+  // box first: held as several faces, it could be framed on the other one.
+  for (const r of parts.length ? [] : [...runs].sort((x, y) => y.end - y.start - (x.end - x.start))) {
+    const [first] = framed([r], 0, Infinity);
+    if (!first) continue;
+    parts = [first];
+    break;
+  }
+  if (!parts.length) return null;
+  return parts.map(({ start, track }, k): Shot => {
+    const end = parts[k + 1]?.start ?? shot.end;
+    const mine = shot.samples.filter((sample) => inSpan(sample.sec, k ? start : -Infinity, parts[k + 1] ? end : Infinity));
+    return { start, end, samples: mine.map((sample) => ({ ...sample, faces: sample.faces.filter((f) => f.track === track) })) };
+  });
+}
+
+/**
+ * What to say of a clip framed on the faces its runs of whom to show name, or null when no shot with several faces
+ * is: the face left out of such a shot is out of frame on purpose. With `played`, of the shots those seconds play.
+ */
+function shownNote(clip: FacesClip | null, played?: { start: number; end: number }[]): string | null {
+  const plays = (shot: Shot) => !played || played.some((span) => span.start < shot.end && shot.start < span.end);
+  const shots = clip?.shots.filter((shot) => plays(shot) && shot.samples.some((sample) => sample.faces.length > 1) && shownParts(shot)).length ?? 0;
+  return shots ? `${shots} shot(s) with several faces are framed on the one their face boxes say to show (a speakers file's runs; of two faces named, the one speaking), `
+    + 'so a face beside it can be out of frame on purpose' : null;
+}
+
 /** The shots, and parts of shots, the crop frames one after another. */
-const framedShots = (clip: FacesClip): Shot[] => clip.shots.map(foreground).flatMap(partsOf);
+const framedShots = (clip: FacesClip): Shot[] => clip.shots.flatMap((shot) => shownParts(shot) ?? partsOf(foreground(shot)));
 
 // On even pixels (4:2:0 chroma), inside [lo, hi] whenever that range holds an even one.
 const evenWithin = (v: number, lo: number, hi: number) => {
@@ -343,7 +456,7 @@ export function stillPlace(shot: Shot, crop: Crop, clear?: [number, number]): nu
   const faces = shot.samples.flatMap((sample) => sample.faces);
   if (!faces.length) return null;
   const span = (f: FaceBox) => spanOn(f, crop.axis);
-  const clamp = (p: number) => Math.min(crop.travel, Math.max(0, p));
+  const clamp = (p: number) => within(crop, p);
   const inside = (p: number, f: FaceBox) => span(f)[0] >= p && span(f)[1] <= p + size;
   const height = (p: number) => faces.reduce((sum, f) => sum + (inside(p, f) ? f.h : 0), 0);
   // The total changes only where a face meets an edge of the crop, so those places are the only candidates.
@@ -371,8 +484,11 @@ export function stillPlace(shot: Shot, crop: Crop, clear?: [number, number]): nu
 /**
  * The places the crop holds within one shot, each from its first sample to its last. With several faces it
  * is the one still place for the whole shot. With one face, a run of samples shares one place for as long as
- * some place keeps every one of its faces in frame (with `margin` of the face's size beside it when that
- * fits); that place is the one nearest the faces' average anchor, and a sample without the face is passed over.
+ * some place keeps every one of its faces whole (with `margin` of the face's size beside it when that fits), or,
+ * for a face longer than the crop, keeps its centre in the crop's middle third; that place is the one nearest
+ * what the samples want on average, and a sample without the face is passed over. A run ends where the face
+ * crosses the crop's length, and a fitting face's hold takes the place of a longer one's beside it where that
+ * keeps it whole.
  * With `clear`, the fractions of the crop along its axis the platform's UI leaves clear, each face is also kept
  * inside them wherever some place does that, giving up the margin first.
  */
@@ -381,54 +497,69 @@ export function holdsFor(shot: Shot, crop: Crop, margin: number, clear?: [number
     const at = stillPlace(shot, crop, clear);
     return at === null ? [] : [{ from: shot.start, to: shot.end, at }];
   }
-  const holds: Hold[] = [];
-  let run: { lo: number; hi: number; want: number[]; from: number; to: number } | null = null;
+  const holds: (Hold & { lo: number; hi: number; long: boolean })[] = [];
+  let run: { lo: number; hi: number; want: number[]; from: number; to: number; long: boolean } | null = null;
   const close = () => {
     if (!run) return;
     const mean = run.want.reduce((a, b) => a + b, 0) / run.want.length;
-    holds.push({ from: run.from, to: run.to, at: evenWithin(Math.min(run.hi, Math.max(run.lo, mean)), run.lo, run.hi) });
+    holds.push({ from: run.from, to: run.to, at: evenWithin(Math.min(run.hi, Math.max(run.lo, mean)), run.lo, run.hi), lo: run.lo, hi: run.hi, long: run.long });
   };
-  for (const { sec, lo, hi, want } of rangesFor(shot, crop, margin, clear)) {
-    if (run && Math.max(run.lo, lo) <= Math.min(run.hi, hi)) {
+  for (const { sec, lo, hi, want, long } of rangesFor(shot, crop, margin, clear)) {
+    // A face that fits and one longer than the crop are placed by different rules, and a place kept from one to
+    // the other pins the longer face where the fitting one stood: far off its centre, and cut more than it need be.
+    if (run && run.long === long && Math.max(run.lo, lo) <= Math.min(run.hi, hi)) {
       run.lo = Math.max(run.lo, lo);
       run.hi = Math.min(run.hi, hi);
       run.want.push(want);
       run.to = sec;
     } else {
       close();
-      run = { lo, hi, want: [want], from: sec, to: sec };
+      run = { lo, hi, want: [want], from: sec, to: sec, long };
     }
   }
   close();
-  return holds;
+  // A face whose size hops across the crop's length from sample to sample would move the crop at every hop, so a
+  // hold of the fitting face stands where the longer one beside it does, wherever that keeps it whole too.
+  for (const [k, hold] of holds.entries()) {
+    if (hold.long) continue;
+    const beside = [holds[k - 1], holds[k + 1]].find((other) => other?.long && other.at >= hold.lo && other.at <= hold.hi);
+    if (beside) hold.at = beside.at;
+  }
+  return holds.map(({ from, to, at }) => ({ from, to, at }));
 }
 
 /**
- * For each sample of a shot showing one face only that shows it, the places that keep it in frame (with `margin` of
- * its size beside it when that fits, and inside the `clear` fractions where some place does that, the margin given up
- * first), and the place its anchor wants.
+ * For each sample of a one-face shot that shows the face, the places the crop may stand at and the place it wants.
+ * A face no longer than the crop is kept whole, with `margin` of its size beside it when that fits and inside the
+ * `clear` fractions where some place does that; a longer one keeps its centre in the crop's middle third.
  */
-function rangesFor(shot: Shot, crop: Crop, margin: number, clear?: [number, number]): { sec: number; lo: number; hi: number; want: number }[] {
+function rangesFor(shot: Shot, crop: Crop, margin: number, clear?: [number, number]): { sec: number; lo: number; hi: number; want: number; long: boolean }[] {
   const size = crop.axis === 'x' ? crop.w : crop.h;
   const extent = crop.travel + size;
-  return shot.samples.flatMap((sample) => {
+  return shot.samples.flatMap((sample): { sec: number; lo: number; hi: number; want: number; long: boolean }[] => {
     const face = sample.faces[0];
     if (!face) return [];
     const [start, length] = crop.axis === 'x' ? [face.x, face.w] : [face.y, face.h];
+    if (length > size) {
+      const centred = start + length / 2 - size / 2;
+      const half = (size * MIDDLE) / 2;
+      return [{ sec: sample.sec, lo: within(crop, centred - half), hi: within(crop, centred + half), want: within(crop, centred), long: true }];
+    }
     const pad = length * margin;
     const [a, b] = length + 2 * pad <= size
       ? [Math.max(0, start - pad), Math.min(extent, start + length + pad)]
       : [start, start + length];
-    // Every place from lo to hi keeps [a, b] in frame; a face larger than the crop is centred instead.
+    // Every place from lo to hi keeps [a, b] in frame.
     let lo = Math.max(0, b - size);
     let hi = Math.min(crop.travel, a);
-    if (lo > hi) lo = hi = Math.min(crop.travel, Math.max(0, (a + b) / 2 - size / 2));
+    // A face that ends past the crop's last place has none that keeps it whole (the travel of an odd-sized source
+    // stops a pixel short), and gets the nearest to centred one.
+    if (lo > hi) lo = hi = within(crop, (a + b) / 2 - size / 2);
     else if (clear) {
       const [l, h] = keeping([start, start + length], clear, size, crop.travel);
       if (l <= h) [lo, hi] = Math.max(l, lo) <= Math.min(h, hi) ? [Math.max(l, lo), Math.min(h, hi)] : [l, h];
     }
-    const want = Math.min(crop.travel, Math.max(0, start + length / 2 - anchorIn(size, crop.axis, clear)));
-    return [{ sec: sample.sec, lo, hi, want }];
+    return [{ sec: sample.sec, lo, hi, want: within(crop, start + length / 2 - anchorIn(size, crop.axis, clear)), long: false }];
   });
 }
 
@@ -848,10 +979,13 @@ function reframedFaces(s: Shaping, source: FacesClip, out: Output): FacesClip {
     start: shot.start,
     // The last shot runs to the output's own end, as faces would measure it there.
     end: k === source.shots.length - 1 ? out.durationSec : shot.end,
-    samples: shot.samples.map((sample) => {
-      const boxes = sample.faces.map((f): [number, number, number, number, number?] => [f.x, f.y, f.w, f.h, f.score]);
-      return { sec: sample.sec, faces: shown(boxes, sample.sec) };
-    }),
+    // One at a time, so each box left keeps the track and the speaking of the face it was made from.
+    samples: shot.samples.map((sample) => ({
+      sec: sample.sec,
+      faces: sample.faces.flatMap((f) => shown([[f.x, f.y, f.w, f.h, f.score]], sample.sec).map((box) => ({ ...box, ...whoOf(f) }))),
+    })),
+    // Whom a speakers file would show is said in the source's seconds and tracks, which are the output's too.
+    ...(shot.show ? { show: shot.show } : {}),
   }));
   // Each graphic moved with the crop as a face is, over the seconds it is up.
   const boxAt = (g: GraphicBox) => (sec: number) => {
@@ -886,9 +1020,12 @@ function wholeFaces(video: string, named: string | undefined, size: Size): { cli
 const unused = (s: Shaping) => (s.ignored ? `; ${s.ignored} holds another clip's and is not used` : '');
 
 /** What a command prints for a clip it cut to `target`: which of reframe's two ways it took, and from what. */
-export function describeShape(what: string, s: Shaping, target: string): string {
+export function describeShape(what: string, s: Shaping, target: string, played?: { start: number; end: number }[]): string {
   const size = `${s.width}x${s.height}`;
-  if (s.how === 'faces') return `${what} (${size}) is cut to ${target} around its faces (${s.facesPath}), as reframe cuts it`;
+  if (s.how === 'faces') {
+    const shown = shownNote(s.clip, played);
+    return `${what} (${size}) is cut to ${target} around its faces (${s.facesPath}), as reframe cuts it${shown ? `; ${shown}` : ''}`;
+  }
   const why = s.clip ? `its face boxes (${s.facesPath}) show no face` : `no face boxes for it (faces writes them)${unused(s)}`;
   return `${what} (${size}) is cut to ${target} from the middle, as reframe cuts it: ${why}`;
 }
@@ -992,38 +1129,27 @@ function approveOrAsk(dir: string, parts: ErasePlan['parts'], fps: number, appro
 }
 
 /**
- * The fal command `fal`, when it is one an environment gives in place of a fal key (it holds the key where this process
- * cannot read it): it says it takes a model and that model's input. fal's own CLI also answers to `fal`, and runs apps.
- */
-function ownFal(): boolean {
-  const fal = findOnPath('fal');
-  if (!fal) return false;
-  const r = spawnSync(fal, ['--help'], { encoding: 'utf8', timeout: 10_000 });
-  return /fal run MODEL_ID INPUT_JSON/.test(`${r.stdout ?? ''}${r.stderr ?? ''}`);
-}
-
-/**
  * The fal runs for `parts`, approved under `quote`. `openedit fal` runs them as one batch on a fal key it can read. With
  * no key, the environment's own `fal` runs one generation a call, its input the second argument.
  */
-function falRuns(parts: ErasePlan['parts'], dir: string, out: string, quote: Quote): string[] {
-  let keyed = true;
-  try {
-    falKey();
-  } catch {
-    keyed = false;
-  }
-  if (!keyed && ownFal()) return parts.map((p) => `fal run ${ERASER} @${shellArg(p.input)} --out ${shellArg(p.out)}`);
-  return [`openedit fal run --batch ${shellArg(writeJobs(parts, dir, quote.id))} --out ${shellArg(dir)} --run ${shellArg(dirname(out))}`];
+function falRuns(parts: ErasePlan['parts'], dir: string, out: string, quote: Quote): { runs: string[]; unreadable?: string } {
+  const route = falRoute();
+  if (route.how === 'command') return { runs: parts.map((p) => `fal run ${ERASER} @${shellArg(p.input)} --out ${shellArg(p.out)}`) };
+  return {
+    runs: [`openedit fal run --batch ${shellArg(writeJobs(parts, dir, quote.id))} --out ${shellArg(dir)} --run ${shellArg(dirname(out))}`],
+    ...(route.how === 'none' && route.unreadable ? { unreadable: route.why } : {}),
+  };
 }
 
 /** The runs that erase `parts`, just approved under `quote`, and what to run once they are back. */
 function runsToMake(plan: ErasePlan, parts: ErasePlan['parts'], dir: string, out: string, again: string, quote: Quote): void {
   const missing = missingParts(plan);
-  const runs = falRuns(parts, dir, out, quote);
+  const { runs, unreadable } = falRuns(parts, dir, out, quote);
   say(`run the eraser on ${parts.length === 1 ? 'the part' : `each of the ${parts.length} parts`}, its output in the folder named for it`
     + `${runs.length > 1 ? ' (the runs can go at the same time)' : ''}:`);
   for (const run of runs) say(`  ${run}`);
+  // Said with the runs, since the approval is spent by the time a run finds the key out.
+  if (unreadable) say(`the fal key set here cannot be read, so that run will fail until it is fixed: ${unreadable}`);
   say(`then run ${again} again: it lays the erased rows over the clip and reframes that to ${out}. `
     + `Still to erase: ${missing.length === plan.parts.length ? 'every part' : missing.map((p) => p.name).join(', ')}`);
 }
@@ -1285,6 +1411,8 @@ export function reframe(argv: string[]): number {
     ? `reframe: ${width}x${height} → ${crop.w}x${crop.h} (${aspect})${fitted}, ${shape.clip?.shots.length ?? 1} shot(s), the crop changes place ${shape.moves.length - 1} time(s) → ${out}`
     : `reframe: ${videoArg} is already ${aspect} (${width}x${height}), so it is re-encoded upright, ` +
       `${crop.w === width && crop.h === height ? 'uncropped' : `to even pixels (${crop.w}x${crop.h})`}${fitted} → ${out}`);
+  const shown = shape.how === 'faces' ? shownNote(shape.clip) : null;
+  if (shown) console.log(`reframe: ${shown}, and no line reports it`);
   const unfit = unfitted(shape);
   if (unfit.length) {
     console.log(`reframe: a face does not fit the ${crop.w}x${crop.h} crop at ${unfit.map((p) => `${p.from.toFixed(2)}–${p.to.toFixed(2)}`).join(', ')} s `

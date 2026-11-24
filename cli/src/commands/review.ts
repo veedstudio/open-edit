@@ -22,6 +22,7 @@ import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
 import { readBrief, type FoundBrief } from '../brief.ts';
 import { FFPROBE } from '../config.ts';
 import { pictureDurationOf, probeDisplaySize } from '../probe.ts';
+import { draftRefusal } from '../render/draft.ts';
 import { readRecord, recordPath, recordSeconds, timeOf, type TextRecord } from '../render/text-record.ts';
 import {
   CHECKS, type BriefInput, type Check, type CheckReport, type LengthInput, type ReviewContext, type TextRecordInput, type TranscriptInput,
@@ -51,7 +52,8 @@ export const usage = {
       help: "The user's own words the video was made from, or a file holding them; repeatable (default: the words in the piece's brief.json; without either, numbers on screen are compared with the transcript only)",
     },
   },
-  notes: 'Exits 0 whenever the review ran, findings or not: a finding is for you to judge, not an error.',
+  notes: 'Exits 0 whenever the review ran, findings or not: a finding is for you to judge, not an error. A video with a\n'
+    + 'draft\'s name (.draft.mp4, .draft.mov) is refused: a draft is a quick look, never the video to deliver.',
 } satisfies Usage;
 
 /** The transcript the checks compare against: the one named, else the one in the video's folder, else why there is none. */
@@ -224,6 +226,8 @@ export async function review(argv: string[]): Promise<number> {
   const { values, positionals } = parseUsage('review', usage, argv);
   const video = positionals[0];
   if (!video || positionals.length > 1) throw new Error(usageLine('review', usage));
+  const draft = draftRefusal(video, 'review');
+  if (draft) throw new Error(draft);
   if (!existsSync(video)) throw new Error(`video not found: ${video}`);
   const askedLength = lengthFor(values.length, video);
   const brief = briefFor(values.brief, video);

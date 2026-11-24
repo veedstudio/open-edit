@@ -425,10 +425,179 @@ test('render: a raised text that wraps or runs past its box is named', { skip },
   const page = bare(dir, 'reflow.html',
     '<div class="at" style="top:300px;width:300px;font-size:30px">Three short words</div>'
     + '<div class="at" style="top:600px;width:150px;font-size:30px;white-space:nowrap">Unbroken</div>'
-    + '<div class="at" style="top:900px;font-size:30px">Room to spare</div>');
+    + '<div class="at" style="top:900px;font-size:30px">Room to spare</div>'
+    // Raised, this one runs past the box drawn behind it, where it is wrapped: on more lines, and not past its box.
+    + '<div class="at" style="top:1200px;width:200px;font-size:30px;white-space:nowrap;background:#333">Two words</div>');
   const r = cli(['render', page, '--out', join(dir, 'still'), '--stills', '0']);
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /text: raised 3 element\(s\) to 49 px, the floor for this canvas: "Three short words", "Unbroken", "Room to spare"; 1 now runs onto more lines: "Three short words"; 1 now runs past its box or the stage: "Unbroken"\n/);
+  assert.match(r.out, /text: raised 4 element\(s\) to 49 px, the floor for this canvas: "Three short words", "Unbroken", "Room to spare", "Two words"; 2 now run onto more lines: "Three short words", "Two words"; 1 now runs past its box or the stage: "Unbroken"\n {2}text: wrapped 1 line\(s\) the page set not to wrap, inside the box drawn behind it, which it ran past: "Two words"\n/);
+});
+
+const LONG = 'far too long to stay on one line of this zone';
+// Text at 60 px in the 680 px 9:16 zone, where a pill holding LONG is narrowed to the zone and its line runs past it.
+const PILLS = '[data-safe]{font-size:60px;line-height:1}.row{display:flex;justify-content:center}.pill{display:inline-block;white-space:nowrap;background:#333;padding:10px 30px}';
+/** Each text of a frame by its first word: its glyphs' left and right, and how many 60 px lines they stand on. */
+const linesAt = (out: string, frame: number) => Object.fromEntries(readRecord(recordPath(out)).samples.find((s) => s.frame === frame)!.texts
+  .map((e) => [e.text.split(' ')[0], { left: e.box[0], right: e.box[0] + e.box[2], lines: Math.round(e.box[3] / 60) }]));
+
+test('render: a line set not to wrap that runs past the box drawn behind it wraps inside that box, which keeps its width', { skip }, () => {
+  const dir = scratchDir('text-in-box');
+  // A pill in a centred row, its text in a wrapper with a background of no opacity, a pill centred by its own
+  // position, a line in a card, a caption of word spans and a line set in __seek that later fits, each wider than the
+  // zone lets its box be. Beside them, lines the render leaves alone: one that fits, one its box clips, one placed
+  // out of the flow of its box, and one in a band whose edges are the stage's.
+  const page = zonePage(dir, 'box.html', formatNamed('9:16'), TALL,
+    `<div data-safe><div class="row"><span class="pill" id="row" style="background:#f00"><span style="display:inline-block;background:oklch(0.5 0.1 30 / 0)">Row ${LONG}</span></span></div>`
+    + `<span class="pill" id="own" style="position:absolute;left:50%;top:400px;transform:translateX(-50%);background:#00f">Own ${LONG}</span>`
+    + `<div class="card" style="margin-top:500px"><div>Card</div><div id="line" style="white-space:nowrap">Line ${LONG}</div></div>`
+    + `<div class="row"><span class="pill" id="words">${`Words ${LONG}`.split(' ').map((w) => `<span>${w}</span>`).join(' ')}</span></div>`
+    + '<div class="row"><span class="pill" id="later"></span></div>'
+    + '<div class="row"><span class="pill" id="fits">Fits</span></div>'
+    + `<div class="card" style="overflow:hidden;white-space:nowrap" id="clipped">Clipped ${LONG}</div>`
+    + `<div class="card" style="position:relative;height:80px"><div id="placed" style="position:absolute;left:0;top:0;white-space:nowrap">Placed ${LONG}</div></div></div>`
+    + `<div class="card" id="band" style="position:absolute;left:0;right:0;bottom:0;white-space:nowrap">Band ${LONG} and off the stage it goes</div>`
+    + `<script>window.__seek=(t)=>{document.getElementById('later').textContent=t<0.2?'Later ${LONG}':'Later';};</script>`,
+    `${PILLS}.card{background:#222;padding:10px 30px;font-size:60px;line-height:1}`);
+  const out = join(dir, 'out.mp4');
+  const r = cli(['render', page, '--out', out, '--fps', '10', '--duration', '0.4']);
+  assert.equal(r.code, 0, r.err);
+  const first = linesAt(out, 0);
+  for (const id of ['Row', 'Own', 'Line', 'Later']) {
+    assert.ok(first[id].right <= 880 - 30 && first[id].lines > 1, `${id}: ${JSON.stringify(first[id])}`);
+  }
+  // The caption's words wrap between the spans, each still whole on its own line.
+  const words = readRecord(recordPath(out)).samples[0].texts.filter((e) => e.selector.startsWith('#words>'));
+  assert.equal(words.length, 12);
+  assert.ok(words.every((e) => e.box[0] + e.box[2] <= 880 - 30 && Math.round(e.box[3] / 60) === 1), JSON.stringify(words.map((e) => e.box)));
+  assert.ok(new Set(words.map((e) => e.box[1])).size > 1, 'the words sit on more than one line');
+  assert.deepEqual([first.Fits.lines, first.Clipped.lines, first.Placed.lines, first.Band.lines], [1, 1, 1, 1]);
+  assert.ok(first.Placed.right > 880 && first.Band.right === 1080, JSON.stringify([first.Placed, first.Band]));
+  // The line set shorter in __seek fits again: on one line, in a pill let go of the width it was held at, so centred.
+  const later = linesAt(out, 2).Later;
+  assert.ok(later.lines === 1 && Math.abs(later.left + later.right - 1080) <= 2, JSON.stringify(later));
+  // Each line is named once and whole, the caption by all of its words: those wrapped as the page loaded, then the one set in __seek.
+  assert.ok(r.out.includes('\n  text: wrapped 5 line(s) the page set not to wrap, inside the box drawn behind each, which they ran past: '
+    + `"Line ${LONG}", "Own ${LONG}", "Row ${LONG}", "Words ${LONG}", "Later ${LONG}"\n`), r.out);
+
+  // Each pill is as wide as the zone let it be, the one sized by its own position too; the size floor plays no part.
+  const s = cli(['render', page, '--out', join(dir, 'still'), '--stills', '0', '--no-text-floor']);
+  assert.equal(s.code, 0, s.err);
+  assert.match(s.out, /\n {2}text: wrapped 5 line\(s\)/);
+  const still = join(dir, 'still', 'f000000-0.000s.png');
+  const sides = (box: number[]) => [box[0], box[2]];
+  assert.deepEqual(sides(pixelBox(still, 1080, 1920, (red, green, blue) => red > 200 && green < 40 && blue < 40)), [200, 880]);
+  assert.deepEqual(sides(pixelBox(still, 1080, 1920, (red, green, blue) => blue > 200 && red < 40 && green < 40)), [200, 880]);
+});
+
+test('render: a line wraps by where the page lays it out, all through an entrance and a transition that move it; not where a transform fits it or carries it out of a box it fits, nor in a box that would not hold it; and the page\'s scripts read the page\'s own layout', { skip }, () => {
+  const dir = scratchDir('text-in-box-moving');
+  // A pill with a border alone, one sliding in across the stage's right edge, words that scale up from nothing one
+  // after another, a pill in a wrapper that a transition of the page's own carries across from 0.1 s, a word a
+  // transform carries out of a pill it fits, a label on a bar narrower than it and one line high, a line scaled
+  // down to fit its card, and a pill whose label goes from long to short at 0.3 s, its width read in __seek.
+  const page = zonePage(dir, 'moving.html', formatNamed('9:16'), TALL,
+    `<div data-safe><div class="row"><span class="pill" id="edge" style="background:none;border:4px solid #fff">Edge ${LONG}</span></div>`
+    + `<div class="row"><span class="pill" id="slide">Slide ${LONG}</span></div>`
+    + `<div class="row"><span class="pill" id="pop">${`Pop ${LONG}`.split(' ').map((w) => `<span>${w}</span>`).join(' ')}</span></div>`
+    + `<div id="ease"><span class="pill" id="eased" style="max-width:400px">Eased ${LONG}</span></div>`
+    + '<div class="row"><span class="pill"><span id="carried">Carried</span></span></div>'
+    + '<div style="width:200px;height:70px;background:#333;white-space:nowrap">Bar label over it</div>'
+    + `<div style="width:400px;background:#333"><span id="fitted">Fitted ${LONG}</span></div>`
+    + '<div class="row"><span class="pill" id="cue"></span></div><div id="read"></div></div>'
+    + `<script>window.__seek=(t)=>{const cue=document.getElementById('cue');cue.textContent=t<0.25?'Cue ${LONG}':'Cue';`
+    + 'document.getElementById(\'read\').textContent=\'W\'+cue.offsetWidth;document.getElementById(\'ease\').classList.toggle(\'on\',t>=0.1);'
+    + 'document.querySelectorAll(\'#pop span\').forEach((w,k)=>{w.style.transform=t*10>=k?\'none\':\'scale(0)\';});};</script>',
+    `${PILLS}@keyframes in{from{transform:translateX(900px)}to{transform:none}}#slide{animation:in .4s linear both}#pop span{display:inline-block}`
+    + '#ease{transition:transform .4s linear}#ease.on{transform:translateX(200px)}#carried{display:inline-block;transform:translateX(300px)}'
+    + '#fitted{display:inline-block;white-space:nowrap;transform-origin:left;transform:scale(.25)}');
+  const out = join(dir, 'out.mp4');
+  const r = cli(['render', page, '--out', out, '--fps', '10', '--duration', '0.7']);
+  assert.equal(r.code, 0, r.err);
+  const rest = linesAt(out, 6);
+  for (const id of ['Edge', 'Slide', 'Eased']) assert.ok(rest[id].lines > 1, `${id}: ${JSON.stringify(rest[id])}`);
+  assert.ok(rest.Edge.right <= 880 - 34 && rest.Slide.right <= 880 - 30, JSON.stringify([rest.Edge, rest.Slide]));
+  // Half way in, the pill's right side is past the stage's, and its line is on as many lines as it comes to rest on.
+  const half = linesAt(out, 2).Slide;
+  assert.ok(half.left > rest.Slide.left + 400 && half.lines === rest.Slide.lines, JSON.stringify([half, rest.Slide]));
+  // The words are where they come to rest from the first of them, the ones not yet shown wrapped too.
+  const tops = (frame: number) => readRecord(recordPath(out)).samples.find((s) => s.frame === frame)!.texts.filter((e) => e.selector.startsWith('#pop>')).map((e) => e.box[1]);
+  assert.equal(tops(6).length, 7);
+  assert.deepEqual(tops(1), tops(6).slice(0, 2));
+  // The page's own transition runs on under the measuring: a quarter of the way further each frame.
+  const eased = [1, 2, 3, 4, 5].map((frame) => linesAt(out, frame).Eased.left - linesAt(out, 0).Eased.left);
+  assert.deepEqual(eased.map(Math.round), [0, 50, 100, 150, 200]);
+  assert.ok(rest.Carried.lines === 1 && rest.Carried.left > 540, JSON.stringify(rest.Carried));
+  // The bar would not hold its label on two lines, so the label stays on one, past the bar's side at 400.
+  assert.ok(rest.Bar.lines === 1 && rest.Bar.right > 400 + 100, JSON.stringify(rest.Bar));
+  const text = (frame: number, selector: string) => readRecord(recordPath(out)).samples.find((s) => s.frame === frame)!.texts.find((e) => e.selector === selector)!;
+  // A quarter of its size, the line fits its card as drawn: one line, a quarter of 60 px high.
+  assert.ok(text(6, '#fitted').box[3] < 30, JSON.stringify(text(6, '#fitted').box));
+  // The frame the label turns short, __seek reads the short pill's width, not the one the long label was held at.
+  assert.equal(text(2, '#read').text, 'W680');
+  assert.ok(text(3, '#read').text !== 'W680' && text(3, '#read').text === text(6, '#read').text, `${text(3, '#read').text}, then ${text(6, '#read').text}`);
+  assert.ok(r.out.includes('\n  text: wrapped 5 line(s) the page set not to wrap, inside the box drawn behind each, which they ran past: '
+    + `"Eased ${LONG}", "Edge ${LONG}", "Pop ${LONG}", "Slide ${LONG}", "Cue ${LONG}"\n`), r.out);
+});
+
+test('render: a line whose letters are elements of their own is not cut inside a word; words that are elements with no space between them still wrap', { skip }, () => {
+  const dir = scratchDir('text-in-box-letters');
+  // Each letter an inline-block, as a page that moves them one by one sets them: Chrome breaks a line between any two.
+  // Under it, words as inline-blocks kept apart by a margin, with no space between their elements.
+  const page = zonePage(dir, 'letters.html', formatNamed('9:16'), TALL,
+    `<div data-safe><div class="row"><span class="pill" id="letters">${[...'Announcement of extraordinary proportions'].map((c) => (c === ' ' ? c : `<i>${c}</i>`)).join('')}</span></div>`
+    + `<div class="row"><span class="pill" id="words">${`Words ${LONG}`.split(' ').map((w) => `<b>${w}</b>`).join('')}</span></div></div>`,
+    `${PILLS}i,b{display:inline-block;font:inherit}b{margin-right:16px}`);
+  const out = join(dir, 'out.mp4');
+  const r = cli(['render', page, '--out', out, '--fps', '10', '--duration', '0.1']);
+  assert.equal(r.code, 0, r.err);
+  const tops = (id: string) => new Set(readRecord(recordPath(out)).samples[0].texts.filter((e) => e.selector.startsWith(`#${id}>`)).map((e) => e.box[1]));
+  assert.equal(tops('letters').size, 1, 'the letters stay on the one line the page set');
+  assert.ok(tops('words').size > 1, 'the words sit on more than one line');
+  assert.match(r.out, /\n {2}text: wrapped 1 line\(s\)/);
+});
+
+test('render: place() places a line by the box it is wrapped in, from the frame its text is set, and the scripts after it and the frames after it read the page\'s own layout', { skip }, () => {
+  const dir = scratchDir('text-in-box-placed');
+  // A face 20 px under where one line at the zone's top ends. The label set at 0.1 s is wrapped onto more lines
+  // there, so it is clear of the face only where place() measured it wrapped.
+  const face = { x: 300, y: 340, w: 400, h: 300 };
+  const clip: FacesClip = {
+    video: join(dir, 'clip.mp4'), name: 'clip.mp4', width: 1080, height: 1920, fps: 30, frameRate: '30', durationSec: 2,
+    model: 'blaze_face_full_range', every: 1, threshold: 10, confidence: 0.5, textMargin: 0, shots: [{ start: 0, end: 2, samples: [{ sec: 0.5, faces: [face] }] }],
+  };
+  writeFileSync(join(dir, 'faces.js'), facesScript(clip));
+  // Below it a tag placed in every frame, then a pill whose label turns short at 0.2 s and a rule the page draws as
+  // wide as that pill, read after the tag is placed.
+  const body = (mark: string) => `<div data-safe${mark}><span class="pill" id="p" style="background:#f00"></span><div><span class="pill" id="cue"></span></div>`
+    + '<div id="rule" style="height:20px;background:#00f"></div><span class="pill" id="tag" style="position:absolute;left:0;top:900px">Tag</span></div>'
+    + `<script src="faces.js"></script><script>window.__seek=(t)=>{const $=(id)=>document.getElementById(id),p=$('p'),text=t<0.05?'Short':'Label ${LONG}';`
+    + `if(p.textContent!==text){p.textContent=text;openeditFaces.place(p,0,1);}openeditFaces.place($('tag'),0,1);`
+    + `$('cue').textContent=t<0.19?'Cue ${LONG}':'Cue';$('rule').style.width=$('cue').offsetWidth+'px';};</script>`;
+  const red = (png: string) => pixelBox(png, 1080, 1920, (r, g, b) => r > 200 && g < 40 && b < 40);
+  const blue = (png: string) => pixelBox(png, 1080, 1920, (r, g, b) => b > 200 && r < 40 && g < 40);
+  const stepped = zonePage(dir, 'stepped.html', formatNamed('9:16'), TALL, body(''), PILLS);
+  const s = cli(['render', stepped, '--out', join(dir, 'stepped'), '--stills', '0,0.1,0.2,0.3']);
+  assert.equal(s.code, 0, s.err);
+  assert.deepEqual(red(join(dir, 'stepped', 'f000000-0.000s.png')).slice(0, 2), [200, 240]);
+  for (const still of ['f000003-0.100s.png', 'f000009-0.300s.png']) {
+    const [left, top, right, bottom] = red(join(dir, 'stepped', still));
+    assert.ok(bottom - top > 80, `${still}: the label is on more than one line, ${bottom - top} px tall`);
+    assert.ok(bottom <= face.y || top >= face.y + face.h, `${still}: the label at ${top} to ${bottom} is clear of the face`);
+    assert.ok(left >= 200 && top >= 240 && right <= 880 && bottom <= 1478, `${still}: the label at ${[left, top, right, bottom]} is inside the zone`);
+  }
+
+  // What place() wrapped to measure the tag is off again for the script after it: the frame the pill's label turns
+  // short, the rule is as wide as the short pill, not the 680 px the long label was held at.
+  const rule = (still: string) => { const [left, , right] = blue(join(dir, 'stepped', still)); return right - left; };
+  assert.equal(rule('f000003-0.100s.png'), 680);
+  assert.ok(rule('f000006-0.200s.png') < 400 && rule('f000006-0.200s.png') === rule('f000009-0.300s.png'), `${rule('f000006-0.200s.png')} px, then ${rule('f000009-0.300s.png')} px`);
+
+  // Jumped to, the frame is the one stepped to: the lines the frames before wrapped are not what place() measures.
+  const jumped = zonePage(dir, 'jumped.html', formatNamed('9:16'), TALL, body(' data-stateless'), PILLS);
+  const j = cli(['render', jumped, '--out', join(dir, 'jumped'), '--stills', '0.3']);
+  assert.equal(j.code, 0, j.err);
+  assert.doesNotMatch(j.out + j.err, /marked data-stateless, but/);
+  assert.deepEqual(red(join(dir, 'jumped', 'f000009-0.300s.png')), red(join(dir, 'stepped', 'f000009-0.300s.png')));
 });
 
 test('render: a page that links no zone is given its stage shape\'s, text it places as it loads included; one that links its own keeps it', { skip }, () => {

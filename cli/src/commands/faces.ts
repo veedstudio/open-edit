@@ -1,6 +1,6 @@
 // Where the faces are in each shot of a clip, written for laying text out around them and for reframe.
 //
-//   openedit faces <video> [--out <dir>] [--every 0.25] [--threshold 10] [--confidence 0.5] [--margin 0.25]
+//   openedit faces <video> [--out <dir>] [--every 0.25] [--threshold 10] [--confidence 0.5] [--margin 0.25] [--speakers <file>] [--local]
 //
 // One decode finds the cuts (from ffmpeg scdet's difference between each frame and the one before) and samples a
 // frame every --every seconds, each labelled by its presentation time, so footage with a variable frame rate (most
@@ -11,20 +11,35 @@
 // to the search for graphics burned into the footage (faces/graphics.ts): part of this command so that one call
 // and one place() keep text off both, at the cost of no second decode. faces.json holds the boxes and the
 // graphics; faces.js holds them too, with the code that moves text out of them.
+//
+// With --speakers the shots and the boxes come from a speakers file made for the clip (faces/speakers.ts), on the
+// same grid of sampled frames: no scene detection, no stills and no MediaPipe, and the graphics from the same grey
+// frames as ever. Where the environment names a hosted analysis that makes such a file (faces/analysis.ts), faces
+// runs it on the clip, keeps its file beside faces.json and maps that; a clip it does not take, a refusal or a
+// failure leaves the clip to MediaPipe, and --local never calls it.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { numberFlag, parseUsage, usageLine, type Usage } from '../args.ts';
-import { FFMPEG } from '../config.ts';
+import { FFMPEG, runsDir } from '../config.ts';
+import { ANALYSIS_ENV, AnalysisFailed, analysisNamed, runAnalysis, sendable, WAIT_MS, whyNotSent } from '../faces/analysis.ts';
 import { boxesOwner, facesFolder, sameFile } from '../faces/folder.ts';
 import { analyseGraphics, GRAPHICS_MARGIN, workSize, type GraphicBox } from '../faces/graphics.ts';
 import { MODEL, missingDetector, modelPath, runDetector, venvPython, type Spawn } from '../faces/mediapipe.ts';
-import { facesApi, facesScript, type FaceBox, type FacesClip, type Sample, type Shot } from '../faces/page-script.ts';
-import { readJsonFile } from '../json-file.ts';
-import { probeFrameRate, probeSquareSize, probeVideoSpan } from '../probe.ts';
+import { facesApi, facesScript, NEAR, SAME_CLIP_SEC, toDisplay, type FacesClip, type Sample, type Shot } from '../faces/page-script.ts';
+import {
+  facesAt, notSpeakersOf, pastMapping, readSpeakers, shotBounds, showRuns, SPEAKERS_BYTES, SPEAKERS_MODEL, SpeakersRefused, SpeakersUnread,
+} from '../faces/speakers.ts';
+import { isNum, readJsonFile } from '../json-file.ts';
+import { printable } from '../printable.ts';
+import { containerDurationOf, probeFrameRate, probeSquareSize, probeVideoSpan } from '../probe.ts';
+import { errorText } from '../proxy.ts';
 import { writeAtomic, writeTextAtomic } from '../providers/exclusive-files.ts';
-import { resolveVideoArg } from '../resolve-video.ts';
+import { fileDigest } from '../providers/fal-storage.ts';
+import { falRoute } from '../providers/fal-route.ts';
+import { resolveVideoArg, runKeyOf } from '../resolve-video.ts';
 
 // The detector sees a 192 px square whatever it is given, so a larger still only costs time to write.
 const DETECT_SIDE = 640;
@@ -57,6 +72,17 @@ export const usage = {
     },
     confidence: { type: 'string', value: '<0-1>', help: 'Lowest detection score kept (default 0.5)' },
     margin: { type: 'string', value: '<fraction>', help: 'Kept clear of text around each face box on every side, as a fraction of its size (default 0.25)' },
+    speakers: {
+      type: 'string', value: '<file>',
+      help: 'A speakers file made for this clip (its shots, a track per face with a box and whether it is speaking at each analysed '
+        + 'frame, and whom to show): the shots and the boxes are taken from it, sampled as ever, so MediaPipe is not run and need '
+        + 'not be installed, and --threshold and --confidence, which steer what it replaces, are refused. A convenience for a '
+        + 'clip that comes with one; without it faces finds the shots and the faces itself',
+    },
+    local: {
+      type: 'boolean',
+      help: `Find the shots and the faces on this machine, with MediaPipe, also where the environment names a hosted analysis for them (${ANALYSIS_ENV})`,
+    },
     json: { type: 'boolean', help: 'Print faces.json instead of the summary' },
   },
   notes: [
@@ -77,7 +103,28 @@ export const usage = {
     'it where the elements are then: one place through each shot, moving only at a cut, or where no single place stays',
     'clear for every element up in the shot, however briefly. Place an element again whenever part(i, sec) changes, as',
     'it does at each cut the element is up across; check(el, i, sec), called as an element is drawn, says when it is',
-    'drawn larger than it was measured and meets a face. Needs MediaPipe: install-mediapipe.',
+    'drawn larger than it was measured and meets a face. Needs MediaPipe (install-mediapipe), except where the shots and',
+    'the faces come from a speakers file: one named with --speakers, or the one a hosted analysis answers with.',
+    'From a speakers file each face box also carries its track (an id of its own shot and no other) and whether it is',
+    'speaking around that sample, and each shot the runs of whom the file would show, as {start, end, tracks}: in',
+    'faces.json, and in the clip faces.js holds under openeditFaces.clips.',
+    '',
+    `Where the environment names a hosted analysis that makes a speakers file (${ANALYSIS_ENV}, a fal model), faces`,
+    'runs it on the clip unless --speakers, --local, --threshold or --confidence is given, and says so in one line',
+    'before it does: it is one generation on the fal account of the fal key this run reads, bought as fal run buys one',
+    'and never on a VEED workspace, else through the fal command the environment gives in place of a key, which prices',
+    'and approves it and bills as that environment arranges. The file it answers with is kept beside',
+    'faces.json as speakers-<id>.json, named for the clip\'s bytes and the analysis, and a later faces reads it instead',
+    'of running the analysis again while both are the same. A clip with no sound, longer than 10 minutes or larger than',
+    '4 GB is not sent; that, no fal to run it on, a refusal, a failure or an answer that does not map onto the clip is',
+    'said in one line, and the shots and the faces are then found with MediaPipe. On either route the answer is waited',
+    `for up to ${WAIT_MS / 60_000} minutes, and the environment\'s fal command is stopped then, with whatever it started, as it is when`,
+    'faces is stopped; a request it had queued may still run and be billed, nothing of that run is kept, and the next',
+    'run asks again. The command\'s own lines are shown as it prints them, and its answer is the plain files it leaves',
+    `in a folder made for that run. A speakers file over ${SPEAKERS_BYTES >> 20} MB is not read, from --speakers or from the analysis.`,
+    'Measured on eight calls, on clips of 20 s to 9.5 minutes and 6 to 110 MB: the analysis ran for 0.38',
+    'to 0.67 of the clip\'s length, the upload and the rest of the call took 10 to 163 s on one connection, and the',
+    'request waited 83 and 87 s in the queue the two times the analysis had to start first.',
   ].join('\n'),
 } satisfies Usage;
 
@@ -134,20 +181,15 @@ export function gridSelect(every: number): string {
 /** ffmpeg select terms: the first frame at or past this pts, or the very first frame for null. */
 export const atPts = (pts: number | null): string => (pts === null ? 'isnan(prev_pts)' : `gte(pts,${pts})*(isnan(prev_pts)+lt(prev_pts,${pts}))`);
 
-/** Which shot a frame is in: how many cuts (the pts of each shot's first frame) are at or before it. */
-export const shotOf = (cuts: number[], pts: number): number => cuts.filter((c) => c <= pts).length;
-
-/**
- * Boxes scaled, less `shift`, into a frame `width` by `height`, clamped to it, and dropped where none of a box is in it: how
- * faces takes detections on a still to the clip's display pixels, and reframe takes its source's boxes to its output's.
- */
-export function toDisplay(faces: [number, number, number, number, number?][], scaleX: number, scaleY: number, width: number, height: number,
-  shift = { x: 0, y: 0 }): FaceBox[] {
-  return faces.map(([x, y, w, h, score]) => {
-    const x0 = Math.max(0, x * scaleX - shift.x), y0 = Math.max(0, y * scaleY - shift.y);
-    const x1 = Math.min(width, (x + w) * scaleX - shift.x), y1 = Math.min(height, (y + h) * scaleY - shift.y);
-    return { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0), score };
-  }).filter((b) => b.w > 0 && b.h > 0);
+/** Which shot a frame is in: how many cuts (the pts of each shot's first frame, in order) are at or before it. */
+export function shotOf(cuts: number[], pts: number): number {
+  let [lo, hi] = [0, cuts.length];
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cuts[mid] <= pts) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 const micro = (s: number) => Math.round(s * 1e6) / 1e6;
@@ -193,16 +235,92 @@ export function findGraphics(videoArg: string, every = 0.25, spawn: Spawn = spaw
   if (!existsSync(video)) throw new Error(`video not found: ${video}`);
   const { width, height } = probeSquareSize(video);
   const span = probeVideoSpan(video);
-  const size = workSize(width, height);
   const work = mkdtempSync(join(tmpdir(), 'open-edit-graphics-'));
   try {
-    const raw = join(work, 'grey.raw');
-    const log = ffmpegFor(spawn, video)(['-i', video, '-an', '-sn', '-dn', '-vf', `${gridSelect(every)},showinfo@grid,${greyFilter(size)}`,
-      '-fps_mode', 'passthrough', '-f', 'rawvideo', raw], 'read').log;
-    const graphics = graphicsFrom(raw, parseShowinfo(log, 'grid'), size, every, { width, height }, span.end);
+    const { graphics } = readGrid(ffmpegFor(spawn, video), video, work, every, { width, height }, span.end);
     return { video, width, height, durationSec: span.end, every, graphics };
   } finally {
     rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/** The grid's frames of a clip, as their pts, and the graphics burned into them: one decode that writes no still. */
+function readGrid(ffmpeg: ReturnType<typeof ffmpegFor>, video: string, work: string, every: number, display: { width: number; height: number },
+  durationSec: number): { grid: { num: number; den: number; pts: number[] }; graphics: GraphicBox[] } {
+  const size = workSize(display.width, display.height);
+  const raw = join(work, 'grey.raw');
+  const { log } = ffmpeg(['-i', video, '-an', '-sn', '-dn', '-vf', `${gridSelect(every)},showinfo@grid,${greyFilter(size)}`,
+    '-fps_mode', 'passthrough', '-f', 'rawvideo', raw], 'read');
+  const grid = parseShowinfo(log, 'grid');
+  return { grid, graphics: graphicsFrom(raw, grid, size, every, display, durationSec) };
+}
+
+/**
+ * The shots the grid sampled fewer than MIN_SAMPLES times, each with the pts it is asked for a frame at or past: null
+ * for the clip's first frame, else the shot's own first, then the middle of each of MIN_SAMPLES equal parts of it.
+ */
+function shortShots(cuts: number[], bounds: number[], grid: { num: number; den: number; pts: number[] }): { shot: number; targets: (number | null)[] }[] {
+  const sampled = new Array<number>(bounds.length - 1).fill(0);
+  for (const p of grid.pts) sampled[shotOf(cuts, p)]++;
+  return sampled.flatMap((count, k) => (count >= MIN_SAMPLES ? [] : [{
+    shot: k,
+    targets: [k === 0 ? null : cuts[k - 1], ...Array.from({ length: MIN_SAMPLES }, (_, j) =>
+      Math.ceil(((bounds[k] + ((j + 0.5) * (bounds[k + 1] - bounds[k])) / MIN_SAMPLES) * grid.den) / grid.num))],
+  }]));
+}
+
+/**
+ * The frames short shots get beyond the grid's, decoded as stills a few shots at a time, not kept when already sampled
+ * or of a shot that was not asked about. `read(select, from)` decodes the frames a select keeps, numbered from `from`.
+ */
+function shortShotFrames(cuts: number[], bounds: number[], grid: { num: number; den: number; pts: number[] },
+  read: (select: string, from: number) => number[]): { n: number; pts: number; kept: boolean }[] {
+  const have = new Set(grid.pts);
+  const short = shortShots(cuts, bounds, grid);
+  // A few dozen select terms per decode: a very long expression is where ffmpeg starts to fail.
+  const per = Math.floor(40 / (MIN_SAMPLES + 1));
+  const frames: { n: number; pts: number; kept: boolean }[] = [];
+  for (let i = 0; i < short.length; i += per) {
+    const chunk = short.slice(i, i + per);
+    const from = frames.length;
+    read(`select='${chunk.flatMap((c) => c.targets.map(atPts)).join('+')}'`, from).forEach((pts, j) => {
+      const kept = chunk.some((c) => c.shot === shotOf(cuts, pts)) && !have.has(pts);
+      if (kept) have.add(pts);
+      frames.push({ n: from + j, pts, kept });
+    });
+  }
+  return frames;
+}
+
+/**
+ * The same frames by their times alone, from `all`, every frame's pts in order: for a caller that needs no still, so
+ * however many shots it is given it reads the clip once more and no oftener.
+ */
+function shortShotTimes(cuts: number[], bounds: number[], grid: { num: number; den: number; pts: number[] }, all: () => number[]): number[] {
+  const short = shortShots(cuts, bounds, grid);
+  if (!short.length) return [];
+  const frames = all();
+  const have = new Set(grid.pts);
+  const times: number[] = [];
+  for (const { shot, targets } of short) {
+    for (const target of targets) {
+      const pts = target === null ? frames[0] : frames[shotOf(frames, target - 1)];
+      if (pts === undefined || shotOf(cuts, pts) !== shot || have.has(pts)) continue;
+      have.add(pts);
+      times.push(pts);
+    }
+  }
+  return times;
+}
+
+/** Refuses a shot no sampled frame fell in: it would read as a shot with no face, and text would be laid over whoever is in it. */
+function assertSampled(cuts: number[], bounds: number[], sampled: number[], video: string): void {
+  const hit = new Set(sampled.map((p) => shotOf(cuts, p)));
+  const empty = bounds.slice(1).map((_, k) => k).filter((k) => !hit.has(k));
+  if (empty.length) {
+    const named = empty.slice(0, 8).map((k) => `${bounds[k].toFixed(3)}-${bounds[k + 1].toFixed(3)} s`).join(', ');
+    throw new Error(`no frame could be read from ${named}${empty.length > 8 ? ` and ${empty.length - 8} more shots` : ''} ` +
+      `of ${video}, so the faces there are unknown`);
   }
 }
 
@@ -243,41 +361,21 @@ export function findFaces(videoArg: string, o: FacesOptions, deps: FacesDeps = {
     const grid = parseShowinfo(log, 'grid');
     const graphics = graphicsFrom(raw, grid, grey, o.every, { width, height }, span.end);
     rmSync(raw, { force: true });
-    const { num, den } = grid;
-    const sec = (pts: number) => (pts * num) / den;
+    const sec = (pts: number) => (pts * grid.num) / grid.den;
     grid.pts.forEach((p, i) => stills.set(name('c', i), p));
     const cuts = [...new Set(cutsOf(parseScenes(out), o.threshold))].sort((x, y) => x - y);
     // Shot k runs from bounds[k] to bounds[k + 1]: the cuts between, the video's last moment at the end, and 0 at
     // the start even when the picture starts later, since a player shows its first frame until then.
     const bounds = [0, ...cuts.map(sec), span.end];
     const shots = cuts.length + 1;
-    const count = (k: number) => [...stills.values()].filter((p) => shotOf(cuts, p) === k).length;
-    const thin = Array.from({ length: shots }, (_, k) => k).filter((k) => count(k) < MIN_SAMPLES);
-    // Per thin shot: its first frame and the frame at or past the middle of each of MIN_SAMPLES equal parts.
-    const targets = (k: number) => [k === 0 ? null : cuts[k - 1], ...Array.from({ length: MIN_SAMPLES }, (_, j) =>
-      Math.ceil(((bounds[k] + ((j + 0.5) * (bounds[k + 1] - bounds[k])) / MIN_SAMPLES) * den) / num))];
-    // A few dozen select terms per decode: a very long expression is where ffmpeg starts to fail.
-    const per = Math.floor(40 / (MIN_SAMPLES + 1));
-    let next = 0;
-    for (let i = 0; i < thin.length; i += per) {
-      const chunk = thin.slice(i, i + per);
-      const select = `select='${chunk.flatMap((k) => targets(k).map(atPts)).join('+')}'`;
-      const shown = parseShowinfo(ffmpeg(['-i', video, '-an', '-sn', '-dn', '-vf', `${select},showinfo@more,${scale}`,
-        '-fps_mode', 'passthrough', '-start_number', String(next), join(work, 'm%07d.png')], 'sample the short shots of').log, 'more');
-      const have = new Set(stills.values());
-      shown.pts.forEach((p, j) => {
-        const file = name('m', next + j);
-        // A frame of a shot this decode was not asked about, or one the grid already sampled, is not kept.
-        if (chunk.includes(shotOf(cuts, p)) && !have.has(p)) { stills.set(file, p); have.add(p); } else rmSync(join(work, file), { force: true });
-      });
-      next += shown.pts.length;
+    const more = shortShotFrames(cuts, bounds, grid, (select, from) => parseShowinfo(ffmpeg(['-i', video, '-an', '-sn', '-dn', '-vf',
+      `${select},showinfo@more,${scale}`, '-fps_mode', 'passthrough', '-start_number', String(from), join(work, 'm%07d.png')],
+    'sample the short shots of').log, 'more').pts);
+    for (const frame of more) {
+      if (frame.kept) stills.set(name('m', frame.n), frame.pts);
+      else rmSync(join(work, name('m', frame.n)), { force: true });
     }
-    // A shot with no sample would read as a shot with no face, and text would be laid over whoever is in it.
-    const empty = Array.from({ length: shots }, (_, k) => k).filter((k) => count(k) === 0);
-    if (empty.length) {
-      throw new Error(`no frame could be read from ${empty.map((k) => `${bounds[k].toFixed(3)}-${bounds[k + 1].toFixed(3)} s`).join(', ')} ` +
-        `of ${video}, so the faces there are unknown`);
-    }
+    assertSampled(cuts, bounds, [...stills.values()], video);
 
     const run = runDetector({ folder: work, confidence: o.confidence, python, model }, spawn);
     const samples = run.images.filter((img) => stills.has(img.file)).map((img) => ({
@@ -311,7 +409,73 @@ export function findFaces(videoArg: string, o: FacesOptions, deps: FacesDeps = {
   }
 }
 
-const isNum = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v);
+/**
+ * A clip's faces from the speakers file made for it: the file's shots, and on faces' own grid of sampled frames each
+ * track's box and whether it is speaking, so every reader of faces.json reads it as it reads one faces found. The
+ * frames are decoded only for their times and for the graphics, which no file holds.
+ */
+export function facesFromSpeakers(videoArg: string, speakersArg: string, o: Pick<FacesOptions, 'every' | 'margin'>, spawn: Spawn = spawnSync): FacesClip {
+  const video = resolveVideoArg(videoArg);
+  if (!existsSync(video)) throw new Error(`video not found: ${video}`);
+  const path = resolve(speakersArg);
+  if (!existsSync(path)) throw new Error(`no speakers file at ${path}`);
+  const file = readSpeakers(path);
+  const past = pastMapping(file);
+  if (past) throw new SpeakersRefused(`${path} ${past}`, false);
+  const { width, height } = probeSquareSize(video);
+  const rate = probeFrameRate(video);
+  const span = probeVideoSpan(video);
+  const other = notSpeakersOf(file, { width, height, start: span.start, end: span.end, frame: 1 / rate.fps, container: containerDurationOf(video) });
+  if (other) throw new SpeakersRefused(`${path} ${other}`);
+  const bounds = shotBounds(file, span.end);
+  // Each shot is asked for its own frames, so shots that do not follow one another are not a clip's.
+  if (bounds.some((b, k) => k > 0 && b <= bounds[k - 1])) throw new SpeakersRefused(`${path} has shots that do not follow one another on this clip`);
+  const ffmpeg = ffmpegFor(spawn, video);
+  const work = mkdtempSync(join(tmpdir(), 'open-edit-faces-'));
+  try {
+    const { grid, graphics } = readGrid(ffmpeg, video, work, o.every, { width, height }, span.end);
+    const sec = (pts: number) => (pts * grid.num) / grid.den;
+    // The first frame at or past each bound opens its shot, found from NEAR before it, where the file's rounding can put that frame.
+    const cuts = bounds.slice(1, -1).map((b) => Math.ceil(((b - NEAR) * grid.den) / grid.num));
+    // The shots are the file's word, so what they cost is fixed here: one more read of the clip's frame times, however many they are.
+    const more = shortShotTimes(cuts, bounds, grid, () => parseShowinfo(ffmpeg(['-i', video, '-an', '-sn', '-dn', '-vf',
+      'showinfo@more', '-fps_mode', 'passthrough', '-f', 'null', '-'], 'read the frame times of').log, 'more').pts);
+    const sampled = [...grid.pts, ...more].sort((x, y) => x - y);
+    assertSampled(cuts, bounds, sampled, video);
+    const inShot: number[][] = bounds.slice(1).map(() => []);
+    for (const p of sampled) inShot[shotOf(cuts, p)].push(p);
+    return {
+      video,
+      name: basename(video),
+      width,
+      height,
+      fps: rate.fps,
+      frameRate: rate.rate.replace(/\/1$/, ''),
+      durationSec: span.end,
+      model: SPEAKERS_MODEL,
+      every: o.every,
+      textMargin: o.margin,
+      graphicsMargin: GRAPHICS_MARGIN,
+      graphics,
+      shots: bounds.slice(1).map((end, k): Shot => {
+        const [start, from] = [micro(bounds[k]), file.shots[k]];
+        return {
+          start,
+          end: micro(end),
+          samples: inShot[k].map((p): Sample => ({
+            // Never before its shot's start, which the file's rounding can put just after the shot's first frame.
+            sec: Math.max(start, micro(sec(p))),
+            // Each sample stands for the half step either side of it, so that is the span its boxes are read over.
+            faces: from ? facesAt(from, sec(p), o.every / 2, { width, height }) : [],
+          })),
+          ...(from ? { show: showRuns(from) } : {}),
+        };
+      }),
+    };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
 
 /** faces.json at `path`, or an error naming the file and what is wrong with it, so no reader trips on a field deep inside. */
 export function readFaces(path: string): FacesClip {
@@ -323,6 +487,12 @@ export function readFaces(path: string): FacesClip {
     : clip.shots.some((s) => !isNum(s?.start) || !isNum(s?.end)) ? 'a shot without its start or end'
     : clip.shots.some((s) => !Array.isArray(s?.samples) || s.samples.some((x) => !isNum(x?.sec) || !Array.isArray(x.faces)
       || x.faces.some((f) => ![f?.x, f?.y, f?.w, f?.h].every(isNum)))) ? 'a sample without its time or face boxes'
+    : clip.shots.some((s) => s.samples.some((x) => x.faces.some((f) => (f.track === undefined ? f.speaking !== undefined
+      : !Number.isInteger(f.track) || typeof f.speaking !== 'boolean')))) ? 'a face with a track or a speaking flag but not both'
+    : clip.shots.some((s) => s.show !== undefined && (!Array.isArray(s.show) || s.show.some((run) => !isNum(run?.start) || !isNum(run.end)
+      || !Array.isArray(run.tracks) || !run.tracks.every(Number.isInteger)))) ? 'a shot whose runs of whom to show are not each a start, an end and tracks'
+    : clip.shots.some((s) => s.show?.some((run, k) => !(run.end > run.start) || (k > 0 && run.start < s.show![k - 1].end - NEAR)))
+      ? 'a shot whose runs of whom to show end before they start, or start before the one ahead ends'
     : clip.graphics !== undefined && (!Array.isArray(clip.graphics) || clip.graphics.some((g) => ![g?.x, g?.y, g?.w, g?.h, g?.from, g?.to].every(isNum)))
       ? 'a graphic without its box or its times'
     : null;
@@ -332,7 +502,7 @@ export function readFaces(path: string): FacesClip {
 
 /** Whether boxes found on a clip of `found`'s size and length fit a clip of this size and length. */
 export const measuredAs = (found: { width: number; height: number; durationSec: number }, size: { width: number; height: number }, durationSec: number): boolean =>
-  found.width === size.width && found.height === size.height && Math.abs(found.durationSec - durationSec) <= 0.05;
+  found.width === size.width && found.height === size.height && Math.abs(found.durationSec - durationSec) <= SAME_CLIP_SEC;
 
 /**
  * Why `clip` does not hold the faces of `video` as it is now, or null when it does. Boxes found on another file,
@@ -351,7 +521,78 @@ export function otherClipAt(path: string, video: string): string | null {
   return held && !sameFile(held, video) ? `${path} holds the faces of ${held}, another clip: pass another --out <dir>, or leave --out out` : null;
 }
 
-export function faces(argv: string[]): number {
+/**
+ * A clip's faces from the speakers file the hosted analysis `model` makes for it, kept beside faces.json in `out`
+ * under a name made of the clip's bytes and the analysis: the one kept there, else a new one, said before the call
+ * that buys it. Undefined, with the reason said, when the clip is left to MediaPipe.
+ */
+async function analysed(model: string, video: string, out: string, options: Pick<FacesOptions, 'every' | 'margin'>, say: (line: string) => void,
+  deps: FacesRunDeps): Promise<{ clip: FacesClip; from: string } | undefined> {
+  // Size and length stay the same when a clip is rendered again, so its bytes name the file, with the analysis that
+  // made it: one file, so two runs at once cannot leave one's answer beside the other's record of what it is for.
+  const kept = join(out, `speakers-${createHash('sha256').update(`${await fileDigest(video)}\n${model}`).digest('hex').slice(0, 16)}.json`);
+  // A refusal of the file is a reason to say; anything else, ffmpeg's failure included, is not the file's and is thrown.
+  const mapped = (file: string): FacesClip | string => {
+    try {
+      return facesFromSpeakers(video, file, options);
+    } catch (e) {
+      if (e instanceof SpeakersRefused) return e.message;
+      throw e;
+    }
+  };
+  const here = 'the shots and the faces are found here, with MediaPipe';
+  if (existsSync(kept)) {
+    let clip: FacesClip | string;
+    try {
+      clip = mapped(kept);
+    } catch (e) {
+      // One that cannot be opened is said and run for again: left to fail, it would fail every run of this clip.
+      if (!(e instanceof SpeakersUnread)) throw e;
+      clip = e.message;
+    }
+    if (typeof clip === 'object') {
+      say(`the speakers file the hosted analysis made for this clip is kept at ${kept}, so the analysis is not run again`);
+      return { clip, from: kept };
+    }
+    say(`the speakers file kept at ${kept} is not used (${clip}), so the hosted analysis is run again`);
+  }
+  const skip = whyNotSent(sendable(video));
+  if (skip) return void say(`the hosted analysis ${ANALYSIS_ENV} names is not run: ${skip}. So ${here}`);
+  const route = (deps.route ?? falRoute)(deps.env);
+  if (route.how === 'none') return void say(`the hosted analysis ${ANALYSIS_ENV} names is not run: ${route.why}. So ${here}`);
+  // Said before the call, since the call is where the fal account is charged.
+  say(`running the hosted analysis ${ANALYSIS_ENV} names on ${basename(video)}: one generation ` +
+    `${route.how === 'key' ? 'on the fal account of the fal key this run reads, never on a VEED workspace'
+      : 'through the fal command the environment gives in place of a key, which prices and approves it and bills as that environment arranges'}. ` +
+    `Its answer is waited for up to ${WAIT_MS / 60_000} minutes; --local finds the shots and the faces here instead`);
+  const began = Date.now();
+  const took = () => `${Math.round((Date.now() - began) / 1000)} s`;
+  let got: Awaited<ReturnType<typeof runAnalysis>>;
+  try {
+    got = await (deps.analysis ?? runAnalysis)(model, video, { runDir: join(runsDir(), runKeyOf(video)), dir: join(out, 'analysis'), route, log: say });
+  } catch (e) {
+    if (!(e instanceof AnalysisFailed)) throw e;
+    return void say(`the hosted analysis gave no speakers file for this clip after ${took()} (${e.message}). So ${here}`);
+  }
+  const answered = took();
+  const clip = mapped(got.file);
+  if (typeof clip === 'string') return void say(`the hosted analysis answered in ${answered} with a file that is not used (${clip}). So ${here}`);
+  const request = got.requestId ? ` (request ${got.requestId})` : '';
+  // Kept only once it maps, and whole or not at all: a file left there half written, or unmappable, would be run for again every time.
+  try {
+    writeTextAtomic(kept, readFileSync(got.file, 'utf8'));
+  } catch (e) {
+    say(`the hosted analysis answered in ${answered}${request}; its speakers file could not be kept at ${kept} (${errorText(e)}), so the next run asks again`);
+    return { clip, from: got.file };
+  }
+  say(`the hosted analysis answered in ${answered}${request}; its speakers file is kept at ${kept}`);
+  return { clip, from: kept };
+}
+
+/** What faces runs in place of its own parts, for a test to stand in for them. */
+export interface FacesRunDeps { analysis?: typeof runAnalysis; route?: typeof falRoute; env?: NodeJS.ProcessEnv }
+
+export async function faces(argv: string[], deps: FacesRunDeps = {}): Promise<number> {
   const { values, positionals } = parseUsage('faces', usage, argv);
   const [video] = positionals;
   if (!video) {
@@ -367,12 +608,37 @@ export function faces(argv: string[]): number {
     console.error(`faces: ${clash}`);
     return 1;
   }
-  const clip = findFaces(video, {
+  const options = {
     every: numberFlag('every', values.every, 0.25, (n) => n > 0, 'seconds above 0'),
     threshold: numberFlag('threshold', values.threshold, 10, (n) => n > 0 && n <= 100, 'a score above 0 and at most 100'),
     confidence: numberFlag('confidence', values.confidence, 0.5, (n) => n > 0 && n < 1, 'a score between 0 and 1'),
     margin: numberFlag('margin', values.margin, 0.25, (n) => n >= 0, 'a fraction of the box, 0 or more'),
-  });
+  };
+  const steered = (['threshold', 'confidence'] as const).filter((flag) => values[flag] !== undefined).map((flag) => `--${flag}`);
+  if (values.speakers !== undefined && steered.length) {
+    throw new Error(`${steered.join(' and ')} steer${steered.length > 1 ? '' : 's'} the cuts and the faces that faces finds itself, and with --speakers ` +
+      `both come from the file: leave ${steered.length > 1 ? 'them' : 'it'} out, or leave out --speakers`);
+  }
+  if (values.speakers !== undefined && values.local) throw new Error('--local finds the shots and the faces here, and --speakers takes them from a file: pass one of the two');
+  // In --json the clip alone goes to stdout.
+  // What a line quotes may be a command's or a file's own words, so no control character of theirs reaches the terminal.
+  const say = (line: string) => (values.json ? console.error : console.log)(`faces: ${printable(line)}`);
+  let from = values.speakers === undefined ? undefined : resolve(values.speakers);
+  const without = 'leave out --speakers, and faces finds the shots and the faces itself';
+  const remedy = `name the speakers file made for ${video} as it is now, or ${without}`;
+  if (from !== undefined && !existsSync(from)) throw new Error(`no speakers file at ${from}: ${remedy}`);
+  let clip: FacesClip | undefined;
+  try {
+    clip = from === undefined ? undefined : facesFromSpeakers(video, from, options);
+  } catch (e) {
+    if (!(e instanceof SpeakersRefused)) throw e;
+    // Another file helps only where this one is not the clip's: one past what faces maps is past it whoever made it.
+    throw new Error(`${e.message}: ${e.another ? remedy : without}`, { cause: e });
+  }
+  const model = clip || values.local ? null : analysisNamed(deps.env);
+  if (model && steered.length) say(`${steered.join(' and ')} ask${steered.length > 1 ? '' : 's'} for the cuts and the faces found here, so the hosted analysis ${ANALYSIS_ENV} names is not run`);
+  else if (model) ({ clip, from } = (await analysed(model, resolved, out, options, say, deps)) ?? { clip, from });
+  clip ??= findFaces(video, options);
   // The folder is made only now, so a run that fails leaves none behind.
   writeAtomic(join(out, 'faces.json'), clip);
   writeTextAtomic(join(out, 'faces.js'), facesScript(clip));
@@ -384,8 +650,9 @@ export function faces(argv: string[]): number {
 
   const api = facesApi(clip);
   const found = clip.shots.reduce((sum, s) => sum + s.samples.filter((x) => x.faces.length).length, 0);
+  const sampled = clip.detector?.frames ?? clip.shots.reduce((sum, s) => sum + s.samples.length, 0);
   console.log(`faces: ${clip.shots.length} shot(s) of ${clip.name} (${clip.width}x${clip.height}, ${clip.durationSec.toFixed(3)}s), ` +
-    `${clip.detector!.frames} sampled frame(s), faces on ${found}`);
+    `${sampled} sampled frame(s), faces on ${found}`);
   for (const shot of clip.shots) {
     const boxes = api.boxes(shot.start, shot.end);
     const list = boxes.map((b) => `${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.w)}x${Math.round(b.h)}`).join('; ');
@@ -395,9 +662,17 @@ export function faces(argv: string[]): number {
   console.log(`  graphics burned into the footage: ${graphics.length ? `${graphics.length}, kept clear like the faces` : 'none found'}`);
   for (const g of graphics.slice(0, 12)) console.log(`    ${g.from.toFixed(3)}–${g.to.toFixed(3)}s  ${g.x},${g.y} ${g.w}x${g.h}`);
   if (graphics.length > 12) console.log(`    and ${graphics.length - 12} more in faces.json`);
-  const d = clip.detector!;
-  console.log(`  detector: model loaded in ${Math.round(d.readyMs)} ms, ${d.frames} frame(s) in ${d.totalMs} ms` +
-    `${d.frames ? ` (${(d.totalMs / d.frames).toFixed(1)} ms each)` : ''}; whole command ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  const whole = `whole command ${((Date.now() - started) / 1000).toFixed(1)} s`;
+  const d = clip.detector;
+  if (d) {
+    console.log(`  detector: model loaded in ${Math.round(d.readyMs)} ms, ${d.frames} frame(s) in ${d.totalMs} ms` +
+      `${d.frames ? ` (${(d.totalMs / d.frames).toFixed(1)} ms each)` : ''}; ${whole}`);
+  } else {
+    const tracks = clip.shots.reduce((sum, s) => sum + new Set(s.samples.flatMap((x) => x.faces.map((f) => f.track))).size, 0);
+    const speaking = clip.shots.reduce((sum, s) => sum + s.samples.filter((x) => x.faces.some((f) => f.speaking)).length, 0);
+    console.log(`  shots and faces from the speakers file ${from}: ${tracks} track(s) sampled, a face speaking on ` +
+      `${speaking} sampled frame(s); MediaPipe not run; ${whole}`);
+  }
   console.log(`  wrote ${join(out, 'faces.json')} and ${join(out, 'faces.js')}`);
   return 0;
 }

@@ -429,7 +429,8 @@ export const usage = {
     `\`shotSize\` reads it: close-up from ${CLOSE_UP_MIN}, medium from ${MEDIUM_MIN}, wide below, and no face when fewer than half the ` +
     'samples show one. Both are null when there is no usable faces.json, or no sample falls in the shot. The detector often misses a face ' +
     'the frame cuts through (an extreme close-up), one in shadow or behind something and one very small in a wide shot, reads a face in ' +
-    'profile a size off now and then, and now and then finds a face in a title, an effect or the back of a head: check the sizes a plan ' +
+    'profile a size off now and then, and now and then finds a face in a title, an effect or the back of a head; boxes mapped from a ' +
+    'speakers file read a small face a size tighter now and then (medium for wide on 2 of 31 shots measured): check the sizes a plan ' +
     'leans on against the storyboard. Black rows count as bars only when they sit above and below the picture and match, as centred ' +
     'padding does; text or a blurred fill in the bars, or one frame lit edge to edge anywhere in the clip (a full-frame title, say), ' +
     'leaves the bars in, and every share then reads small. Inside bars faces are found on a smaller picture, so a wide shot can read ' +

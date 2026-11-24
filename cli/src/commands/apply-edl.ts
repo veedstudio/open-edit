@@ -30,7 +30,7 @@ import {
   type ColourReport, type ColourTags, type Display,
 } from '../probe.ts';
 import { writeAtomic, writeTextAtomic } from '../providers/exclusive-files.ts';
-import { countFrames } from '../render/encode.ts';
+import { countFrames, CRF_FLOOR, refuseCrfUnderFloor } from '../render/encode.ts';
 import { asShown } from '../shown.ts';
 import { ChangeReader, changesIn, quietStillsOf, scanFilter, scanSize, STILL_SECONDS, type Span } from '../stillness.ts';
 import { mappedNote, readTranscriptFile } from '../transcript/read-transcript.ts';
@@ -48,7 +48,7 @@ const seconds = (t: number) => t.toFixed(6);
 const AUDIO_RATE = 48000;
 /**
  * x264's settings for every range, which its cache name carries. The profile is left to x264: the same settings
- * pick the same one for every range, and --crf 0 needs one that a pinned High would refuse.
+ * pick the same one for every range.
  */
 const encodeArgs = (crf: number) => ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf), '-pix_fmt', 'yuv420p'];
 /** minterpolate as a slow-motion pass: motion-compensated, both directions searched, block edges smoothed. */
@@ -569,7 +569,7 @@ export const usage = {
     edl: { type: 'string', value: '<edl.json>', required: true, help: 'The edit decision list to assemble' },
     out: { type: 'string', value: '<cut.mp4>', required: true, help: 'Where the assembled file is written' },
     crossfade: { type: 'string', value: '<ms>', help: 'Audio crossfade at each join, at least 1 (default 40)' },
-    crf: { type: 'string', value: '0-51', help: 'x264 quality (default 20)' },
+    crf: { type: 'string', value: `${CRF_FLOOR}-51`, help: 'x264 quality (default 20)' },
     fit: {
       type: 'string', value: 'crop|letterbox',
       help: 'How a range from a source of another shape meets the canvas: crop (default) cuts it as reframe does, around its faces when faces has run on that source, else from the middle; letterbox fits it whole and pads',
@@ -621,7 +621,8 @@ export async function applyEdl(argv: string[]): Promise<number> {
   // ffmpeg reads `afade=d=0` as UNSET and falls back to its 44100-sample default — nearly a second per
   // join, with no surplus trimmed to pay for it. A butt join would need its own flag.
   const crossfadeMs = numberFlag('crossfade', values.crossfade, 40, (n) => n >= 1, 'at least 1 millisecond');
-  const crf = numberFlag('crf', values.crf, 20, (n) => n >= 0 && n <= 51, '0-51');
+  refuseCrfUnderFloor(values.crf);
+  const crf = numberFlag('crf', values.crf, 20, (n) => n >= CRF_FLOOR && n <= 51, `${CRF_FLOOR}-51`);
   const crossfadeSec = crossfadeMs / 1000;
   const fit = parseFit(values.fit);
 
@@ -868,7 +869,7 @@ export async function applyEdl(argv: string[]): Promise<number> {
       [...byGrade].map(([text, indices]) => `  Graded ${text}: range(s) ${indexList(indices)}.\n`).join('') +
       hdr.map((id) => `  ${describeHdr(`source "${id}"`, sourceOf(id).colour)}.\n`).join('') +
       [...plans].filter(([, plan]) => plan.how !== 'already')
-        .map(([id, plan]) => `  ${describeShape(`source "${id}"`, plan, `the canvas's shape (${canvas.width}x${canvas.height})`)}.\n`).join('') +
+        .map(([id, plan]) => `  ${describeShape(`source "${id}"`, plan, `the canvas's shape (${canvas.width}x${canvas.height})`, ranges.filter((r) => r.source === id))}.\n`).join('') +
       letterboxed.map((id) => `  source "${id}" (${sourceOf(id).shown.width}x${sourceOf(id).shown.height}) is letterboxed onto the canvas.\n`).join('') +
       [...levelLines, ...removed].map((line) => `  ${line}.\n`).join('') +
       `  ${jobs.length} range(s) encoded, ${ranges.length - jobs.length} reused from ${cache}.\n` +

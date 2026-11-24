@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -342,6 +342,12 @@ test('mix: pageVideos leaves a page video out or sets how it is laid, field by f
   assert.throws(() => parseSpec({ durationSec: 10, pageVideos: { 'game.mp4': { role: 'music' } } }), /role must be voice, sfx or ambience: a music track is looped/);
   assert.throws(() => parseSpec({ durationSec: 10, pageVideos: { 'game.mp4': { gainDb: 'loud' } } }), /pageVideos\["game\.mp4"\]\.gainDb must be a number/);
   assert.throws(() => parseSpec({ durationSec: 10, pageVideos: { 'talk.mp4': { role: 'voice', duck: true } } }), /is a voice track, which ducks the others/);
+});
+
+test('mix: a draft given as --video is refused before the spec is read, since it is never the deliverable', () => {
+  const { result, err } = captureConsole(() => mixAudio([join(tmpdir(), 'no-run'), '--video', 'out.draft.mov']));
+  assert.equal(result, 2);
+  assert.match(err, /has a --draft render's name, and a draft is a quick look drawn at half size with the fastest encode, never the deliverable: render the page again without --draft and give mix-audio that video/);
 });
 
 test('mix: the command refuses a malformed, unparsable or missing spec with a usage error', async () => {
@@ -1017,12 +1023,15 @@ test('page sound: a trimmed clip at double speed lands where its picture does, a
   landsAt(burstsIn(join(run, 'audio', 'mix.m4a')), [2.25, 2.75, 3.25, 8.5, 9.5], 1 / 30);
 });
 
-test('page sound: the newest render in the run is read without --video, a page video can be the voice, and the rest duck under it', () => {
-  const { run } = pageRun('page-voice', {
+test('page sound: the newest render in the run is read without --video, drafts aside, a page video can be the voice, and the rest duck under it', () => {
+  const { run, video } = pageRun('page-voice', {
     'talk.mp4': { audio: `aevalsrc=${VOICE}:s=48000`, seconds: 3 },
     'game.mp4': { audio: MUSIC, seconds: 3 },
   }, (abs) => ({ [abs('talk.mp4')]: between(0, 3, (p) => p), [abs('game.mp4')]: between(0, 3, (p) => p) }),
   { durationSec: 3, pageVideos: { 'talk.mp4': { role: 'voice' } } }, 3);
+  // A draft rendered after it is a quick look, not the render the mix is for.
+  copyFileSync(video, join(run, 'out.draft.mp4'));
+  copyFileSync(`${video}.text.json`, join(run, 'out.draft.mp4.text.json'));
   const { result, out } = captureConsole(() => mixAudio([run]));
   assert.equal(result, 0, out);
   assert.match(out, /^mix-audio: the page's videos are read from .*out\.mp4\.text\.json, the run's newest render; --video names another$/m);

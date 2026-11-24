@@ -21,6 +21,7 @@ import { FFMPEG } from '../config.ts';
 import { channelLevels, describeBalance, toStereo } from '../channels.ts';
 import { layStem, pageRecordOf, pageSounds, sameFile, shownPath, type Stretch } from '../page-sound.ts';
 import { audioDurationOf, hasAudioStream, pictureDurationOf } from '../probe.ts';
+import { draftRefusal } from '../render/draft.ts';
 import { recordPath } from '../render/text-record.ts';
 import { soundSpanOf, WINDOW_MS, type SoundSpan } from '../verify/dead-tail.ts';
 import { decode, envelopeOf, SAMPLE_RATE } from './speech-probe.ts';
@@ -796,7 +797,7 @@ export const usage = {
   flags: {
     spec: { type: 'string', value: '<file>', help: 'Mix spec, relative to the run (default audio/mix.json)' },
     out: { type: 'string', value: '<file>', help: 'Output, relative to the run (default audio/mix.m4a)' },
-    video: { type: 'string', value: '<file>', help: 'The render the mix is for: its length is the mix\'s, durationSec or not, and its record names the videos its page plays' },
+    video: { type: 'string', value: '<file>', help: 'The render the mix is for: its length is the mix\'s, durationSec or not, and its record names the videos its page plays; one with a draft\'s name (.draft.mp4, .draft.mov) is refused' },
     'print-graph': { type: 'boolean', help: 'Print the ffmpeg filtergraph and write nothing' },
   },
   notes: [
@@ -854,6 +855,11 @@ function mixInto(argv: string[], stems: string): number {
   const [runDir] = positionals;
   if (!runDir) {
     console.error(usageLine('mix-audio', usage));
+    return 2;
+  }
+  const draft = values.video === undefined ? null : draftRefusal(values.video, 'mix-audio');
+  if (draft) {
+    console.error(`mix-audio: ${draft}`);
     return 2;
   }
   const specPath = join(runDir, values.spec ?? 'audio/mix.json');

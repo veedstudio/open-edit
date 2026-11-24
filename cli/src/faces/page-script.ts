@@ -9,16 +9,59 @@ import type { GraphicBox } from './graphics.ts';
 
 export type { GraphicBox } from './graphics.ts';
 
-export interface FaceBox { x: number; y: number; w: number; h: number; score?: number }
+export interface FaceBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  score?: number;
+  /** From a speakers file only: the track the face is on, an id of its own shot and no other. */
+  track?: number;
+  /** From a speakers file only: whether the face is speaking around this sample. */
+  speaking?: boolean;
+}
+/** What a face box carries from a speakers file, for a box made from it to keep. */
+export function whoOf(face: FaceBox): Pick<FaceBox, 'track' | 'speaking'> {
+  return { ...(face.track === undefined ? {} : { track: face.track }), ...(face.speaking === undefined ? {} : { speaking: face.speaking }) };
+}
+
+/**
+ * Boxes scaled, less `shift`, into a frame `width` by `height`, clamped to it, and dropped where none of a box is in it: how
+ * faces takes detections on a still to the clip's display pixels, and reframe takes its source's boxes to its output's.
+ */
+export function toDisplay(faces: [number, number, number, number, number?][], scaleX: number, scaleY: number, width: number, height: number,
+  shift = { x: 0, y: 0 }): FaceBox[] {
+  return faces.map(([x, y, w, h, score]) => {
+    const x0 = Math.max(0, x * scaleX - shift.x), y0 = Math.max(0, y * scaleY - shift.y);
+    const x1 = Math.min(width, (x + w) * scaleX - shift.x), y1 = Math.min(height, (y + h) * scaleY - shift.y);
+    return { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0), score };
+  }).filter((b) => b.w > 0 && b.h > 0);
+}
+
+// A speakers file rounds its times to the millisecond, so a frame's own time and the file's for it differ by up to
+// half of one, and two frames are several apart at any frame rate footage has: this near is the same frame.
+export const NEAR = 0.001;
+
+/** Whether a frame at `sec` lies in the span from `start` up to `end`, as a speakers file's rounded times bound it. */
+export const inSpan = (sec: number, start: number, end: number): boolean => sec >= start - NEAR && sec < end - NEAR;
+
 /** One sampled frame: `sec` is its presentation time, so variable-frame-rate footage reads true. */
 export interface Sample { sec: number; faces: FaceBox[] }
+/** A stretch of a shot and the tracks a speakers file would show in it, in the order it names them; none for nobody. */
+export interface ShowRun { start: number; end: number; tracks: number[] }
 export interface Shot {
   start: number;
   end: number;
   samples: Sample[];
+  /** From a speakers file only: whom it would show, run by run. */
+  show?: ShowRun[];
   /** No frame of it was looked at, which is not the same as no face: a range of a cut whose source faces never ran on. */
   unknown?: true;
 }
+
+// Two measures of one clip's length, or of where its picture starts, agree this closely: what boxes are held to
+// their clip by.
+export const SAME_CLIP_SEC = 0.05;
 
 /** What the faces command writes: boxes in the clip's own display pixels, top-left origin. */
 export interface FacesClip {
@@ -32,8 +75,9 @@ export interface FacesClip {
   durationSec: number;
   model: string;
   every: number;
-  threshold: number;
-  confidence: number;
+  /** What the cuts and the faces were found at; absent when both came from a speakers file. */
+  threshold?: number;
+  confidence?: number;
   /** Kept clear of text on every side of a face box, as a fraction of the box's size. */
   textMargin: number;
   /** Kept clear of text on every side of a graphic, as a fraction of the frame's shorter side. */
@@ -330,6 +374,12 @@ export const PAGE_SOURCE = String.raw`
     return out;
   }
   var rectOf = function (el) { var r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+  // A render settles a frame's text, raised to the size floor and wrapped in its box, only after the page's scripts:
+  // asked to while an element is placed, so the place is for the box drawn. As the page loads only the wrap is known.
+  function settled() {
+    var api = window.__openedit, undo = api && typeof api.settleText === 'function' ? api.settleText() : null;
+    return typeof undo === 'function' ? undo : function () {};
+  }
   // The one <video> on show that plays this clip, else null. A render hides the video it lays as --footage, which then
   // fills the stage.
   function playing(clip) {
@@ -398,10 +448,14 @@ export const PAGE_SOURCE = String.raw`
   // included, gives the same answer for the same layout. The result is where the element ended, as measured.
   function place(el, from, to, options) {
     options = options || {};
-    var clip = pick(options.clip, options.video), at = unmoved(el), rect = rectOf(el);
-    var scene = sceneOf(el, clip, options), avoid = scene.page(boxes(from, to, clip.video));
-    var res = clearAll([{ rect: rect, avoid: avoid }], scene.bound.rect);
-    return settle(el, at, rect, res, { avoid: avoid, bound: scene.bound, span: spanOf(from, to), clear: res.clear, say: function (line) { console.warn(line); } });
+    var clip = pick(options.clip, options.video), at = unmoved(el), unsettle = settled();
+    try {
+      var rect = rectOf(el), scene = sceneOf(el, clip, options), avoid = scene.page(boxes(from, to, clip.video));
+      var res = clearAll([{ rect: rect, avoid: avoid }], scene.bound.rect);
+      return settle(el, at, rect, res, { avoid: avoid, bound: scene.bound, span: spanOf(from, to), clear: res.clear, say: function (line) { console.warn(line); } });
+    } finally {
+      unsettle();
+    }
   }
 
   // Moves 'el', laid out at 'rect', by 'move' (dx and dy, in screen pixels; none when it is not 'moved'), and reports

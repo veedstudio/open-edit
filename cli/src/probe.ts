@@ -224,9 +224,8 @@ export function streamDurationOf(video: string, selector: 'a:0' | 'v:0'): number
   if (!stream) throw new Error(`${video} has no ${kind} stream`);
   const fromStream = Number(stream.duration);
   if (Number.isFinite(fromStream) && fromStream > 0) return fromStream;
-  const format = probeJson(video, ['-show_entries', 'format=duration'], 'duration').format as { duration?: string } | undefined;
-  const fromFormat = Number(format?.duration);
-  if (Number.isFinite(fromFormat) && fromFormat > 0) return fromFormat;
+  const fromFormat = containerDurationOf(video);
+  if (fromFormat !== null) return fromFormat;
   throw new Error(`could not measure the ${kind} duration of ${video}`);
 }
 
@@ -244,6 +243,13 @@ export function ownVideoDurationOf(video: string): number | null {
   if (!hms) return null;
   const start = Number(stream.start_time);
   return Number(hms[1]) * 3600 + Number(hms[2]) * 60 + Number(hms[3]) - (Number.isFinite(start) && start > 0 ? start : 0);
+}
+
+/** The container's own length in seconds, which runs to the end of its last stream; null when it declares none. */
+export function containerDurationOf(video: string): number | null {
+  const format = probeJson(video, ['-show_entries', 'format=duration'], 'duration').format as { duration?: string } | undefined;
+  const whole = Number(format?.duration);
+  return Number.isFinite(whole) && whole > 0 ? whole : null;
 }
 
 /** Where one stream starts on the file's timeline, in seconds; 0 when ffprobe declares no start. */

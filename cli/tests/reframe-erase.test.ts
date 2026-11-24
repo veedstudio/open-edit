@@ -172,7 +172,7 @@ test('reframe --erase: says what the crop cuts and what erasing it costs, writes
 
     // With no fal key and fal's own CLI on PATH, which runs apps rather than a model's input, the openedit fal batch.
     const theirs = join(dir, 'their-fal');
-    const ours = join(dir, 'own-fal');
+    const ours = join(dir, 'fal-route');
     mkdirSync(theirs, { recursive: true });
     mkdirSync(ours, { recursive: true });
     writeFileSync(join(theirs, 'fal'), '#!/bin/sh\necho "usage: fal [-h] {run,deploy,auth} ..."\n', { mode: 0o755 });
@@ -209,9 +209,22 @@ test('reframe --erase: says what the crop cuts and what erasing it costs, writes
     const againYes = yesTo(half.out);
     assert.notEqual(againYes, firstYes);
 
-    const rerun = await withEnv(noKey(theirs), () => captureConsoleAsync(async () => reframe([video, '--aspect', '9:16', '--out', tall, '--erase', '--approve', againYes])));
+    // With no key at all the batch is printed and nothing is said of a key: none set is not one that cannot be read.
+    const bare = await withEnv(noKey(theirs), () => captureConsoleAsync(async () => reframe([video, '--aspect', '9:16', '--out', tall, '--erase', '--approve', againYes])));
+    assert.equal(bare.result, 0, bare.out);
+    assert.match(bare.out, /openedit fal run --batch /);
+    assert.doesNotMatch(bare.out, /cannot be read/);
+    const third = await withEnv(noKey(theirs), () => captureConsoleAsync(async () => reframe([video, '--aspect', '9:16', '--out', tall, '--erase'])));
+    assert.equal(third.result, 0, third.out);
+    const lastYes = yesTo(third.out);
+    assert.notEqual(lastYes, againYes);
+
+    // A fal key that is set and cannot be read is said beside the run it will stop: the approval is spent by the time the run fails.
+    const badKey = { ...noKey(theirs), OPEN_EDIT_FAL_KEY_FILE: join(dir, 'gone-key.md') };
+    const rerun = await withEnv(badKey, () => captureConsoleAsync(async () => reframe([video, '--aspect', '9:16', '--out', tall, '--erase', '--approve', lastYes])));
     assert.equal(rerun.result, 0, rerun.out);
-    const quoteId = againYes.split(':')[1];
+    assert.match(rerun.out, /the fal key set here cannot be read, so that run will fail until it is fixed: OPEN_EDIT_FAL_KEY_FILE points at .*gone-key\.md, which does not exist/);
+    const quoteId = lastYes.split(':')[1];
     assert.match(rerun.out, new RegExp(`openedit fal run --batch \\S*${folder}[\\\\/]jobs-${quoteId}\\.json'? --out \\S*${folder}'? --run `));
     const jobs = JSON.parse(readFileSync(join(erase, `jobs-${quoteId}.json`), 'utf8')) as { name: string; model: string; input: Record<string, unknown> }[];
     assert.deepEqual(jobs.map((j) => [j.name, j.model, j.input.video_url, j.input.prompt]),

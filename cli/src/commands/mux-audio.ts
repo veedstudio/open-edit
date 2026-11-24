@@ -9,6 +9,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { parseUsage, usageLine, type Usage } from '../args.ts';
 import { FFMPEG, FFPROBE } from '../config.ts';
 import { hasAudioStream, streamStartOf } from '../probe.ts';
+import { draftRefusal } from '../render/draft.ts';
 import { dropRecord, footageStart, putRecord, takeRecord } from '../render/text-record.ts';
 import { channelLevels, describeBalance, oneSided, toStereo } from '../channels.ts';
 import { TAIL_SECONDS, soundSpanIn, type SoundSpan } from '../verify/dead-tail.ts';
@@ -22,7 +23,7 @@ const fail = (msg: string, code: number): never => { throw new MuxError(msg, cod
 export const usage = {
   summary: 'Mux an audio track onto a silent render at delivery loudness',
   flags: {
-    video: { type: 'string', required: true, value: '<file>', help: 'The picture to mux onto' },
+    video: { type: 'string', required: true, value: '<file>', help: 'The picture to mux onto; one with a draft\'s name (.draft.mp4, .draft.mov) is refused' },
     audio: { type: 'string', value: '<file>', help: 'The track to lay on it: the source clip, or a built soundtrack' },
     music: { type: 'string', value: '<file>', help: 'A music file to lay on it instead, run to the last frame' },
     out: { type: 'string', required: true, value: '<file>', help: 'Where to write the result' },
@@ -62,6 +63,8 @@ function run(argv: string[]): void {
   if (!silent || !given || !outPath || (values.audio && music)) {
     throw new MuxError(`mux: pass --video, --out and one of --audio or --music\n${usageLine('mux-audio', usage)}`, 2);
   }
+  const draft = draftRefusal(silent, 'mux-audio');
+  if (draft) fail(`mux: ${draft}`, 2);
   if (!existsSync(silent)) fail(`mux: no video at ${silent}`, 1);
   if (!existsSync(given)) fail(`mux: no ${music ? 'music' : 'audio'} at ${given}`, 1);
 

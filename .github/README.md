@@ -8,6 +8,8 @@
 
 <p align="center"><b>Video editing for coding agents. Describe the edit; get the MP4.</b></p>
 
+<p align="center">Prefer a browser? OpenEdit runs at <a href="https://www.veed.io/ai?source=github&amp;subSource=open-edit">veed.ai</a>.</p>
+
 <p align="center">
   <a href="../LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-black" alt="Platform: macOS, Windows and Linux">
@@ -150,7 +152,7 @@ rendered badly.
 | Platform | macOS, Windows or Linux |
 | macOS | Built and tested on Tahoe 26.0. Nothing checks the version, so earlier releases may work, untested |
 | Windows | Windows 10 or newer (the installer extracts with the bundled `tar`). Node via winget: init prints the exact command and never runs it itself. ffmpeg is fetched into your user folder for you, no admin rights needed. Git is optional, used to version your project when present |
-| Linux | Supported. ffmpeg and Node install through your package manager, which needs root, so init prints the commands and never runs them. CI covers macOS and Windows, so Linux is the least exercised |
+| Linux | Supported. ffmpeg and Node install through your package manager, which needs root, so init prints the commands and never runs them. CI covers macOS only, so Linux and Windows are the least exercised |
 | Agents | Claude Code, Codex or Gemini CLI. The installed skill prepares the workspace itself |
 
 ## Scope and limitations

@@ -174,8 +174,7 @@ export class PlanError extends Error {}
 const ID_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 export const isVeedId = (s: unknown): s is string => typeof s === 'string' && new RegExp(ID_PATTERN, 'i').test(s);
 
-/** Text from a project or a plan, safe to print: control characters (escape sequences among them) become spaces. */
-export const printable = (s: unknown): string => String(s ?? '').replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
+export { printable } from '../printable.ts';
 
 /** What veed-project records about a project it made: what each file was made from, by asset id and by storage path. */
 export interface HandoffRecord {

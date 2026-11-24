@@ -1,6 +1,6 @@
 // The browser the HTML renderer drives: Chrome Headless Shell at one pinned version, downloaded from
-// the Chrome for Testing bucket into the CLI's app-data dir. Pinned to the build the driver library
-// was released against, so the protocol the two speak is the one both were tested on.
+// the Chrome for Testing bucket into the CLI's app-data dir. Pinned to the stable build one milestone
+// behind the one the driver library was released against.
 import { createHash, randomBytes } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -17,13 +17,13 @@ export type ChromePlatform = 'mac-arm64' | 'mac-x64' | 'linux64' | 'linux-arm64'
  * x-goog-hash headers), so a truncated or altered download is refused rather than installed.
  */
 export const CHROME = {
-  version: '153.0.8010.12',
+  version: '158.0.8127.36',
   builds: {
-    'mac-arm64': { bytes: 98_831_293, md5: 'dew3XY0eautubimRYnqH9w==' },
-    'mac-x64': { bytes: 104_060_463, md5: 'OdFYJBgA3G4tymkCfE/9iQ==' },
-    linux64: { bytes: 119_809_080, md5: 'mo62E1sc2lbej1R3dikeNQ==' },
-    'linux-arm64': { bytes: 120_278_638, md5: 'iryuNu+qLajWde8Piw6NGw==' },
-    win64: { bytes: 120_200_717, md5: 'OWsKyaVtRm/AmYhyyiqrgA==' },
+    'mac-arm64': { bytes: 105_057_133, md5: '2DIogA0Ml0ZJYGyvmRyJbw==' },
+    'mac-x64': { bytes: 112_306_247, md5: 'symF3oTz/PthdFjr1Y+FMg==' },
+    linux64: { bytes: 132_087_165, md5: 'I+KTzx+V+qWQSTfi0zLn0w==' },
+    'linux-arm64': { bytes: 129_938_239, md5: 'bc3ui1NTVjLReNyTsdTW9A==' },
+    win64: { bytes: 127_876_264, md5: 'QkIkcQvUAixFi/6M6V3dmg==' },
   } satisfies Record<ChromePlatform, { bytes: number; md5: string }>,
 } as const;
 

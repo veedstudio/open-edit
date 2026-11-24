@@ -5,7 +5,7 @@
 // Kept as plain JavaScript source, not a function to be stringified: a transpiler may wrap named
 // functions in helpers that do not exist inside the page.
 
-import { SPEAKER_FN } from './speaker.ts';
+import { SPEAKER_FN, STAGE_RULES } from './speaker.ts';
 import { READ_TEXT } from '../verify/text.ts';
 
 export interface RuntimeConfig {
@@ -20,9 +20,23 @@ export interface RuntimeConfig {
   speakerKey: string;
   /**
    * When the speaker layer's cut-out shows on the page's clock: from `at` seconds, its own first frame there, until
-   * `until`, or to the end when null. It is cut from the footage, so it keeps to the footage's place.
+   * `until`, or to the end when null. It is cut from the footage, so it keeps to the footage's place. `made` is a
+   * cut-out the CLI made for the page (speaker-cutout.ts), drawn whatever the stage names.
    */
-  cutout: { at: number; until: number | null };
+  cutout: { at: number; until: number | null; made?: MadeCutout };
+}
+
+/**
+ * A cut-out that holds only some stretches of the footage: its URL, the footage's frame rate, for each stretch the
+ * footage frames it covers (`from` up to `to`) and the frame of the file its first one is (`at`), and the page
+ * frames it is drawn in (`on`, each `from` up to `to`): those a graphic is behind the speaker in, and no other.
+ */
+export interface MadeCutout {
+  url: string;
+  num: number;
+  den: number;
+  stretches: { from: number; to: number; at: number }[];
+  on: { from: number; to: number }[];
 }
 
 /** What `__openedit.ready()` reports back once the page has loaded. */
@@ -42,14 +56,22 @@ export interface ReadyInfo {
   }[];
   /** The URLs of <video> elements that could not be played: a format Chrome has no decoder for, or a failed load. */
   unplayable: string[];
-  /** The speaker layer's cut-out, when the stage names one, and whether Chrome could play it. */
+  /** The speaker layer's cut-out, when the stage names one or the CLI made one, and whether Chrome could play it. */
   cutout: { url: string; playable: boolean } | null;
+  /**
+   * What the stage holds for a speaker to stand between, as the page has loaded: each video of its footage layer by
+   * the URLs it would play (a stood-down one by the one it had chosen), whether one of them loops, and how many
+   * graphics its behind layer marks data-behind. Null without both layers.
+   */
+  behind: { footage: string[][]; loops: boolean; graphics: number } | null;
   /** Media that could not be played, for the warning list. */
   problems: string[];
   /** The page carries a `data-stateless` mark: it draws each frame from the time alone, so a worker may jump to any frame. */
   stateless: boolean;
   /** Text the load raised to the size floor. */
   raised: RaisedText[];
+  /** Lines the load wrapped inside the box drawn behind them. */
+  boxed: BoxedLine[];
 }
 
 /** An element whose text was under the size floor when it was first seen, and has been drawn at the floor since. */
@@ -68,10 +90,21 @@ export interface RaisedText {
   past: boolean;
 }
 
-/** What a frame reports back: media that could not be played, and text first raised to the floor in it. */
+/** A line the page set not to wrap that ran past the box drawn behind it, as it was first wrapped inside that box. */
+export interface BoxedLine {
+  /** The line's element, as a path from the body, and its text: the same in every worker. */
+  key: string;
+  /** The frame it was first wrapped in; -1 for the page's load. */
+  frame: number;
+  /** The line's text when it was wrapped, as drawn. */
+  text: string;
+}
+
+/** What a frame reports back: media that could not be played, and the text it first raised to the floor or first wrapped. */
 export interface FrameReport {
   problems: string[];
   raised: RaisedText[];
+  boxed: BoxedLine[];
 }
 
 /** The stage's size as the page has laid it out, and whether the page links a safe-zone stylesheet of its own. */
@@ -165,6 +198,8 @@ const SOURCE = String.raw`
   // that exist before the first frame, creation for element.animate(), first sighting for the rest.
   const born = new WeakMap();
   let started = false;
+  // The frame being stepped, -1 until the first: what text settled on a script's asking is reported under.
+  let stepping = -1;
   const realAnimate = Element.prototype.animate;
   Element.prototype.animate = function animate(...args) {
     const a = realAnimate.apply(this, args);
@@ -282,9 +317,26 @@ const SOURCE = String.raw`
     if (v.loop) return t % d;
     return Math.min(t, Math.max(0, d - 0.001));
   }
-  // The cut-out runs on the footage's time, which starts CFG.cutout.at seconds into the page's.
-  const targetOf = (v, sec) => videoTarget(v, speaker && v === speaker.video ? Math.max(0, sec - CFG.cutout.at) : sec);
-  const cutoutShows = (sec) => sec >= CFG.cutout.at && (CFG.cutout.until === null || sec < CFG.cutout.until);
+  // Where a made cut-out holds the footage frame a page time shows, sought as any video's frame is, or null
+  // outside every stretch it holds.
+  const madeAt = (sec) => {
+    const m = CFG.cutout.made;
+    const n = Math.floor(((sec - CFG.cutout.at + 1e-4) * m.num) / m.den);
+    for (const s of m.stretches) if (n >= s.from && n < s.to) return ((s.at + n - s.from) * m.den) / m.num + 1e-4;
+    return null;
+  };
+  // The cut-out runs on the footage's time, which starts CFG.cutout.at seconds into the page's. A made one is hidden
+  // outside its stretches and left where it stands there, so no frame seeks it for a picture nobody sees.
+  const targetOf = (v, sec) => {
+    if (!speaker || v !== speaker.video) return videoTarget(v, sec);
+    if (!CFG.cutout.made) return videoTarget(v, Math.max(0, sec - CFG.cutout.at));
+    const at = madeAt(sec);
+    return at === null ? v.currentTime : at;
+  };
+  // A made cut-out is drawn only in the frames a graphic is behind the speaker: over bare footage it would change
+  // the speaker's own pixels a little, for nothing.
+  const cutoutShows = (i, sec) => sec >= CFG.cutout.at && (CFG.cutout.until === null || sec < CFG.cutout.until)
+    && (!CFG.cutout.made || (CFG.cutout.made.on.some((r) => i >= r.from && i < r.to) && madeAt(sec) !== null));
   // A video that cannot load or decode is reported, not fatal: the frame renders without it, the way a
   // missing image does, and the renderer lists it at the end.
   const problems = new Set();
@@ -308,6 +360,7 @@ const SOURCE = String.raw`
   // Videos the renderer lays under the frames itself: hidden, unloaded, and never seeked or reported.
   const stoodDown = new WeakSet();
   let lastVideos = [];
+  const sourcesOf = (v) => (v.currentSrc ? [v.currentSrc] : [v.src, ...[...v.querySelectorAll('source')].map((s) => s.src)].filter(Boolean));
   // The speaker layer, when the stage names a cut-out: handed over inside this closure, since its cut-out lies in a
   // closed shadow root that document queries do not reach.
   let speaker = null;
@@ -419,13 +472,23 @@ const SOURCE = String.raw`
   // Each raised element, with the inline size the page gave it and the one written over it.
   const raised = new Map();
   let lifted = [];
-  // While the floor writes a size, transitions take no time in the element and what inherits from it: under one on
-  // font-size (transition: all on a caption or its words) the write would ease in real time and the capture land
-  // partway. The rule's layer comes first in the document, so its !important outranks any the page's stylesheets carry.
-  const HOLD = 'data-openedit-floor';
+  // While a size or a wrap is written, transitions take no time in the element and what inherits from it: under one
+  // on font-size (transition: all on a caption or its words) the write would ease in real time and the capture land
+  // partway. The layer comes first in the document, so its !important rules outrank any the page's stylesheets carry.
+  const HOLD = 'data-openedit-hold';
+  // A line wrapped inside the box drawn behind it, between its words only, and that box at the width it had: one
+  // sized to its text would otherwise shrink to the room its place leaves it once its text may wrap.
+  const WRAP = 'data-openedit-wrap';
+  const BOX_WIDTH = '--openedit-box-width';
+  // A transform put aside while lines are measured: an identity, which keeps the containing block a transform makes.
+  // Its own transitions take no time until it is back, as under HOLD, and nothing inherits a transform.
+  const FLAT = 'data-openedit-flat';
   const holdStyle = document.createElement('style');
-  holdStyle.textContent = '@layer openedit-floor{' + ['', '::before', '::after'].map((p) => ':is([' + HOLD + '],[' + HOLD + '] *)' + p).join(',')
-    + '{transition-duration:0s!important;transition-delay:0s!important}}';
+  holdStyle.textContent = '@layer openedit-text{' + ['', '::before', '::after'].map((p) => ':is([' + HOLD + '],[' + HOLD + '] *)' + p).join(',')
+    + '{transition-duration:0s!important;transition-delay:0s!important}'
+    + '[' + WRAP + ']{text-wrap-mode:wrap!important;overflow-wrap:normal!important}[' + WRAP + '=box]{min-width:var(' + BOX_WIDTH + ')!important}'
+    + '[' + FLAT + ']{transition-duration:0s!important;transition-delay:0s!important}'
+    + '[' + FLAT + '=on]{transform:translate(0)!important;translate:0px!important;rotate:0deg!important;scale:1!important}}';
   const flushStyle = () => document.documentElement.getBoundingClientRect();
   // Elements whose text appears or whose class changes after the load: a caption set in __seek is raised in its frame.
   let mutations = [];
@@ -450,10 +513,8 @@ const SOURCE = String.raw`
     return out;
   }
   const lineRange = document.createRange();
-  // How an element's own text sits: on how many lines, and whether its glyphs run past the block holding them or
-  // the stage. Up and down, a font's glyphs stand up to about a quarter of an em past a line box of line-height 1, so
-  // only more than that counts.
-  function fit(el) {
+  // How many lines an element's own text sits on, and the box around its glyphs, which is null when none is drawn.
+  function glyphs(el) {
     const tops = [];
     let ink = null;
     for (const n of el.childNodes) {
@@ -465,12 +526,19 @@ const SOURCE = String.raw`
         ink = ink ? [Math.min(ink[0], q.left), Math.min(ink[1], q.top), Math.max(ink[2], q.right), Math.max(ink[3], q.bottom)] : [q.left, q.top, q.right, q.bottom];
       }
     }
+    return { lines: tops.length, ink };
+  }
+  // How an element's own text sits: on how many lines, and whether its glyphs run past the block holding them or
+  // the stage. Up and down, a font's glyphs stand up to about a quarter of an em past a line box of line-height 1, so
+  // only more than that counts.
+  function fit(el) {
+    const { lines, ink } = glyphs(el);
     let block = el;
     while (block.parentElement && getComputedStyle(block).display === 'inline') block = block.parentElement;
     const slack = parseFloat(getComputedStyle(el).fontSize) * 0.3;
     const past = (b) => !!b && !!ink && (ink[0] < b.left - 1 || ink[2] > b.right + 1 || ink[1] < b.top - slack || ink[3] > b.bottom + slack);
     const stage = stageBox();
-    return { lines: tops.length, past: past(block.getBoundingClientRect()) || past(stage && stage.el.getBoundingClientRect()) };
+    return { lines, past: past(block.getBoundingClientRect()) || past(stage && stage.el.getBoundingClientRect()) };
   }
   function cased(text, how) {
     if (how === 'uppercase') return text.toUpperCase();
@@ -478,6 +546,8 @@ const SOURCE = String.raw`
     if (how === 'capitalize') return text.replace(/(^|\s)(\S)/g, (_, a, b) => a + b.toUpperCase());
     return text;
   }
+  // Text as its element draws it, on one line: what a list names it by.
+  const shown = (text, el) => cased(text.replace(/\s+/g, ' ').trim(), getComputedStyle(el).textTransform);
   function pathOf(el) {
     if (el === document.body || !el.parentElement) return el.tagName.toLowerCase();
     if (el.id && document.getElementById(el.id) === el) return '#' + CSS.escape(el.id);
@@ -486,21 +556,37 @@ const SOURCE = String.raw`
     return pathOf(el.parentElement) + '>' + el.tagName.toLowerCase() + ':nth-child(' + k + ')';
   }
   const inOrder = (a, b) => (a === b ? 0 : a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
-  function keepFloor(seen, frameIndex) {
-    if (!floor || !(raised.size || seen.size)) return;
+  function held(write) {
     if (!holdStyle.isConnected) (document.head || document.documentElement).prepend(holdStyle);
     // The page's own changes start their transitions before anything is held, and the writes are styled while it is.
     flushStyle();
-    const held = [];
-    const hold = (el) => { if (!el.hasAttribute(HOLD)) { el.setAttribute(HOLD, ''); held.push(el); } };
+    const all = [];
+    const hold = (el, mark = HOLD) => { if (!el.hasAttribute(mark)) { el.setAttribute(mark, ''); all.push([el, mark]); } };
     try {
-      writeFloor(seen, frameIndex, hold);
+      write(hold);
       flushStyle();
     } finally {
-      for (const el of held) el.removeAttribute(HOLD);
+      for (const [el, mark] of all) el.removeAttribute(mark);
     }
   }
-  function writeFloor(seen, frameIndex, hold) {
+  function keepText(seen, frameIndex) {
+    held((hold) => {
+      // Off before anything is read, so how a raised text sat before is read in the page's own layout.
+      unwrap(hold);
+      const first = floor && (raised.size || seen.size) ? writeFloor(seen, hold) : [];
+      wrapLines(frameIndex, hold);
+      // Read once the lines are wrapped, so a raised line that wrapped inside its box is named as on more lines, not past it.
+      for (const { el, px, was } of first) {
+        const now = fit(el);
+        lifted.push({
+          key: pathOf(el), frame: frameIndex, text: shown(ownText(el), el),
+          from: Math.round(px * 10) / 10, wrapped: now.lines > was.lines, past: now.past && !was.past,
+        });
+      }
+    });
+  }
+  // What is first raised comes back with how it sat before, to be reported once the frame's lines are wrapped.
+  function writeFloor(seen, hold) {
     for (const [el, s] of raised) {
       if (!el.isConnected) { raised.delete(el); continue; }
       const value = el.style.getPropertyValue('font-size');
@@ -527,20 +613,140 @@ const SOURCE = String.raw`
       if (!s) {
         s = { value: el.style.getPropertyValue('font-size'), priority: el.style.getPropertyPriority('font-size'), wrote: '' };
         raised.set(el, s);
-        first.push(el);
+        first.push({ el, ...fresh.get(el) });
       }
       hold(el);
       el.style.setProperty('font-size', floor + 'px', 'important');
       s.wrote = el.style.getPropertyValue('font-size');
     }
-    for (const el of first) {
-      const { px, was } = fresh.get(el);
-      const now = fit(el);
-      lifted.push({
-        key: pathOf(el), frame: frameIndex, text: cased(ownText(el).replace(/\s+/g, ' ').trim(), getComputedStyle(el).textTransform),
-        from: Math.round(px * 10) / 10, wrapped: now.lines > was.lines, past: now.past && !was.past,
-      });
+    return first;
+  }
+
+  // Chrome gives a colour back in the syntax it was set in, so none at all reads as rgba(…, 0) or as "… / 0)".
+  const clear = (colour) => /^rgba\(.*, 0\)$|\/ 0\)$/.test(colour);
+  // What draws a box of its own: a background, unless it is clipped to the glyphs, or a border.
+  const drawn = (cs) => (!/text/.test(cs.backgroundClip) && (!clear(cs.backgroundColor) || cs.backgroundImage !== 'none'))
+    || ['Top', 'Right', 'Bottom', 'Left'].some((side) => parseFloat(cs['border' + side + 'Width']) > 0 && !clear(cs['border' + side + 'Color']));
+  // The box drawn behind an element's text: the nearest of the element and its ancestors inside the stage, inline
+  // ones aside, with a background or a border. None when it or what lies between clips, since text cut at an edge
+  // does not stand past it, or when what lies between is out of the flow, since a box is sized only to what flows in it.
+  function boxBehind(el, stage) {
+    for (let n = el; n && n !== stage && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (cs.display === 'inline' || cs.display === 'contents') continue;
+      if (cs.overflowX !== 'visible') return null;
+      if (drawn(cs)) return n;
+      if (cs.position === 'absolute' || cs.position === 'fixed') return null;
     }
+    return null;
+  }
+  // The element a wrapped line is named by: the words of one line can each be an element of their own.
+  function lineOf(el, box) {
+    let line = el;
+    while (line !== box && getComputedStyle(line).display.startsWith('inline')) line = line.parentElement;
+    return line;
+  }
+  const turned = (cs) => (cs.transform !== 'none' && cs.transform !== 'matrix(1, 0, 0, 1, 0, 0)') || cs.translate !== 'none' || cs.rotate !== 'none' || cs.scale !== 'none';
+  // A transform part way through a transition stays as it is: any other value written under it would end the transition.
+  const easing = (el) => el.getAnimations().some((a) => a instanceof CSSTransition && /^(transform|translate|rotate|scale)$/.test(a.transitionProperty));
+  // How far past a side a line fitted to its box can stand: a script that fits by the whole pixels layout reports,
+  // as captions.js does with a pixel of slack, can be under two and a half out.
+  const FITTED = 3;
+  const wrapping = new Set();
+  const everBoxed = new Set();
+  const boxed = [];
+  function unwrap(hold) {
+    for (const el of wrapping) { hold(el); el.removeAttribute(WRAP); el.style.removeProperty(BOX_WIDTH); }
+    wrapping.clear();
+  }
+  // Lines are read as the page lays them out, with nothing wrapped and the transforms on the way to them put aside:
+  // a line wraps the same all through an entrance that slides or scales it, and one that has come to fit runs on again.
+  function wrapLines(frameIndex, hold) {
+    if (!document.body) return;
+    const stage = stageBox();
+    const stageSides = () => (stage ? stage.el.getBoundingClientRect() : { left: 0, right: window.innerWidth });
+    const sits = (f) => {
+      const b = f.box.getBoundingClientRect();
+      const ink = glyphs(f.el).ink;
+      return { b, ink, at: ink && [ink[0] - b.left, ink[1] - b.top, ink[2] - b.left, ink[3] - b.top] };
+    };
+    const texts = new Set();
+    textIn(document.body, texts);
+    const lines = [];
+    for (const el of texts) {
+      if (!(el instanceof HTMLElement) || NOT_TEXT.has(el.tagName) || getComputedStyle(el).textWrapMode !== 'nowrap') continue;
+      const box = boxBehind(el, stage && stage.el);
+      if (box) lines.push({ el, box });
+    }
+    const flat = [];
+    const looked = new Set();
+    for (const f of lines) {
+      for (let n = f.el; n && !looked.has(n); n = n.parentElement) {
+        looked.add(n);
+        if (turned(getComputedStyle(n)) && !easing(n)) flat.push(n);
+      }
+    }
+    const edge = stageSides();
+    const drawnAs = flat.length ? new Map(lines.map((f) => [f, sits(f)])) : null;
+    for (const n of flat) { hold(n, FLAT); n.setAttribute(FLAT, 'on'); }
+    const home = stageSides();
+    const found = [];
+    for (const f of lines) {
+      const laid = sits(f);
+      if (!laid.ink) continue;
+      const { b, ink } = laid;
+      const painted = drawnAs ? drawnAs.get(f) : laid;
+      // A side at the stage's edge is left alone: nothing shows past it, and a ticker's track runs off there on
+      // purpose. It is one the box is both drawn at and laid out at, so not one an entrance carries the box across.
+      const right = ink[2] > b.right + FITTED && !(painted.b.right >= edge.right - 1 && b.right >= home.right - 1);
+      const left = ink[0] < b.left - FITTED && !(painted.b.left <= edge.left + 1 && b.left <= home.left + 1);
+      if (!right && !left) continue;
+      // A line drawn inside its box, at the size the box is drawn, is one a transform of the page's own fits there.
+      const scale = painted.b.width / b.width;
+      if (painted.ink && scale > 0 && painted.ink[2] <= painted.b.right + FITTED * scale && painted.ink[0] >= painted.b.left - FITTED * scale) continue;
+      const chain = [];
+      for (let n = f.el; n !== f.box; n = n.parentElement) if (getComputedStyle(n).textWrapMode === 'nowrap') chain.push(n);
+      // Rounded up to the layout's own unit, so the held box is never a hair narrower than the line it held.
+      found.push({ ...f, chain, at: laid.at, over: [b.top - ink[1], ink[3] - b.bottom], width: Math.ceil(parseFloat(getComputedStyle(f.box).width) * 64) / 64 });
+    }
+    // A word set a letter to an element, to move them one by one, can break between any two once its line may wrap:
+    // the letters that touch on one line are kept, to tell a box that parts them.
+    const boxes = new Set(found.map((f) => f.box));
+    const letter = (n) => n instanceof HTMLElement && /^\S$/u.test(n.textContent);
+    const level = (el) => Math.abs(el.offsetTop - el.previousSibling.offsetTop) < el.offsetHeight / 2;
+    const joined = lines.filter((f) => boxes.has(f.box) && letter(f.el) && letter(f.el.previousSibling) && level(f.el));
+    for (const f of found) {
+      for (const n of f.chain) { hold(n); wrapping.add(n); if (!n.hasAttribute(WRAP)) n.setAttribute(WRAP, ''); }
+      hold(f.box);
+      wrapping.add(f.box);
+      f.box.setAttribute(WRAP, 'box');
+      f.box.style.setProperty(BOX_WIDTH, f.width + 'px');
+    }
+    // A box that does not hold its lines once they may wrap goes back as the page set it: one a word is wider than,
+    // one whose row cannot wrap, or one of a fixed height, as a bar that fills under its label is.
+    const spilt = new Set();
+    for (const f of found) {
+      f.now = sits(f);
+      if (!f.now.ink) continue;
+      const { b, ink } = f.now;
+      if (ink[0] < b.left - FITTED || ink[2] > b.right + FITTED || b.top - ink[1] > f.over[0] + 1 || ink[3] - b.bottom > f.over[1] + 1) spilt.add(f.box);
+    }
+    for (const f of joined) if (!level(f.el)) spilt.add(f.box);
+    for (const f of found) {
+      if (!spilt.has(f.box)) continue;
+      for (const n of [...f.chain, f.box]) { n.removeAttribute(WRAP); n.style.removeProperty(BOX_WIDTH); wrapping.delete(n); }
+    }
+    // Named once, and only where wrapping moved its glyphs in the box: a neighbour's wrap moves both.
+    for (const f of found) {
+      if (spilt.has(f.box) || !f.now.ink) continue;
+      const line = lineOf(f.el, f.box);
+      const text = shown(line.textContent, line);
+      const key = pathOf(line) + ' ' + text;
+      if (everBoxed.has(key) || f.at.every((v, k) => Math.abs(v - f.now.at[k]) < 0.5)) continue;
+      everBoxed.add(key);
+      boxed.push({ key, frame: frameIndex, text });
+    }
+    for (const n of flat) n.setAttribute(FLAT, '');
   }
 
   // Videos the page set a time on in this frame's __seek. A time of 0 is as much a placement as any other (a
@@ -552,6 +758,10 @@ const SOURCE = String.raw`
   // While __seek runs, a placed video it has not set reads as the time it will be sought to, as one the renderer sought
   // first does, so a page that compares before it seeks decides alike whatever frames its worker ran before.
   const unsought = new Map();
+  // The first time the page itself put a footage layer's video more than a frame and a half from the page's clock.
+  let footageOff = null;
+  // The stage its layers' rules were last read on, so one the page swaps in is told from the one it had.
+  let ruledStage = null;
   const mediaTime = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
   Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
     ...mediaTime,
@@ -562,6 +772,9 @@ const SOURCE = String.raw`
       unsought.delete(this);
       mediaTime.set.call(this, v);
       pageTimed.add(this);
+      if (started && !footageOff && this.closest('[data-layer="footage"]') && Math.abs(v - now / 1000) > (1.5 * CFG.den) / CFG.num) {
+        footageOff = { at: now / 1000, time: v };
+      }
     },
   });
 
@@ -571,6 +784,10 @@ const SOURCE = String.raw`
     // The first frame a worker runs need not be 0 (a stateless page is jumped into), so whatever
     // animates before it is dated from the page's load, not from this frame.
     if (!started) { for (const a of document.getAnimations()) born.set(a, 0); started = true; }
+    // The page's scripts read the page's own layout, not the lines the last frame wrapped, so what they measure does
+    // not depend on which frames this worker ran before.
+    if (wrapping.size) held(unwrap);
+    stepping = i;
     runTimers(t);
     now = t;
     tuneGsap();
@@ -580,7 +797,7 @@ const SOURCE = String.raw`
     if (g) g.globalTimeline.seek(sec, false);
     // The speaker's box, if a script of the page dropped it, goes back before its picture is sought.
     let speakerBack = speaker ? speaker.sync() : false;
-    if (speaker && speaker.show(cutoutShows(sec))) speakerBack = true;
+    if (speaker && speaker.show(cutoutShows(i, sec))) speakerBack = true;
     // A video plays from frame 0 by default; a page that places one elsewhere sets its time in __seek, which runs
     // after this and wins.
     let videos = liveVideos();
@@ -653,7 +870,11 @@ const SOURCE = String.raw`
     unsourced.clear();
     // Animations that __seek or that turn started are pinned to this frame too, not left running.
     seekAnimations(t, true);
-    keepFloor(changed(), i);
+    // The frame's fonts and pictures are in before its lines are measured: one that arrived after would be wrapped
+    // around only a frame on.
+    await settleImages(budget);
+    await settleFonts(budget);
+    keepText(changed(), i);
     // The speaker layer takes the footage layer's placing as it now stands, whatever the page did this frame. A box
     // that went back, or a cut-out back in view, has no picture until one is presented again: Chrome skips a seek to
     // the time already shown, so the cut-out is sought a hair later, to the same picture, and waited for like any other.
@@ -673,7 +894,7 @@ const SOURCE = String.raw`
       const s = drawnScale(v);
       if (s !== null && s > 1 + 2 / Math.min(v.videoWidth, v.videoHeight)) throw new Error('video ' + videoName(v) + ' ' + ${JSON.stringify(DRAWN_LARGER)});
     }
-    return { problems: drainProblems(), raised: lifted.splice(0) };
+    return { problems: drainProblems(), raised: lifted.splice(0), boxed: boxed.splice(0) };
   }
 
   window.__openedit = {
@@ -684,7 +905,7 @@ const SOURCE = String.raw`
     // the one chosen when a choice has been made, else every candidate.
     videoSources() {
       lastVideos = [...document.querySelectorAll('video')];
-      return lastVideos.map((v) => (v.currentSrc ? [v.currentSrc] : [v.src, ...[...v.querySelectorAll('source')].map((s) => s.src)].filter(Boolean)));
+      return lastVideos.map(sourcesOf);
     },
     // Unloads and hides the videos flagged among the last videoSources(): the element stays, so the page's
     // layout does, but Chrome holds no decoder for it and no frame seeks it.
@@ -698,8 +919,25 @@ const SOURCE = String.raw`
         v.style.setProperty('visibility', 'hidden', 'important');
       });
     },
+    // Where the page set its footage's time away from its own clock, if it has: a cut-out runs on the page's clock.
+    footageOff() { return footageOff; },
+    // The first rule of its layers the stage breaks now, in words, or null: what the speaker layer refuses once a
+    // cut-out is laid, read here before one is made.
+    stageRules() {
+      const now = document.querySelector('#stage') || document.querySelector('[data-stage]');
+      const was = ruledStage || now;
+      const broken = (${STAGE_RULES})(was, now, was ? was.getAttribute('data-cutout') : null);
+      if (!broken) ruledStage = now;
+      return broken;
+    },
     // The size text is drawn at as a minimum, 0 when none is held, so a script that lays text out to fit measures it there.
     textFloor() { return floor; },
+    // The page's text as a frame draws it, for a script that places text to measure. What it gives back takes the
+    // wrap off again, so the scripts after it still read the page's own layout.
+    settleText() {
+      keepText(changed(), stepping);
+      return () => { if (wrapping.size) held(unwrap); };
+    },
     stageZone() {
       const s = stageBox();
       return s && { width: s.width, height: s.height, linked: zoneLinked(), given: document.querySelector('style[' + GIVEN + ']') !== null };
@@ -736,12 +974,13 @@ const SOURCE = String.raw`
       }
       await settleImages(left());
       floor = floorPx || 0;
-      if (floor) {
-        const all = new Set();
-        if (document.body) textIn(document.body, all);
-        keepFloor(all, -1);
-        watcher.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class'] });
-      }
+      // What a script had settled as the page loaded was read before its fonts were in, so the list starts again.
+      boxed.length = 0;
+      everBoxed.clear();
+      const all = new Set();
+      if (floor && document.body) textIn(document.body, all);
+      keepText(all, -1);
+      if (floor) watcher.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class'] });
       const videos = liveVideos();
       for (const v of videos) { if (v.preload !== 'auto') v.preload = 'auto'; if (v.readyState === 0 && v.networkState !== 3) v.load(); }
       const share = left();
@@ -761,23 +1000,31 @@ const SOURCE = String.raw`
       const owned = speakerVideo()[0];
       const cutout = owned ? { url: owned.currentSrc || owned.src, playable: playable(owned) && owned.videoWidth > 0 } : null;
       const unplayable = videos.filter((v) => !playable(v)).map((v) => v.currentSrc || v.src).filter(Boolean);
+      const stageEl = document.querySelector('#stage') || document.querySelector('[data-stage]');
+      const layer = (name) => stageEl && stageEl.querySelector(':scope > [data-layer="' + name + '"]');
+      const behind = layer('footage') && layer('behind') ? {
+        footage: [...layer('footage').querySelectorAll('video')].map(sourcesOf),
+        loops: [...layer('footage').querySelectorAll('video')].some((v) => v.loop),
+        graphics: layer('behind').querySelectorAll('[data-behind]').length,
+      } : null;
       return {
-        stage, videos: playing(videos.filter(playable)), unplayable, cutout, problems: drainProblems(), stateless: document.querySelector('[data-stateless]') !== null,
-        raised: lifted.splice(0),
+        stage, videos: playing(videos.filter(playable)), unplayable, cutout, behind, problems: drainProblems(), stateless: document.querySelector('[data-stateless]') !== null,
+        raised: lifted.splice(0), boxed: boxed.splice(0),
       };
     },
     frame,
     async preroll(from, to, budget) {
-      const seen = { problems: [], raised: [] };
+      const seen = { problems: [], raised: [], boxed: [] };
       for (let i = from; i < to; i++) {
         const r = await frame(i, budget);
         seen.problems.push(...r.problems);
         seen.raised.push(...r.raised);
+        seen.boxed.push(...r.boxed);
       }
       return seen;
     },
   };
-  (${SPEAKER_FN})((parts) => { speaker = parts; }, CFG.speakerKey);
+  (${SPEAKER_FN})((parts) => { speaker = parts; }, CFG.speakerKey, CFG.cutout.made ? CFG.cutout.made.url : null);
 })();
 `;
 
